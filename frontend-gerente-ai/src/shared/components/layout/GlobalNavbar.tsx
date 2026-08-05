@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import {
   LayoutDashboard,
   Bot,
@@ -10,6 +10,7 @@ import {
   Server,
   User,
   CreditCard,
+  ShieldCheck,
   LogOut,
   ChevronDown
 } from "lucide-react";
@@ -17,9 +18,15 @@ import { ThemeToggle } from "./ThemeToggle";
 
 export function GlobalNavbar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const isAdmin = location.pathname.startsWith("/admin");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+
+  const handleLogout = () => {
+    setIsDropdownOpen(false);
+    navigate("/login");
+  };
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -42,7 +49,7 @@ export function GlobalNavbar() {
     { id: "/admin/ops", Icon: Server, label: "Sistema (Ops)" },
   ];
 
-  const nav = isAdmin ? adminNav : clientNav;
+  const nav: Array<{ id: string; Icon: any; label: string; badge?: number }> = isAdmin ? adminNav : clientNav;
 
   return (
     <header className="bg-card dark:bg-muted/10 border-b border-border shrink-0 relative z-10">
@@ -52,7 +59,7 @@ export function GlobalNavbar() {
         <div className="flex items-center gap-6">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400">Gerente AI</span>
+            <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400">Luka AI</span>
           </div>
 
           <div className="w-px h-6 bg-border" />
@@ -127,11 +134,14 @@ export function GlobalNavbar() {
                 <Link to="/settings" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
                   <Settings className="w-4 h-4" /> Configuración
                 </Link>
-                <Link to="/subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors">
-                  <CreditCard className="w-4 h-4" /> Suscripción
+                <Link to="/subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                  <CreditCard className="w-4 h-4" /> Planes de Suscripción
+                </Link>
+                <Link to="/manage-subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors">
+                  <ShieldCheck className="w-4 h-4" /> Administrar Suscripción
                 </Link>
                 <div className="h-px bg-border my-2" />
-                <button onClick={() => setIsDropdownOpen(false)} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer">
+                <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer">
                   <LogOut className="w-4 h-4" /> Cerrar Sesión
                 </button>
               </div>

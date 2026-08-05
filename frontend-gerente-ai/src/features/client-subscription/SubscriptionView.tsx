@@ -1,4 +1,4 @@
-import { CreditCard, Sparkles, History, Zap, ShieldCheck, Check, Building2, MessageSquare, Phone } from "lucide-react";
+import { Check, Building2, MessageSquare, Phone } from "lucide-react";
 
 export function SubscriptionView() {
   const plans = [
@@ -70,7 +70,7 @@ export function SubscriptionView() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-3xl font-black text-foreground tracking-tight">Planes y Suscripción</h1>
-          <p className="text-muted-foreground mt-1">Gestiona tu plan y escala el poder de Gerente AI</p>
+          <p className="text-muted-foreground mt-1">Gestiona tu plan y escala el poder de Luka AI</p>
         </div>
       </div>
 
@@ -135,98 +135,6 @@ export function SubscriptionView() {
             </button>
           </div>
         ))}
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6">
-        {/* Usage Limits - Medium Card */}
-        <div className="md:col-span-4 bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center">
-                <Zap className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-              </div>
-              <h3 className="font-bold text-foreground">Consumo de IA</h3>
-            </div>
-            <span className="text-xs font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-md">Plan Gerente</span>
-          </div>
-          
-          <div className="flex-1 flex flex-col justify-center">
-            <div className="flex justify-between items-end mb-2">
-              <span className="text-3xl font-black tracking-tighter">120</span>
-              <span className="text-sm font-semibold text-muted-foreground mb-1">/ 500 msgs</span>
-            </div>
-            
-            <div className="w-full h-3 bg-muted rounded-full overflow-hidden">
-              <div className="w-[24%] h-full bg-gradient-to-r from-emerald-400 to-emerald-600 rounded-full" />
-            </div>
-            
-            <p className="text-xs text-muted-foreground font-medium mt-3 text-center">
-              Tu consumo se reinicia en 12 días
-            </p>
-          </div>
-        </div>
-
-        {/* Payment Method */}
-        <div className="md:col-span-4 bg-card border border-border rounded-3xl p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                <CreditCard className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <h3 className="font-bold text-foreground">Método de Pago</h3>
-            </div>
-            <button className="text-sm font-bold text-emerald-600 hover:text-emerald-700 transition-colors cursor-pointer">
-              Editar
-            </button>
-          </div>
-
-          <div className="flex items-center gap-4 p-4 rounded-2xl border border-border bg-muted/20 mt-auto">
-            <div className="w-12 h-8 bg-black rounded flex items-center justify-center">
-              <span className="text-white font-black italic text-xs">VISA</span>
-            </div>
-            <div>
-              <p className="font-bold text-foreground text-sm">Visa terminada en 4242</p>
-              <p className="text-xs text-muted-foreground">Expira en 12/26</p>
-            </div>
-            <div className="ml-auto">
-              <ShieldCheck className="w-5 h-5 text-emerald-500" />
-            </div>
-          </div>
-        </div>
-
-        {/* Billing History */}
-        <div className="md:col-span-4 bg-card border border-border rounded-3xl p-6 shadow-sm flex flex-col">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
-                <History className="w-4 h-4 text-muted-foreground" />
-              </div>
-              <h3 className="font-bold text-foreground">Facturas</h3>
-            </div>
-            <button className="text-sm font-bold text-emerald-600 hover:text-emerald-700 transition-colors cursor-pointer">
-              Ver todo
-            </button>
-          </div>
-
-          <div className="space-y-3 flex-1 overflow-y-auto">
-            {[
-              { date: "15 Ago 2025", amount: "79.900", status: "Pagado" },
-              { date: "15 Jul 2025", amount: "79.900", status: "Pagado" },
-            ].map((invoice, i) => (
-              <div key={i} className="flex items-center justify-between p-3 rounded-xl hover:bg-muted/50 transition-colors cursor-pointer border border-transparent hover:border-border">
-                <div className="flex items-center gap-3">
-                  <div className="w-2 h-2 rounded-full bg-emerald-500" />
-                  <span className="font-semibold text-sm text-foreground">{invoice.date}</span>
-                </div>
-                <div className="flex items-center gap-3">
-                  <span className="text-sm font-bold">${invoice.amount}</span>
-                  <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">PDF</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-
       </div>
     </div>
   );

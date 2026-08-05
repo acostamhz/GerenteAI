@@ -4,7 +4,7 @@ import { motion } from 'motion/react';
 
 const faqs = [
   {
-    question: '¿Necesito saber de contabilidad para usar Gerente AI?',
+    question: '¿Necesito saber de contabilidad para usar Luka AI?',
     answer: 'No, en absoluto. Nuestra Inteligencia Artificial está diseñada para que cualquier persona pueda gestionar su negocio como un experto sin conocimientos previos.'
   },
   {

@@ -30,7 +30,7 @@ export function HeroSection() {
           transition={{ duration: 0.7, delay: 0.2, ease: [0.16, 1, 0.3, 1] }}
           className="text-xl md:text-2xl text-slate-400 mb-12 max-w-3xl mx-auto font-light"
         >
-          Conoce a tu Gerente de IA. Gestiona tus finanzas, registra gastos desde WhatsApp y visualiza el crecimiento de tu negocio en tiempo real.
+          Conoce a Luka AI. Gestiona tus finanzas, registra gastos desde WhatsApp y visualiza el crecimiento de tu negocio en tiempo real.
         </motion.p>
         
         <motion.div 

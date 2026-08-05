@@ -3,7 +3,6 @@ import { HeroSection } from './components/HeroSection';
 import { MediaSection } from './components/MediaSection';
 import { BenefitsSection } from './components/BenefitsSection';
 import { TestimonialsSection } from './components/TestimonialsSection';
-import { InvestorSection } from './components/InvestorSection';
 import { FaqSection } from './components/FaqSection';
 import { FooterSection } from './components/FooterSection';
 
@@ -28,7 +27,6 @@ export function LandingPageView() {
         <BenefitsSection />
         <TestimonialsSection />
         <FaqSection />
-        <InvestorSection />
         <FooterSection />
       </div>
     </div>

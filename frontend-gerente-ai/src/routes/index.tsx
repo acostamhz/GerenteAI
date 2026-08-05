@@ -8,12 +8,14 @@ const DashboardPage = lazy(() => import("@/features/client-dashboard").then(m =>
 const InsightsPage = lazy(() => import("@/features/client-insights").then(m => ({ default: m.InsightsView })));
 const CashflowPage = lazy(() => import("@/features/client-cashflow").then(m => ({ default: m.CashflowView })));
 const SubscriptionPage = lazy(() => import("@/features/client-subscription").then(m => ({ default: m.SubscriptionView })));
+const ManageSubscriptionPage = lazy(() => import("@/features/client-manage-subscription").then(m => ({ default: m.ManageSubscriptionView })));
 const ProfilePage = lazy(() => import("@/features/shared-profile").then(m => ({ default: m.ProfileView })));
 const AdminDashboardLayout = lazy(() => import("@/features/admin-dashboard").then(m => ({ default: m.AdminDashboardLayout })));
 const AdminCrmView = lazy(() => import("@/features/admin-crm").then(m => ({ default: m.AdminCrmView })));
 const AdminOpsView = lazy(() => import("@/features/admin-ops").then(m => ({ default: m.AdminOpsView })));
 const LandingPage = lazy(() => import("@/features/landing-page").then(m => ({ default: m.LandingPageView })));
 const LoginPage = lazy(() => import("@/features/auth").then(m => ({ default: m.LoginPage })));
+const CoworkingLandingPage = lazy(() => import("@/features/landing-coworking").then(m => ({ default: m.CoworkingLandingView })));
 
 export function AppRoutes() {
   return (
@@ -25,6 +27,13 @@ export function AppRoutes() {
           <LandingPage />
         </Suspense>
       } />
+      
+      {/* Test Landing Page Routes */}
+      <Route path="/landing-a" element={
+        <Suspense fallback={<PageSkeleton />}>
+          <CoworkingLandingPage />
+        </Suspense>
+      } />
 
       {/* Protected/App Routes */}
       <Route path="/" element={<AppLayout />}>
@@ -32,6 +41,7 @@ export function AppRoutes() {
         <Route path="insights" element={<InsightsPage />} />
         <Route path="cashflow" element={<CashflowPage />} />
         <Route path="subscription" element={<SubscriptionPage />} />
+        <Route path="manage-subscription" element={<ManageSubscriptionPage />} />
         <Route path="profile" element={<ProfilePage />} />
         
         {/* Admin Routes */}

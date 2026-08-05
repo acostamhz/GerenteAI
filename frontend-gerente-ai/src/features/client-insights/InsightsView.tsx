@@ -104,7 +104,7 @@ export function InsightsView() {
             <Bot className="w-12 h-12 mx-auto mb-4 text-muted" strokeWidth={1} />
             <p className="text-sm font-bold text-foreground">Sin insights pendientes</p>
             <p className="text-xs mt-1 text-muted-foreground">
-              Gerente AI está monitoreando tu negocio 24/7
+              Luka AI está monitoreando tu negocio 24/7
             </p>
           </div>
         )}

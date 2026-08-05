@@ -17,7 +17,7 @@ export function BusinessListCard({ isAdmin }: { isAdmin: boolean }) {
               <Bot className="w-8 h-8 text-white" />
             </div>
             <div>
-              <h3 className="text-2xl font-black tracking-tight text-foreground">Gerente AI</h3>
+              <h3 className="text-2xl font-black tracking-tight text-foreground">Luka AI</h3>
               <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Sede Principal</p>
             </div>
           </div>

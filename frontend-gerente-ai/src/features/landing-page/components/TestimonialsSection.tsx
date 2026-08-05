@@ -21,7 +21,7 @@ const itemVariants = {
 export function TestimonialsSection() {
   const testimonials = [
     {
-      quote: "Desde que uso Gerente AI, dejé de perder horas en Excel. Ahora solo le envío un mensaje y sé exactamente cuánto he ganado en el mes.",
+      quote: "Desde que uso Luka AI, dejé de perder horas en Excel. Ahora solo le envío un mensaje y sé exactamente cuánto he ganado en el mes.",
       author: "Carlos Gómez",
       role: "Dueño de Ferretería",
     },

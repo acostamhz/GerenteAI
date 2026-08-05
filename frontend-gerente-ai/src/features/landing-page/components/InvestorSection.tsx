@@ -22,7 +22,7 @@ export function InvestorSection() {
               Estamos transformando la manera en que millones de micronegocios gestionan sus finanzas en LATAM. Únete a nuestra ronda de inversión y sé parte del crecimiento.
             </p>
             
-            <a href="mailto:inversores@gerente.ai" className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white text-slate-950 font-bold text-lg hover:bg-slate-200 transition-colors shadow-xl">
+            <a href="mailto:inversores@luka.ai" className="inline-flex items-center justify-center gap-2 px-8 py-4 rounded-xl bg-white text-slate-950 font-bold text-lg hover:bg-slate-200 transition-colors shadow-xl">
               Contáctanos
               <ArrowRight className="w-5 h-5" />
             </a>

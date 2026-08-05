@@ -18,7 +18,7 @@ export function LoginPage() {
             <div className="bg-primary text-primary-foreground p-2 rounded-xl shadow-sm">
               <Activity className="w-6 h-6" />
             </div>
-            <span className="font-black text-2xl tracking-tight text-foreground">Gerente AI</span>
+            <span className="font-black text-2xl tracking-tight text-foreground">Luka AI</span>
           </div>
         </div>
 
@@ -29,7 +29,7 @@ export function LoginPage() {
         
         {/* Footer info */}
         <div className="mt-auto p-8 sm:p-12 text-center lg:text-left text-sm font-medium text-muted-foreground">
-          &copy; {new Date().getFullYear()} Gerente AI. Todos los derechos reservados.
+          &copy; {new Date().getFullYear()} Luka AI. Todos los derechos reservados.
         </div>
       </div>
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router';
-import { Bot, Menu, X, ArrowRight, LayoutDashboard } from 'lucide-react';
+import { Bot, Menu, X, ArrowRight, LayoutDashboard, LogIn } from 'lucide-react';
 
 // Easing curve: easeInOutQuart for a premium, silky smooth acceleration/deceleration
 function easeInOutQuart(t: number): number {
@@ -44,7 +44,6 @@ export function LandingNavbar() {
     { name: 'Beneficios', href: '#beneficios' },
     { name: 'Testimonios', href: '#testimonios' },
     { name: 'Preguntas Frecuentes', href: '#faq' },
-    { name: 'Inversores', href: '#inversores' },
   ];
 
   const handleSmoothScroll = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
@@ -83,7 +82,7 @@ export function LandingNavbar() {
             <Bot className="w-5 h-5 transition-transform duration-300 group-hover:scale-110" />
           </div>
           <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 via-emerald-200 to-white font-heading font-black text-2xl tracking-tight">
-            Gerente AI
+            Luka AI
           </span>
         </Link>
 
@@ -119,8 +118,9 @@ export function LandingNavbar() {
           {/* Iniciar Sesion */}
           <Link
             to="/login"
-            className="text-sm font-semibold text-slate-300 hover:text-white px-4 py-2.5 rounded-xl hover:bg-white/5 transition-all duration-300 hover:scale-105 active:scale-95"
+            className="flex items-center gap-2 text-sm font-semibold text-slate-200 hover:text-white px-4 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800/90 border border-white/10 hover:border-emerald-500/40 transition-all duration-300 hover:scale-105 active:scale-95 shadow-sm"
           >
+            <LogIn className="w-4 h-4 text-emerald-400" />
             Iniciar Sesión
           </Link>
 
@@ -166,6 +166,14 @@ export function LandingNavbar() {
             >
               <LayoutDashboard className="w-4 h-4 text-emerald-400" />
               Ir al Dashboard
+            </Link>
+            <Link
+              to="/login"
+              onClick={() => setMobileMenuOpen(false)}
+              className="flex items-center justify-center gap-2 w-full py-3 rounded-xl bg-slate-900 text-slate-200 font-semibold border border-white/10 hover:border-emerald-500/40 transition-all active:scale-98"
+            >
+              <LogIn className="w-4 h-4 text-emerald-400" />
+              Iniciar Sesión
             </Link>
             <Link
               to="/login"

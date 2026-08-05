@@ -14,7 +14,7 @@ export function GlobalFooter() {
           <div className="md:col-span-1 space-y-6">
             <div className="flex items-center gap-2">
               <span className="text-2xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-400 to-emerald-200">
-                Gerente AI
+                Luka AI
               </span>
             </div>
             <p className="text-sm leading-relaxed text-zinc-400 max-w-xs">
@@ -97,7 +97,7 @@ export function GlobalFooter() {
         {/* Bottom Bar */}
         <div className="pt-8 border-t border-zinc-800/50 flex flex-col md:flex-row items-center justify-between gap-4">
           <p className="text-xs text-zinc-500">
-            © {new Date().getFullYear()} Gerente AI. Todos los derechos reservados.
+            © {new Date().getFullYear()} Luka AI. Todos los derechos reservados.
           </p>
           <div className="flex items-center gap-6">
             <span className="text-xs text-zinc-500 font-medium flex items-center gap-2">
