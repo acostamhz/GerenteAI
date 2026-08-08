@@ -15,7 +15,6 @@ const AdminCrmView = lazy(() => import("@/features/admin-crm").then(m => ({ defa
 const AdminOpsView = lazy(() => import("@/features/admin-ops").then(m => ({ default: m.AdminOpsView })));
 const LandingPage = lazy(() => import("@/features/landing-page").then(m => ({ default: m.LandingPageView })));
 const LoginPage = lazy(() => import("@/features/auth").then(m => ({ default: m.LoginPage })));
-const CoworkingLandingPage = lazy(() => import("@/features/landing-coworking").then(m => ({ default: m.CoworkingLandingView })));
 
 export function AppRoutes() {
   return (
@@ -25,13 +24,6 @@ export function AppRoutes() {
       <Route path="/home" element={
         <Suspense fallback={<PageSkeleton />}>
           <LandingPage />
-        </Suspense>
-      } />
-      
-      {/* Test Landing Page Routes */}
-      <Route path="/landing-a" element={
-        <Suspense fallback={<PageSkeleton />}>
-          <CoworkingLandingPage />
         </Suspense>
       } />
 
