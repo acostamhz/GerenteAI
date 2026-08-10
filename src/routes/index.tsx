@@ -15,12 +15,18 @@ const AdminCrmView = lazy(() => import("@/features/admin-crm").then(m => ({ defa
 const AdminOpsView = lazy(() => import("@/features/admin-ops").then(m => ({ default: m.AdminOpsView })));
 const LandingPage = lazy(() => import("@/features/landing-page").then(m => ({ default: m.LandingPageView })));
 const LoginPage = lazy(() => import("@/features/auth").then(m => ({ default: m.LoginPage })));
+const RegisterPage = lazy(() => import("@/features/auth").then(m => ({ default: m.RegisterPage })));
 
 export function AppRoutes() {
   return (
     <Routes>
       {/* Public Routes */}
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/register" element={
+        <Suspense fallback={<PageSkeleton />}>
+          <RegisterPage />
+        </Suspense>
+      } />
       <Route path="/home" element={
         <Suspense fallback={<PageSkeleton />}>
           <LandingPage />

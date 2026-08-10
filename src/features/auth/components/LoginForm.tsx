@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, Link } from "react-router";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
 import { Button } from "@/app/components/ui/button";
 
@@ -110,6 +110,13 @@ export function LoginForm() {
           )}
         </Button>
       </form>
+
+      <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
+        ¿No tienes una cuenta?{" "}
+        <Link to="/register" className="font-bold text-primary hover:text-primary/80 transition-colors">
+          Regístrate gratis
+        </Link>
+      </div>
     </div>
   );
 }
