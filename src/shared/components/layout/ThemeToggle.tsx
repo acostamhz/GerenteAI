@@ -1,4 +1,4 @@
-import { Moon, Sun, Laptop } from "lucide-react"
+import { Moon, Sun, Laptop, Clock } from "lucide-react"
 import { useTheme } from "next-themes"
 import { Button } from "@/app/components/ui/button"
 import {
@@ -32,6 +32,10 @@ export function ThemeToggle() {
         <DropdownMenuItem onClick={() => setTheme("system")}>
           <Laptop className="mr-2 h-4 w-4" />
           <span>Sistema</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => setTheme("schedule")}>
+          <Clock className="mr-2 h-4 w-4" />
+          <span>Horario</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
