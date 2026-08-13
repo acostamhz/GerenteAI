@@ -12,11 +12,14 @@ import { CoworkingPricingSection } from "./components/CoworkingPricingSection";
 import { CoworkingFaqSection } from "./components/CoworkingFaqSection";
 import { CoworkingFooterSection } from "./components/CoworkingFooterSection";
 
+import { LukaChatProvider, LukaFloatingChat } from "@/features/assistant";
+
 export function LandingPageView() {
   return (
-    <div
-      className="min-h-screen bg-slate-50 dark:bg-[#090D16] text-slate-900 dark:text-slate-50 transition-colors duration-500 font-sans relative overflow-hidden selection:bg-emerald-500/30"
-    >
+    <LukaChatProvider>
+      <div
+        className="min-h-screen bg-slate-50 dark:bg-[#090D16] text-slate-900 dark:text-slate-50 transition-colors duration-500 font-sans relative overflow-hidden selection:bg-emerald-500/30"
+      >
       {/* Modern Gradient Background & Ambient Lighting */}
       <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
         <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-[radial-gradient(ellipse_at_center,rgba(16,185,129,0.18),transparent_70%)] dark:bg-[radial-gradient(ellipse_at_center,rgba(16,185,129,0.22),transparent_70%)] blur-3xl" />
@@ -92,6 +95,10 @@ export function LandingPageView() {
 
         <CoworkingFooterSection />
       </div>
+
+      {/* Global Floating Chat Widget */}
+      <LukaFloatingChat />
     </div>
+    </LukaChatProvider>
   );
 }
