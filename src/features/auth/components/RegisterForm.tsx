@@ -57,7 +57,7 @@ export function RegisterForm() {
     e.preventDefault();
     const cleanPhone = formData.phone.replace(/\D/g, "");
     if (cleanPhone.length < 10) {
-      setError("El número de WhatsApp debe tener al menos 10 dígitos.");
+      setError("El número de celular debe tener al menos 10 dígitos.");
       return;
     }
     if (formData.password !== formData.confirmPassword) {
@@ -126,10 +126,10 @@ export function RegisterForm() {
           </div>
         </div>
 
-        {/* Nombre del Negocio y WhatsApp */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {/* Nombre del Negocio y Celular */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Nombre negocio</label>
+            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Nombre del Negocio</label>
             <div className="relative">
               <Building2 className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
@@ -145,7 +145,7 @@ export function RegisterForm() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">WhatsApp</label>
+            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Celular</label>
             <div className="relative">
               <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
