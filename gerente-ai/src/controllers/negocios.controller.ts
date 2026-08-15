@@ -1,23 +1,20 @@
-import {
-  Body,
-  Controller,
-  Delete,
-  Get,
-  Param,
-  Patch,
-  Post,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { NegociosService } from '../services/negocios.service';
 import { CreateNegocioDto } from '../dto/negocios/create-negocio.dto';
 import { UpdateNegocioDto } from '../dto/negocios/update-negocio.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+
+type AuthUser = { userId: string; rolGlobal: string };
 
 @Controller('negocios')
 export class NegociosController {
   constructor(private readonly negociosService: NegociosService) {}
 
   @Post()
-  create(@Body() createNegocioDto: CreateNegocioDto) {
-    return this.negociosService.create(createNegocioDto);
+  @UseGuards(JwtAuthGuard)
+  create(@CurrentUser() user: AuthUser, @Body() dto: CreateNegocioDto) {
+    return this.negociosService.create(user.userId, dto);
   }
 
   @Get()
@@ -31,12 +28,14 @@ export class NegociosController {
   }
 
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateNegocioDto: UpdateNegocioDto) {
-    return this.negociosService.update(id, updateNegocioDto);
+  @UseGuards(JwtAuthGuard)
+  update(@Param('id') id: string, @CurrentUser() user: AuthUser, @Body() dto: UpdateNegocioDto) {
+    return this.negociosService.update(id, user.userId, user.rolGlobal, dto);
   }
 
   @Delete(':id')
-  remove(@Param('id') id: string) {
-    return this.negociosService.remove(id);
+  @UseGuards(JwtAuthGuard)
+  remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.negociosService.remove(id, user.userId, user.rolGlobal);
   }
 }

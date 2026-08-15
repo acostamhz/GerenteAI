@@ -5,8 +5,6 @@ export class CreateNegocioDto {
   @IsNotEmpty()
   nombre!: string;
 
-  // Número de WhatsApp principal, identifica al negocio en el sistema
-  // TODO: confirmar con el equipo de WhatsApp el formato exacto que envía la Cloud API
   @IsString()
   @IsNotEmpty()
   @Matches(/^\+?[1-9]\d{6,14}$/, {
@@ -17,7 +15,11 @@ export class CreateNegocioDto {
   @IsString()
   @IsOptional()
   @Matches(/^\+?[1-9]\d{6,14}$/, {
-    message: 'telefonoSecundario debe ser un número válido',
+    message: 'telefonoSecundario debe ser un número válido en formato internacional',
   })
   telefonoSecundario?: string;
+
+  @IsString()
+  @IsOptional()
+  contexto?: string;
 }
