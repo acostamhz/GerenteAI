@@ -3,29 +3,17 @@ version: '3.9'
 services:
   api:
     build: .
-    container_name: business-ai-api
+    container_name: gerente-ai-api
     ports:
       - "3000:3000"
     volumes:
       - .:/app
       - /app/node_modules
-    depends_on:
-      - postgres
+    
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/business_ai
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1d}
 
-  postgres:
-    image: postgres:16-alpine
-    container_name: business-ai-db
-    restart: always
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: business_ai
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+  
 
-volumes:
-  postgres_data:
