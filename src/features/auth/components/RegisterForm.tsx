@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
-import { Eye, EyeOff, Loader2, Building2, User, Mail, Phone, Lock } from "lucide-react";
+import { Eye, EyeOff, Loader2, Building2, User, Mail, Phone, Lock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/app/components/ui/button";
+import { useAuth } from "../hooks/useAuth";
 
 export function RegisterForm() {
   const navigate = useNavigate();
+  const { register, login, isLoading, error: authError, clearError } = useAuth();
+
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -17,14 +21,23 @@ export function RegisterForm() {
 
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+
+  // Limpiar errores residuales al montar o desmontar la vista
+  useEffect(() => {
+    clearError();
+    setLocalError(null);
+    return () => {
+      clearError();
+    };
+  }, [clearError]);
 
   const calculatePasswordStrength = (pass: string) => {
     if (!pass) return { score: 0, label: "", color: "bg-border" };
     let score = 0;
     if (pass.length >= 8) score += 1;
-    if (/[A-Z]/.test(pass)) score += 1;
+    if (/[a-z]/.test(pass) && /[A-Z]/.test(pass)) score += 1;
     if (/[0-9]/.test(pass)) score += 1;
     if (/[^A-Za-z0-9]/.test(pass)) score += 1;
 
@@ -50,33 +63,87 @@ export function RegisterForm() {
       ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
-    if (error) setError(null);
+    if (localError || authError) {
+      setLocalError(null);
+      clearError();
+    }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("👉 [RegisterForm] Enviando registro con:", { email: formData.email, fullName: formData.fullName });
+    setLocalError(null);
+    clearError();
+
     const cleanPhone = formData.phone.replace(/\D/g, "");
     if (cleanPhone.length < 10) {
-      setError("El número de celular debe tener al menos 10 dígitos.");
+      setLocalError("El número de celular debe tener al menos 10 dígitos.");
       return;
     }
     if (formData.password !== formData.confirmPassword) {
-      setError("Las contraseñas no coinciden.");
+      setLocalError("Las contraseñas no coinciden.");
+      return;
+    }
+    if (formData.password.length < 8) {
+      setLocalError("La contraseña debe tener al menos 8 caracteres.");
+      return;
+    }
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/.test(formData.password)) {
+      setLocalError("La contraseña debe incluir al menos una mayúscula, una minúscula, un número y un carácter especial.");
       return;
     }
     if (!formData.termsAccepted) {
-      setError("Debes aceptar los términos y condiciones para continuar.");
+      setLocalError("Debes aceptar los términos y condiciones para continuar.");
       return;
     }
 
-    setIsLoading(true);
+    try {
+      // 1. Registro en el Backend NestJS
+      await register({
+        nombre: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        telefono: formData.phone,
+      });
 
-    // Simulación de registro
-    setTimeout(() => {
-      setIsLoading(false);
-      navigate("/");
-    }, 1200);
+      // 2. Iniciar sesión automáticamente tras el registro
+      try {
+        await login({
+          email: formData.email,
+          password: formData.password,
+        });
+        navigate('/', { replace: true });
+      } catch {
+        setSuccess(true);
+      }
+    } catch (err) {
+      // Error manejado por AuthContext
+    }
   };
+
+  const displayError = localError || authError;
+
+  if (success) {
+    return (
+      <div className="w-full max-w-md mx-auto px-8 sm:px-0 py-10 text-center space-y-6 animate-in fade-in duration-500">
+        <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
+          <CheckCircle2 className="w-8 h-8" />
+        </div>
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold text-foreground">¡Cuenta creada con éxito!</h2>
+          <p className="text-muted-foreground text-sm">
+            Hemos enviado un correo de confirmación a <span className="font-semibold text-foreground">{formData.email}</span>.
+          </p>
+        </div>
+        <Button
+          onClick={() => navigate('/login')}
+          className="w-full py-5 text-base font-bold rounded-xl"
+        >
+          Iniciar sesión ahora
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="w-full max-w-md mx-auto px-8 sm:px-0 py-6">
@@ -85,11 +152,22 @@ export function RegisterForm() {
         <p className="text-muted-foreground font-medium text-sm">Empieza a gestionar tu negocio con Inteligencia Artificial hoy.</p>
       </div>
 
-      {error && (
-        <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium flex items-center gap-2">
-          <span>{error}</span>
-        </div>
-      )}
+      {/* Alerta de Error con Animación Suave */}
+      <AnimatePresence mode="wait">
+        {displayError && (
+          <motion.div
+            key="register-error-alert"
+            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -10, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium flex items-center gap-3 shadow-sm"
+          >
+            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+            <span>{displayError}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Nombre Completo */}
@@ -104,7 +182,7 @@ export function RegisterForm() {
               required
               value={formData.fullName}
               onChange={handleChange}
-              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm"
+              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
             />
           </div>
         </div>
@@ -121,7 +199,7 @@ export function RegisterForm() {
               required
               value={formData.email}
               onChange={handleChange}
-              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm"
+              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
             />
           </div>
         </div>
@@ -139,7 +217,7 @@ export function RegisterForm() {
                 required
                 value={formData.businessName}
                 onChange={handleChange}
-                className="w-full pl-10 pr-3 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm"
+                className="w-full pl-10 pr-3 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
               />
             </div>
           </div>
@@ -156,7 +234,7 @@ export function RegisterForm() {
                 minLength={10}
                 value={formData.phone}
                 onChange={handleChange}
-                className="w-full pl-10 pr-3 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm"
+                className="w-full pl-10 pr-3 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
               />
             </div>
           </div>
@@ -170,7 +248,7 @@ export function RegisterForm() {
             <input
               type={showPassword ? "text" : "password"}
               name="password"
-              placeholder="Mínimo 8 caracteres"
+              placeholder="Mínimo 8 caracteres (A-Z, a-z, 0-9, !@#)"
               required
               minLength={8}
               value={formData.password}
@@ -266,7 +344,11 @@ export function RegisterForm() {
       {/* Redirect Login */}
       <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
         ¿Ya tienes una cuenta?{" "}
-        <Link to="/login" className="font-bold text-primary hover:text-primary/80 transition-colors">
+        <Link 
+          to="/login" 
+          onClick={() => clearError()}
+          className="font-bold text-primary hover:text-primary/80 transition-colors"
+        >
           Inicia sesión aquí
         </Link>
       </div>

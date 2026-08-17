@@ -2,6 +2,7 @@ import { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageSkeleton } from "@/shared/components/ui/PageSkeleton";
+import { ProtectedRoute } from "./ProtectedRoute";
 
 // Lazy loaded feature modules (Public API imports)
 const DashboardPage = lazy(() => import("@/features/client-dashboard").then(m => ({ default: m.DashboardView })));
@@ -16,6 +17,9 @@ const AdminOpsView = lazy(() => import("@/features/admin-ops").then(m => ({ defa
 const LandingPage = lazy(() => import("@/features/landing-page").then(m => ({ default: m.LandingPageView })));
 const LoginPage = lazy(() => import("@/features/auth").then(m => ({ default: m.LoginPage })));
 const RegisterPage = lazy(() => import("@/features/auth").then(m => ({ default: m.RegisterPage })));
+const VerificarEmailPage = lazy(() => import("@/features/auth").then(m => ({ default: m.VerificarEmailPage })));
+const ForgotPasswordPage = lazy(() => import("@/features/auth").then(m => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage = lazy(() => import("@/features/auth").then(m => ({ default: m.ResetPasswordPage })));
 
 export function AppRoutes() {
   return (
@@ -27,26 +31,47 @@ export function AppRoutes() {
           <RegisterPage />
         </Suspense>
       } />
+      <Route path="/verificar-email" element={
+        <Suspense fallback={<PageSkeleton />}>
+          <VerificarEmailPage />
+        </Suspense>
+      } />
+      <Route path="/forgot-password" element={
+        <Suspense fallback={<PageSkeleton />}>
+          <ForgotPasswordPage />
+        </Suspense>
+      } />
+      <Route path="/recuperar-password" element={<Navigate to="/forgot-password" replace />} />
+      
+      <Route path="/restablecer-password" element={
+        <Suspense fallback={<PageSkeleton />}>
+          <ResetPasswordPage />
+        </Suspense>
+      } />
+      <Route path="/reset-password" element={<Navigate to="/restablecer-password" replace />} />
+
       <Route path="/home" element={
         <Suspense fallback={<PageSkeleton />}>
           <LandingPage />
         </Suspense>
       } />
 
-      {/* Protected/App Routes */}
-      <Route path="/" element={<AppLayout />}>
-        <Route index element={<DashboardPage />} />
-        <Route path="insights" element={<InsightsPage />} />
-        <Route path="cashflow" element={<CashflowPage />} />
-        <Route path="subscription" element={<SubscriptionPage />} />
-        <Route path="manage-subscription" element={<ManageSubscriptionPage />} />
-        <Route path="profile" element={<ProfilePage />} />
-        
-        {/* Admin Routes */}
-        <Route path="admin" element={<AdminDashboardLayout />}>
-          <Route index element={<Navigate to="crm" replace />} />
-          <Route path="crm" element={<AdminCrmView />} />
-          <Route path="ops" element={<AdminOpsView />} />
+      {/* Protected Routes */}
+      <Route element={<ProtectedRoute />}>
+        <Route path="/" element={<AppLayout />}>
+          <Route index element={<DashboardPage />} />
+          <Route path="insights" element={<InsightsPage />} />
+          <Route path="cashflow" element={<CashflowPage />} />
+          <Route path="subscription" element={<SubscriptionPage />} />
+          <Route path="manage-subscription" element={<ManageSubscriptionPage />} />
+          <Route path="profile" element={<ProfilePage />} />
+          
+          {/* Admin Routes */}
+          <Route path="admin" element={<AdminDashboardLayout />}>
+            <Route index element={<Navigate to="crm" replace />} />
+            <Route path="crm" element={<AdminCrmView />} />
+            <Route path="ops" element={<AdminOpsView />} />
+          </Route>
         </Route>
       </Route>
     </Routes>
