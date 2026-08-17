@@ -1,0 +1,243 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  EMPLEADO
+  CONTADOR
+}
+
+enum RolGlobal {
+  MASTER
+  CLIENTE
+}
+
+enum TipoVenta {
+  CONTADO
+  FIADO
+}
+
+enum CategoriaGasto {
+  ARRIENDO
+  SERVICIOS
+  NOMINA
+  TRANSPORTE
+  OTROS
+}
+
+enum RolMensaje {
+  USER
+  ASSISTANT
+  SYSTEM
+}
+
+model Usuario {
+  id              String    @id @default(uuid())
+  nombre          String
+  telefono        String?
+  email           String    @unique // Login para el dashboard
+  password        String    // Contraseña encriptada para el dashboard
+  emailVerificado Boolean   @default(false)
+  rolGlobal       RolGlobal @default(CLIENTE)
+  plan            Int       @default(1) // 1=Gratis (1 sede), 2=Básico (4 sedes), etc.
+  createdAt       DateTime  @default(now())
+
+  negocios UsuarioNegocio[] // Para dueños/socios del negocio
+  sedes    UsuarioSede[]    // Para administradores/empleados de sede
+}
+
+model Negocio {
+  id                 String   @id @default(uuid())
+  nombre             String
+  telefono           String   @unique // Teléfono principal de WhatsApp
+  telefonoSecundario String?
+  contexto           String?  @db.Text // Contexto general de IA para el negocio
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  usuariosNegocio UsuarioNegocio[]
+  sedes           Sede[]
+  reportes        Reporte[]
+}
+
+model Sede {
+  id        String   @id @default(uuid())
+  nombre    String
+  direccion String?
+  contexto  String?  @db.Text // Contexto de IA individual para la sede
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  // Relaciones operacionales independientes por sede
+  usuariosSede UsuarioSede[]
+  mensajes     Mensaje[]
+  productos    Producto[]
+  clientes     Cliente[]
+  proveedores  Proveedor[]
+  ventas       Venta[]
+  compras      Compra[]
+  gastos       Gasto[]
+  reportes     Reporte[]
+}
+
+model UsuarioNegocio {
+  id        String @id @default(uuid())
+  role      Role   @default(ADMIN)
+
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  
+  @@unique([usuarioId, negocioId])
+}
+
+model UsuarioSede {
+  id        String @id @default(uuid())
+  role      Role   @default(ADMIN)
+
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
+
+  sedeId    String
+  sede      Sede    @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  
+  @@unique([usuarioId, sedeId])
+}
+
+model Mensaje {
+  id        String     @id @default(uuid())
+  rol       RolMensaje
+  contenido String     @db.Text
+  fecha     DateTime   @default(now())
+
+  sedeId    String
+  sede      Sede       @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+}
+
+model Reporte {
+  id        String   @id @default(uuid())
+  tipo      String
+  contenido Json
+  fecha     DateTime @default(now())
+
+  negocioId String
+  negocio   Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  sedeId    String?
+  sede      Sede?    @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+}
+
+model Producto {
+  id           String   @id @default(uuid())
+  nombre       String
+  stock        Int      @default(0)
+  stockMinimo  Int      @default(0)
+  precioCompra Decimal
+  precioVenta  Decimal
+
+  sedeId       String
+  sede         Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  detallesVenta  DetalleVenta[]
+  detallesCompra DetalleCompra[]
+}
+
+model Cliente {
+  id             String   @id @default(uuid())
+  nombre         String
+  telefono       String?
+  saldoPendiente Decimal  @default(0.0) // Para las ventas "FIADAS"
+
+  sedeId         String
+  sede           Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  ventas         Venta[]
+}
+
+model Proveedor {
+  id        String  @id @default(uuid())
+  nombre    String
+  telefono  String?
+  correo    String?
+  direccion String?
+
+  sedeId    String
+  sede      Sede    @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  compras   Compra[]
+}
+
+model Venta {
+  id        String    @id @default(uuid())
+  tipo      TipoVenta @default(CONTADO)
+  total     Decimal
+  fecha     DateTime  @default(now())
+
+  clienteId String?
+  cliente   Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+
+  sedeId    String
+  sede      Sede      @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  detalles  DetalleVenta[]
+}
+
+model DetalleVenta {
+  id         String @id @default(uuid())
+  cantidad   Int
+  precio     Decimal // Precio al que se vendió en ese momento
+
+  ventaId    String
+  venta      Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+}
+
+model Compra {
+  id          String     @id @default(uuid())
+  total       Decimal
+  fecha       DateTime   @default(now())
+
+  proveedorId String?
+  proveedor   Proveedor? @relation(fields: [proveedorId], references: [id], onDelete: SetNull)
+
+  sedeId      String
+  sede        Sede       @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  detalles    DetalleCompra[]
+}
+
+model DetalleCompra {
+  id         String @id @default(uuid())
+  cantidad   Int
+  costo      Decimal // Costo al que se compró en ese momento
+
+  compraId   String
+  compra     Compra   @relation(fields: [compraId], references: [id], onDelete: Cascade)
+
+  productoId String
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+}
+
+model Gasto {
+  id          String         @id @default(uuid())
+  descripcion String
+  monto       Decimal
+  categoria   CategoriaGasto
+  fecha       DateTime       @default(now())
+
+  sedeId      String
+  sede        Sede           @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+}
