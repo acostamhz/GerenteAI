@@ -1,0 +1,105 @@
+import { Body, Controller, Get, Param, Post, UseFilters } from '@nestjs/common';
+
+import { LlmExceptionFilter } from '../../ai/filters/llm-exception.filter';
+import { LlmService } from '../../ai/services/llm.service';
+import { AiUsageService } from '../../ai/usage/usage.service';
+import {
+  AskAssistantDto,
+  WhatsAppMessageDto,
+  GenerateInsightsDto,
+} from './dto/finance-ai.dto';
+import { AssistantService } from './services/assistant.service';
+import { InsightsService } from './services/insights.service';
+import { WhatsAppMessageService } from './services/whatsapp-message.service';
+
+/**
+ * API de IA que consume el frontend (y, mas adelante, el webhook de WhatsApp).
+ *
+ * Ninguna ruta menciona un proveedor: el contrato HTTP es estable aunque
+ * debajo se cambie Groq por Anthropic.
+ *
+ * Pendiente de autenticacion: hoy `tenantId` llega en el cuerpo. Cuando exista
+ * JWT debe salir del token y dejar de ser un dato que el cliente elige.
+ */
+@Controller('ai')
+@UseFilters(LlmExceptionFilter)
+export class FinanceAiController {
+  constructor(
+    private readonly whatsapp: WhatsAppMessageService,
+    private readonly insights: InsightsService,
+    private readonly assistant: AssistantService,
+    private readonly llm: LlmService,
+    private readonly usage: AiUsageService,
+  ) {}
+
+  /**
+   * Punto de entrada del chatbot: recibe un mensaje de WhatsApp y devuelve la
+   * intencion interpretada, el movimiento creado (si aplica) y el texto de
+   * respuesta listo para enviar al usuario.
+   */
+  @Post('whatsapp/message')
+  async handleWhatsAppMessage(@Body() dto: WhatsAppMessageDto) {
+    const result = await this.whatsapp.handleMessage({
+      tenantId: dto.tenantId ?? 'demo-tenant',
+      businessId: dto.businessId,
+      message: dto.message,
+      businessName: dto.businessName,
+      currency: dto.currency,
+      plan: dto.plan,
+      persist: dto.persist ?? false,
+    });
+
+    return { success: true, data: result };
+  }
+
+  /** Genera las recomendaciones del panel a partir de los datos del negocio. */
+  @Post('insights')
+  async generateInsights(@Body() dto: GenerateInsightsDto) {
+    const result = await this.insights.generate({
+      tenantId: dto.tenantId ?? 'demo-tenant',
+      businessId: dto.businessId,
+      plan: dto.plan,
+      limit: dto.limit,
+    });
+
+    return { success: true, data: result };
+  }
+
+  /** Pregunta libre sobre las finanzas del negocio. */
+  @Post('assistant/ask')
+  async ask(@Body() dto: AskAssistantDto) {
+    const result = await this.assistant.ask({
+      tenantId: dto.tenantId ?? 'demo-tenant',
+      businessId: dto.businessId,
+      question: dto.question,
+      history: dto.history,
+      plan: dto.plan,
+    });
+
+    return { success: true, data: result };
+  }
+
+  /** Que proveedor esta activo y con que capacidades. Util para el panel de admin. */
+  @Get('status')
+  status() {
+    return { success: true, data: this.llm.describe() };
+  }
+
+  /** Prueba real contra el proveedor configurado (gasta unos pocos tokens). */
+  @Get('health')
+  async health() {
+    const checks = await this.llm.health();
+    return { success: checks.every((check) => check.ok), data: checks };
+  }
+
+  /** Consumo y cuota del mes en curso. */
+  @Get('usage/:tenantId')
+  async usageByTenant(@Param('tenantId') tenantId: string) {
+    const [quota, summary] = await Promise.all([
+      this.usage.getQuotaStatus(tenantId),
+      this.usage.summarizeCurrentMonth(tenantId),
+    ]);
+
+    return { success: true, data: { quota, summary } };
+  }
+}

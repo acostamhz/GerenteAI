@@ -1,6 +1,10 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule } from '@nestjs/config';
+
+import { AiModule } from './ai/ai.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { FinanceAiModule } from './modules/finance-ai/finance-ai.module';
 import { PrismaModule } from './modules/prisma.module';
 import { NegociosModule } from './modules/negocios.module';
 import { SedesModule } from './modules/sedes.module';
@@ -12,6 +16,14 @@ import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
+    // Carga .env antes de que AiModule resuelva el proveedor.
+    ConfigModule.forRoot({ isGlobal: true }),
+
+    // Inteligencia Artificial
+    AiModule,
+    FinanceAiModule,
+
+    // Backend / negocio
     PrismaModule,
     NegociosModule,
     SedesModule,
