@@ -5,6 +5,7 @@ import { AiModule } from './ai/ai.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { FinanceAiModule } from './modules/finance-ai/finance-ai.module';
+import { WhatsappModule } from './modules/whatsapp/whatsapp.module';
 import { PrismaModule } from './modules/prisma.module';
 import { NegociosModule } from './modules/negocios.module';
 import { SedesModule } from './modules/sedes.module';
@@ -22,6 +23,9 @@ import { AuthModule } from './auth/auth.module';
     // Inteligencia Artificial
     AiModule,
     FinanceAiModule,
+
+    // Canal de WhatsApp: lo consume n8n (ver docs/INTEGRACIONES.md)
+    WhatsappModule,
 
     // Backend / negocio
     PrismaModule,
