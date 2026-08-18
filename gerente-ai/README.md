@@ -1,3 +1,35 @@
+# Luka AI — Backend
+
+API de NestJS para Luka AI: gestión financiera para pymes con registro de gastos
+por WhatsApp, recomendaciones automáticas y asistente conversacional.
+
+## Arranque rápido
+
+```bash
+npm install
+cp .env.example .env     # arranca con el proveedor simulado, sin llaves
+npm run start:dev
+```
+
+- `GET /ai/status` — qué IA está activa.
+- `npm run ai:smoke` — prueba de humo de los tres casos de uso.
+
+## Integración de IA
+
+Los dos archivos clave:
+
+- **System prompt del chatbot** → [`src/modules/finance-ai/prompts/whatsapp-assistant.prompt.ts`](./src/modules/finance-ai/prompts/whatsapp-assistant.prompt.ts)
+- **Qué IA se usa** → variable `AI_PROVIDER` en el `.env`
+
+La capa de IA es **agnóstica del proveedor**: cambiar de una IA a otra es
+cambiar `AI_PROVIDER`. Están soportados Groq, Gemini, Ollama y OpenRouter
+(gratuitos o locales) y Anthropic, OpenAI y DeepSeek (de pago).
+
+📖 **[Guía completa: `docs/IA.md`](./docs/IA.md)** — arquitectura, cómo migrar de
+proveedor, cómo añadir uno nuevo, cuotas y costos.
+
+---
+
 <p align="center">
   <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
 </p>

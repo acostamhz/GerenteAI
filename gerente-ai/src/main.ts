@@ -1,5 +1,5 @@
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
@@ -7,12 +7,27 @@ async function bootstrap() {
 
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true,           // elimina del body cualquier campo que no esté en el DTO
+      whitelist: true, // elimina del body cualquier campo que no esté en el DTO
       forbidNonWhitelisted: true, // rechaza el request si viene un campo extra no esperado
-      transform: true,            // convierte automáticamente tipos (ej. strings de query params a number)
+      transform: true, // convierte automáticamente tipos (ej. strings de query params a number)
     }),
   );
 
-  await app.listen(process.env.PORT ?? 3000);
+  app.enableCors({
+    origin:
+      process.env.CORS_ORIGINS?.split(',').map((value) => value.trim()) ?? [
+        'http://localhost:5173',
+        'http://localhost:3000',
+      ],
+  });
+
+  const port = process.env.PORT ?? 3000;
+
+  await app.listen(port);
+
+  new Logger('Bootstrap').log(
+    `Luka AI API escuchando en http://localhost:${port}`,
+  );
 }
-bootstrap();
+
+void bootstrap();
