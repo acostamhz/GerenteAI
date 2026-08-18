@@ -34,19 +34,23 @@ export class WhatsappRoutingService {
    * desconocidos) y se responde con un mensaje de alta.
    *
    * Orden de busqueda:
-   *   1. `Negocio.telefono` / `Negocio.telefonoSecundario`  (el numero del duenno)
-   *   2. `Usuario.telefono`                                  (empleado o socio)
-   * y en ambos casos, si no hay coincidencia exacta, se reintenta por los
-   * ultimos 10 digitos (Meta normaliza prefijos: 52 vs 521, 57 vs +57...).
+   *   1. `Sede.telefono`     la linea de WhatsApp del bot, una por sede
+   *   2. `Usuario.telefono`  el numero personal de un socio o empleado
+   *
+   * En ambos casos, si no hay coincidencia exacta se reintenta por los ultimos
+   * 10 digitos (Meta normaliza prefijos: 52 vs 521, 57 vs +57...).
+   *
+   * `Negocio.telefonoContacto` NO se consulta a proposito: el esquema lo marca
+   * como telefono administrativo, no como linea del bot.
    */
   async resolve(rawPhone: string): Promise<WhatsappContext | null> {
     const phone = normalizePhone(rawPhone);
     const tail = phone.slice(-10);
 
-    const byNegocio =
-      (await this.findByNegocio({ exact: phone })) ??
-      (await this.findByNegocio({ tail }));
-    if (byNegocio) return byNegocio;
+    const bySede =
+      (await this.findBySede({ exact: phone })) ??
+      (await this.findBySede({ tail }));
+    if (bySede) return bySede;
 
     const byUsuario =
       (await this.findByUsuario({ exact: phone })) ??
@@ -59,48 +63,43 @@ export class WhatsappRoutingService {
 
   // --------------------------------------------------------------- busquedas
 
-  private async findByNegocio(
+  /**
+   * La sede es la unidad con linea de WhatsApp propia (`Sede.telefono`, unico
+   * en la base) y es tambien la unidad contable: Gasto, Venta y Compra cuelgan
+   * de ella. Por eso una coincidencia aqui resuelve el enrutamiento completo,
+   * sin ambiguedad sobre a que sede se imputa el movimiento.
+   */
+  private async findBySede(
     match: { exact: string } | { tail: string },
   ): Promise<WhatsappContext | null> {
-    const filter =
-      'exact' in match
-        ? [{ telefono: match.exact }, { telefonoSecundario: match.exact }]
-        : [
-            { telefono: { endsWith: match.tail } },
-            { telefonoSecundario: { endsWith: match.tail } },
-          ];
-
-    const negocio = await this.prisma.negocio.findFirst({
-      where: { OR: filter },
+    const sede = await this.prisma.sede.findFirst({
+      where:
+        'exact' in match
+          ? { telefono: match.exact }
+          : { telefono: { endsWith: match.tail } },
       include: {
-        sedes: { orderBy: { createdAt: 'asc' }, take: 1 },
-        usuariosNegocio: {
-          orderBy: { id: 'asc' },
-          take: 1,
-          include: { usuario: true },
+        negocio: {
+          include: {
+            usuariosNegocio: {
+              orderBy: { id: 'asc' },
+              take: 1,
+              include: { usuario: true },
+            },
+          },
         },
       },
     });
 
-    if (!negocio) return null;
-
-    const sede = negocio.sedes[0];
-    if (!sede) {
-      // Negocio dado de alta pero sin sede: no hay donde guardar el movimiento.
-      this.logger.warn(
-        `El negocio "${negocio.nombre}" (${negocio.id}) no tiene sedes: no se puede registrar por WhatsApp.`,
-      );
-      return null;
-    }
+    if (!sede) return null;
 
     return {
-      negocioId: negocio.id,
-      negocioNombre: negocio.nombre,
+      negocioId: sede.negocio.id,
+      negocioNombre: sede.negocio.nombre,
       sedeId: sede.id,
       sedeNombre: sede.nombre,
-      plan: planFromNumber(negocio.usuariosNegocio[0]?.usuario.plan),
+      plan: planFromNumber(sede.negocio.usuariosNegocio[0]?.usuario.plan),
       currency: DEFAULT_CURRENCY,
-      contexto: sede.contexto ?? negocio.contexto,
+      contexto: sede.contexto ?? sede.negocio.contexto,
     };
   }
 

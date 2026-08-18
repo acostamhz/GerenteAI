@@ -42,7 +42,7 @@ pensado para el frontend, y tal cual no funcionaba con n8n. Estos eran los bloqu
 | # | Problema | Consecuencia sin arreglar | Solución aplicada |
 |---|---|---|---|
 | 1 | `main.ts` usa `ValidationPipe({ forbidNonWhitelisted: true })` y el DTO no tenía `phone`, `name` ni `conversationId` | **HTTP 400 en todos los mensajes.** Es el fallo que más tiempo hace perder porque parece un problema de n8n | `InterpretMessageDto` con todos los campos que manda n8n |
-| 2 | `businessId` era obligatorio y n8n solo conoce el teléfono | n8n no tenía forma de saber qué mandar ahí | `WhatsappRoutingService`: teléfono → `Negocio` → `Sede` |
+| 2 | `businessId` era obligatorio y n8n solo conoce el teléfono | n8n no tenía forma de saber qué mandar ahí | `WhatsappRoutingService`: teléfono → `Sede` (por `Sede.telefono`) |
 | 3 | La respuesta venía envuelta en `{ success, data: { intent, replyText, ... } }` | n8n tenía que navegar 3 niveles y romper el flujo con cada cambio del panel | Contrato plano `{ reply, interpreted }` |
 | 4 | El modelo no devolvía `confidence` | El campo pedido en el contrato no existía | Añadido al prompt (`asistente-whatsapp/v2`), al JSON Schema y al normalizador |
 | 5 | El puerto de datos era `InMemoryFinanceDataAdapter` | **Todo lo que registrara el bot se perdía al reiniciar**, y los crons de RF-07/RF-08 no verían nada | `PrismaFinanceDataAdapter`: escribe en `Gasto` / `Venta` |
@@ -307,16 +307,22 @@ El segundo debe devolver `{"ok":true,...}`. Si devuelve 401, la API key no coinc
 
 El bot solo responde a números registrados. En la base:
 
-```sql
-INSERT INTO "Negocio" (id, nombre, telefono, "createdAt", "updatedAt")
-VALUES (gen_random_uuid(), 'Panadería El Virrey', '573001234567', now(), now());
+El número de WhatsApp del bot vive en **`Sede.telefono`** (único en la base):
+cada sede tiene su propia línea.
 
-INSERT INTO "Sede" (id, nombre, "negocioId", "createdAt", "updatedAt")
-VALUES (gen_random_uuid(), 'Sede principal',
-        (SELECT id FROM "Negocio" WHERE telefono = '573001234567'), now(), now());
+```sql
+INSERT INTO "Negocio" (id, nombre, "createdAt", "updatedAt")
+VALUES (gen_random_uuid(), 'Panadería El Virrey', now(), now());
+
+INSERT INTO "Sede" (id, nombre, telefono, "negocioId", "createdAt", "updatedAt")
+VALUES (gen_random_uuid(), 'Sede principal', '573001234567',
+        (SELECT id FROM "Negocio" WHERE nombre = 'Panadería El Virrey'), now(), now());
 ```
 
 Usá tu número real en formato internacional sin `+`, tal como lo manda Meta.
+
+`Negocio.telefonoContacto` **no** sirve para esto: el esquema lo marca como
+teléfono administrativo y el bot no lo consulta.
 
 ### 5.5 Verificación end-to-end
 
@@ -364,12 +370,13 @@ Logs útiles del backend (Render → pestaña Logs):
 ## 7. Supuestos y decisiones (leer antes de extender)
 
 1. **`businessId` del dominio de IA = `Sede.id`.** `Gasto`, `Venta` y `Compra`
-   cuelgan de `Sede`, no de `Negocio`. Si un negocio tiene varias sedes, los
-   mensajes de WhatsApp entran a la **primera sede creada**. Para elegir sede por
-   mensaje hace falta un campo nuevo (p. ej. `Usuario.sedePreferidaId`).
-2. **Resolución del teléfono**: primero `Negocio.telefono` / `telefonoSecundario`,
-   después `Usuario.telefono`; si no hay coincidencia exacta, se compara por los
-   últimos 10 dígitos (Meta normaliza prefijos: `52` vs `521`).
+   cuelgan de `Sede`, no de `Negocio`, y `Sede.telefono` es la línea de WhatsApp
+   del bot. Cada sede con línea propia queda resuelta sin ambigüedad.
+2. **Resolución del teléfono**: primero `Sede.telefono`, después
+   `Usuario.telefono` (un socio o empleado que escribe desde su número personal;
+   ahí sí se usa su primera sede). Si no hay coincidencia exacta, se compara por
+   los últimos 10 dígitos, porque Meta normaliza prefijos (`52` vs `521`).
+   `Negocio.telefonoContacto` no se consulta: es administrativo.
 3. **Categorías**: la IA maneja 8 y el enum `CategoriaGasto` de Prisma tiene 5.
    Las que no tienen equivalente caen en `OTROS` y la etiqueta original queda en
    `descripcion` (`"Mercancía · Compra de harina"`). Para fidelidad total,
