@@ -15,7 +15,7 @@ import type { MessageIntent } from '../domain/finance.types';
  * API, asi se puede saber que version produjo cada registro.
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v1';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v2';
 
 /** Salida del modelo. Coincide 1:1 con el JSON descrito en el prompt. */
 export type WhatsAppIntentOutput = MessageIntent;
@@ -37,7 +37,8 @@ sin markdown. El JSON debe tener esta estructura exacta:
   "category": string | null,
   "concept": string | null,
   "responseText": "texto de respuesta para el usuario",
-  "queryPeriod": "day" | "week" | "month" | null
+  "queryPeriod": "day" | "week" | "month" | null,
+  "confidence": number entre 0 y 1
 }
 
 REGLAS DE INTERPRETACIÓN:
@@ -77,6 +78,13 @@ REGLAS DE INTERPRETACIÓN:
    - Si falta información importante (ej: monto)
    - Responde con una pregunta amable pidiendo aclaración
 
+REGLAS PARA confidence:
+- 0.9 a 1.0: el mensaje dice explícitamente el monto y se entiende el concepto
+- 0.6 a 0.89: se entiende la intención pero falta precisión (concepto vago, monto aproximado)
+- 0.0 a 0.59: estás adivinando. Si es menor a 0.6, usa type "unclear" y pregunta
+- Nunca inventes un valor alto para "quedar bien": este número decide si el
+  movimiento se registra automáticamente o se le pide confirmación al usuario
+
 REGLAS PARA responseText:
 - Sé breve y claro
 - Confirma los datos que interpretaste
@@ -88,16 +96,16 @@ REGLAS PARA responseText:
 EJEMPLOS:
 
 Mensaje: "Hoy compré mercancía por $8,000"
-Respuesta: {"type":"expense","amount":8000,"category":"mercancia","concept":"Compra de mercancía","responseText":"✅ Registré un gasto de $8,000 en mercancía.","queryPeriod":null}
+Respuesta: {"type":"expense","amount":8000,"category":"mercancia","concept":"Compra de mercancía","responseText":"✅ Registré un gasto de $8,000 en mercancía.","queryPeriod":null,"confidence":0.95}
 
 Mensaje: "Vendí 30 panes a $25"
-Respuesta: {"type":"income","amount":750,"category":"ventas","concept":"Venta de panes (30 x $25)","responseText":"✅ Registré un ingreso de $750 por venta de panes (30 x $25).","queryPeriod":null}
+Respuesta: {"type":"income","amount":750,"category":"ventas","concept":"Venta de panes (30 x $25)","responseText":"✅ Registré un ingreso de $750 por venta de panes (30 x $25).","queryPeriod":null,"confidence":0.9}
 
 Mensaje: "¿Cómo voy esta semana?"
-Respuesta: {"type":"query","amount":null,"category":null,"concept":null,"responseText":"Dame un momento, voy a consultar tu resumen de la semana.","queryPeriod":"week"}
+Respuesta: {"type":"query","amount":null,"category":null,"concept":null,"responseText":"Dame un momento, voy a consultar tu resumen de la semana.","queryPeriod":"week","confidence":0.95}
 
 Mensaje: "Gasté como 500 en unas cosas"
-Respuesta: {"type":"unclear","amount":500,"category":null,"concept":null,"responseText":"Tengo el monto de $500, pero ¿podrías decirme en qué lo gastaste? Así lo clasifico mejor.","queryPeriod":null}`;
+Respuesta: {"type":"unclear","amount":500,"category":null,"concept":null,"responseText":"Tengo el monto de $500, pero ¿podrías decirme en qué lo gastaste? Así lo clasifico mejor.","queryPeriod":null,"confidence":0.4}`;
 
 // ---------------------------------------------------------------------------
 // CONTEXTO INYECTADO POR EL BACKEND
@@ -149,6 +157,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'concept',
     'responseText',
     'queryPeriod',
+    'confidence',
   ],
   properties: {
     type: {
@@ -186,6 +195,13 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
       type: ['string', 'null'],
       enum: ['day', 'week', 'month'],
       description: 'Periodo consultado. Solo para type "query".',
+    },
+    confidence: {
+      type: 'number',
+      minimum: 0,
+      maximum: 1,
+      description:
+        'Seguridad del modelo sobre su propia interpretacion, de 0 a 1.',
     },
   },
 };

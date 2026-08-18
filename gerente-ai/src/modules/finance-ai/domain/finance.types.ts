@@ -96,6 +96,16 @@ export interface MessageIntent {
   concept: string | null;
   responseText: string;
   queryPeriod: QueryPeriod | null;
+  /**
+   * Que tan seguro esta el modelo de su propia interpretacion (0 a 1).
+   *
+   * Lo pide el prompt, pero nunca se confia en el a ciegas: si el modelo no lo
+   * devuelve o devuelve basura, el backend lo deriva de la calidad de los datos
+   * extraidos (ver `normalizeConfidence`). Sirve para dos cosas: avisar en los
+   * logs cuando la interpretacion es floja, y exponerlo a los canales externos
+   * (n8n / WhatsApp) que deciden si pedir confirmacion al usuario.
+   */
+  confidence: number;
 }
 
 export interface Transaction {

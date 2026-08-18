@@ -195,6 +195,57 @@ describe('WhatsAppMessageService', () => {
     expect(result.replyText).not.toContain('Dame un momento');
   });
 
+  it('respeta la confianza que reporta el modelo', async () => {
+    const { service } = buildService({
+      type: 'expense',
+      amount: 8000,
+      category: 'mercancia',
+      confidence: 0.95,
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.intent.confidence).toBe(0.95);
+  });
+
+  it('deriva la confianza si el modelo no la envía o manda basura', async () => {
+    // Modelo pequeño que ignora el campo: se infiere de lo que sí extrajo.
+    const sinCampo = buildService({
+      type: 'expense',
+      amount: 8000,
+      category: 'mercancia',
+      concept: 'Compra de harina',
+      responseText: 'ok',
+      confidence: undefined,
+    });
+    const conConcepto = await sinCampo.service.handleMessage(BASE_REQUEST);
+    expect(conConcepto.intent.confidence).toBe(0.9);
+
+    // Fuera de rango: tampoco se acepta.
+    const fueraDeRango = buildService({
+      type: 'query',
+      queryPeriod: 'week',
+      confidence: 42,
+      responseText: 'ok',
+    });
+    const consulta = await fueraDeRango.service.handleMessage(BASE_REQUEST);
+    expect(consulta.intent.confidence).toBe(0.85);
+  });
+
+  it('baja la confianza cuando degrada el mensaje a unclear', async () => {
+    const { service } = buildService({
+      type: 'expense',
+      amount: null,
+      category: 'insumos',
+      confidence: 0.99,
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.intent.type).toBe('unclear');
+    expect(result.intent.confidence).toBeLessThanOrEqual(0.4);
+  });
+
   it('trata un tipo desconocido como unclear', async () => {
     const { service } = buildService({
       type: 'transferencia' as WhatsAppIntentOutput['type'],

@@ -27,6 +27,9 @@ import {
   type WhatsAppIntentOutput,
 } from '../prompts/whatsapp-assistant.prompt';
 
+/** Por debajo de esto la interpretacion se registra como sospechosa en los logs. */
+export const LOW_CONFIDENCE_THRESHOLD = 0.6;
+
 export interface WhatsAppMessageRequest {
   tenantId: string;
   businessId: string;
@@ -112,6 +115,13 @@ export class WhatsAppMessageService {
 
     const intent = this.normalizeIntent(data);
 
+    if (intent.confidence < LOW_CONFIDENCE_THRESHOLD) {
+      // Traza para depurar el prompt: que mensajes reales confunden al modelo.
+      this.logger.warn(
+        `Interpretacion floja (confidence=${intent.confidence}, type=${intent.type}) para: "${request.message.slice(0, 80)}"`,
+      );
+    }
+
     // ---- 2. El backend actua segun la intencion ---------------------------
     const meta = {
       promptVersion: WHATSAPP_ASSISTANT_PROMPT_VERSION,
@@ -159,6 +169,9 @@ export class WhatsAppMessageService {
             type: 'unclear',
             category: null,
             queryPeriod: null,
+            // Si no hubo monto, la interpretacion no puede considerarse buena
+            // por mucho que el modelo diga lo contrario.
+            confidence: Math.min(intent.confidence, 0.4),
           },
           transaction: null,
           summary: null,
@@ -202,19 +215,25 @@ export class WhatsAppMessageService {
   private normalizeIntent(output: WhatsAppIntentOutput): MessageIntent {
     const type = normalizeType(output?.type);
     const amount = normalizeAmount(output?.amount);
+    const category = isTransactionType(type)
+      ? normalizeCategory(output?.category, type)
+      : null;
 
     return {
       type,
       amount,
-      category: isTransactionType(type)
-        ? normalizeCategory(output?.category, type)
-        : null,
+      category,
       concept: cleanText(output?.concept),
       responseText:
         cleanText(output?.responseText) ??
         'Recibí tu mensaje, pero no logré interpretarlo. ¿Me lo repites?',
       queryPeriod:
         type === 'query' ? normalizePeriod(output?.queryPeriod) : null,
+      confidence: normalizeConfidence(output?.confidence, {
+        type,
+        amount,
+        concept: cleanText(output?.concept),
+      }),
     };
   }
 
@@ -337,6 +356,33 @@ function normalizeCategory(
   // Una categoria de otro tipo (p.ej. "ventas" en un gasto) no se acepta:
   // desalinearia los reportes.
   return match ?? DEFAULT_CATEGORY_BY_TYPE[type];
+}
+
+/**
+ * Confianza del modelo, saneada.
+ *
+ * Un modelo pequeno a veces omite el campo, devuelve "0.9" como texto o pone
+ * 1.0 en todo. Se acepta el valor solo si es un numero utilizable; si no, se
+ * deriva de lo que realmente extrajo: sin monto no hay interpretacion buena.
+ */
+function normalizeConfidence(
+  value: unknown,
+  intent: {
+    type: MessageIntentType;
+    amount: number | null;
+    concept: string | null;
+  },
+): number {
+  const reported = Number(value);
+  if (Number.isFinite(reported) && reported >= 0 && reported <= 1) {
+    return Math.round(reported * 100) / 100;
+  }
+
+  if (intent.type === 'unclear') return 0.3;
+  if (intent.type === 'query') return 0.85;
+  if (intent.type === 'correction') return 0.6;
+  if (intent.amount === null) return 0.4;
+  return intent.concept ? 0.9 : 0.7;
 }
 
 function normalizePeriod(value: unknown): QueryPeriod {
