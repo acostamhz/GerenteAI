@@ -1,0 +1,171 @@
+{
+  "name": "Luka AI · 03 · Resumen semanal (RF-08)",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 10 * * 0"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -220,
+        0
+      ],
+      "id": "a3000000-0000-4000-8000-000000000001",
+      "name": "Domingos 10:00",
+      "notes": "Cron: minuto 0, hora 10, cualquier día del mes, cualquier mes, día de semana 0 (domingo).\nPara el resumen MENSUAL, duplicar el workflow y cambiar a '0 10 1 * *' (día 1 de cada mes) y el rango del SQL a INTERVAL '1 month'."
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- RF-08: totales de los últimos 7 días, por negocio y por categoría.\n--\n-- Devuelve UNA FILA POR CATEGORÍA. El agrupado por negocio y el formato del\n-- texto se hacen en el nodo de código siguiente: SQL para números, JS para\n-- presentación.\nWITH rango AS (\n    SELECT\n        ((now() AT TIME ZONE 'America/Bogota')::date - INTERVAL '7 days') AS desde,\n        ((now() AT TIME ZONE 'America/Bogota')::date)                     AS hasta\n),\nmovimientos AS (\n    -- Gastos registrados (incluye los que creó el bot de WhatsApp)\n    SELECT s.\"negocioId\" AS negocio_id,\n           'gasto'::text  AS tipo,\n           g.categoria::text AS categoria,\n           g.monto        AS monto\n    FROM \"Gasto\" g\n    JOIN \"Sede\" s ON s.id = g.\"sedeId\"\n    CROSS JOIN rango r\n    WHERE (g.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= r.desde\n      AND (g.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <  r.hasta + INTERVAL '1 day'\n\n    UNION ALL\n\n    -- Ventas = ingresos\n    SELECT s.\"negocioId\", 'ingreso'::text, 'VENTAS'::text, v.total\n    FROM \"Venta\" v\n    JOIN \"Sede\" s ON s.id = v.\"sedeId\"\n    CROSS JOIN rango r\n    WHERE (v.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= r.desde\n      AND (v.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <  r.hasta + INTERVAL '1 day'\n\n    UNION ALL\n\n    -- Compras a proveedores = gasto en mercancía\n    SELECT s.\"negocioId\", 'gasto'::text, 'MERCANCIA'::text, c.total\n    FROM \"Compra\" c\n    JOIN \"Sede\" s ON s.id = c.\"sedeId\"\n    CROSS JOIN rango r\n    WHERE (c.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') >= r.desde\n      AND (c.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota') <  r.hasta + INTERVAL '1 day'\n)\nSELECT\n    n.id                        AS negocio_id,\n    n.nombre                    AS negocio,\n    n.telefono                  AS telefono,\n    COALESCE(contacto.nombre, '') AS contacto,\n    m.tipo                      AS tipo,\n    m.categoria                 AS categoria,\n    SUM(m.monto)::float8        AS total,\n    COUNT(*)::int               AS movimientos,\n    (SELECT desde::text FROM rango) AS desde,\n    (SELECT hasta::text FROM rango) AS hasta\nFROM \"Negocio\" n\nJOIN movimientos m ON m.negocio_id = n.id\nLEFT JOIN LATERAL (\n    SELECT u.nombre\n    FROM \"UsuarioNegocio\" un\n    JOIN \"Usuario\" u ON u.id = un.\"usuarioId\"\n    WHERE un.\"negocioId\" = n.id\n    ORDER BY un.id\n    LIMIT 1\n) contacto ON TRUE\nWHERE n.telefono IS NOT NULL\n  AND n.telefono <> ''\nGROUP BY n.id, n.nombre, n.telefono, contacto.nombre, m.tipo, m.categoria\nORDER BY n.nombre, m.tipo, total DESC;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        0,
+        0
+      ],
+      "id": "a3000000-0000-4000-8000-000000000002",
+      "name": "Totales de la semana",
+      "credentials": {
+        "postgres": {
+          "id": "REEMPLAZAR_ID_CREDENCIAL",
+          "name": "PostgreSQL Luka AI"
+        }
+      },
+      "alwaysOutputData": true,
+      "notes": "Un negocio sin ningún movimiento en la semana no aparece: no tiene sentido enviarle un resumen vacío."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Agrupa las filas por negocio y arma los 5 parámetros de la plantilla.\n//\n// IMPORTANTE: los parámetros de una plantilla de WhatsApp NO pueden contener\n// saltos de línea, tabulaciones ni 4 espacios seguidos (error 132000 de Meta).\n// Por eso el salto de línea vive en la plantilla aprobada y aquí solo van\n// valores cortos de una línea.\n\nconst ETIQUETAS = {\n  ARRIENDO: 'arriendo',\n  SERVICIOS: 'servicios',\n  NOMINA: 'nómina',\n  TRANSPORTE: 'transporte',\n  MERCANCIA: 'mercancía',\n  OTROS: 'otros gastos',\n  VENTAS: 'ventas',\n};\n\nconst dinero = (valor) => '$' + Math.round(valor).toLocaleString('es-CO');\n\nconst negocios = new Map();\n\nfor (const { json } of $input.all()) {\n  if (!json.telefono) continue; // fila vacía de alwaysOutputData\n\n  const id = json.negocio_id;\n  if (!negocios.has(id)) {\n    negocios.set(id, {\n      negocioId: id,\n      negocio: String(json.negocio),\n      telefono: String(json.telefono).replace(/\\D/g, ''),\n      contacto: String(json.contacto || '').split(' ')[0] || 'Hola',\n      desde: json.desde,\n      hasta: json.hasta,\n      ingresos: 0,\n      gastos: 0,\n      movimientos: 0,\n      categoriasGasto: [],\n    });\n  }\n\n  const acumulado = negocios.get(id);\n  const total = Number(json.total) || 0;\n  acumulado.movimientos += Number(json.movimientos) || 0;\n\n  if (json.tipo === 'ingreso') {\n    acumulado.ingresos += total;\n  } else {\n    acumulado.gastos += total;\n    acumulado.categoriasGasto.push({ categoria: json.categoria, total });\n  }\n}\n\nconsole.log(`[Resumen semanal] Negocios con movimientos: ${negocios.size}`);\n\nreturn [...negocios.values()].map((n) => {\n  const balance = n.ingresos - n.gastos;\n  const mayor = n.categoriasGasto.sort((a, b) => b.total - a.total)[0];\n\n  console.log(\n    `[Resumen semanal] ${n.negocio}: ingresos ${n.ingresos}, gastos ${n.gastos}, ${n.movimientos} movimientos`,\n  );\n\n  return {\n    json: {\n      ...n,\n      // Parámetros de la plantilla (una línea cada uno)\n      p1_contacto: n.contacto,\n      p2_negocio: n.negocio,\n      p3_ingresos: dinero(n.ingresos),\n      p4_gastos: dinero(n.gastos),\n      p5_balance: (balance >= 0 ? '+' : '-') + dinero(Math.abs(balance)),\n      p6_mayorGasto: mayor\n        ? `${ETIQUETAS[mayor.categoria] || mayor.categoria} (${dinero(mayor.total)})`\n        : 'sin gastos registrados',\n      // Versión en texto plano, por si se envía dentro de la ventana de 24 h\n      resumenTexto:\n        `📊 Resumen del ${n.desde} al ${n.hasta}\\n\\n` +\n        `Negocio: ${n.negocio}\\n` +\n        `Ingresos: ${dinero(n.ingresos)}\\n` +\n        `Gastos: ${dinero(n.gastos)}\\n` +\n        `Balance: ${dinero(balance)}\\n` +\n        `Movimientos: ${n.movimientos}\\n` +\n        (mayor\n          ? `Tu mayor gasto fue ${ETIQUETAS[mayor.categoria] || mayor.categoria}: ${dinero(mayor.total)}.`\n          : ''),\n    },\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "id": "a3000000-0000-4000-8000-000000000003",
+      "name": "Formatear resumen por negocio"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.facebook.com/{{ $env.WHATSAPP_API_VERSION || 'v25.0' }}/{{ $env.WHATSAPP_PHONE_NUMBER_ID || '1276800955509419' }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.telefono, type: 'template', template: { name: $env.WHATSAPP_TEMPLATE_RESUMEN || 'resumen_semanal', language: { code: 'es' }, components: [ { type: 'body', parameters: [ { type: 'text', text: $json.p1_contacto }, { type: 'text', text: $json.p2_negocio }, { type: 'text', text: $json.p3_ingresos }, { type: 'text', text: $json.p4_gastos }, { type: 'text', text: $json.p5_balance }, { type: 'text', text: $json.p6_mayorGasto } ] } ] } }) }}",
+        "options": {
+          "timeout": 15000,
+          "batching": {
+            "batch": {
+              "batchSize": 10,
+              "batchInterval": 1000
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        440,
+        0
+      ],
+      "id": "a3000000-0000-4000-8000-000000000004",
+      "name": "Enviar resumen (plantilla)",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "Pjjumysctcj1HMVh",
+          "name": "Bearer Auth account"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 3000,
+      "notes": "Plantilla 'resumen_semanal' con 6 variables:\n{{1}} contacto · {{2}} negocio · {{3}} ingresos · {{4}} gastos · {{5}} balance · {{6}} mayor gasto."
+    },
+    {
+      "parameters": {
+        "jsCode": "for (const item of $input.all()) {\n  console.error('[Resumen semanal] ERROR de envío:', JSON.stringify(item.json).slice(0, 800));\n}\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        140
+      ],
+      "id": "a3000000-0000-4000-8000-000000000005",
+      "name": "Registrar fallos"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Domingos 10:00": {
+      "main": [
+        [
+          {
+            "node": "Totales de la semana",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Totales de la semana": {
+      "main": [
+        [
+          {
+            "node": "Formatear resumen por negocio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear resumen por negocio": {
+      "main": [
+        [
+          {
+            "node": "Enviar resumen (plantilla)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar resumen (plantilla)": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Registrar fallos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Bogota",
+    "saveDataErrorExecution": "all",
+    "saveDataSuccessExecution": "all",
+    "executionTimeout": 900
+  },
+  "tags": []
+}
