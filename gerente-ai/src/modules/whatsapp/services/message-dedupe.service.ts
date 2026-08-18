@@ -40,6 +40,18 @@ export class MessageDedupeService {
     return true;
   }
 
+  /**
+   * Olvida un id.
+   *
+   * Se usa cuando el procesamiento fallo a mitad de camino: el mensaje NO quedo
+   * atendido, asi que el reintento de n8n debe poder volver a entrar. Sin esto,
+   * un error transitorio (base caida, timeout) convertia el reintento en un
+   * "duplicado" y el usuario se quedaba sin ninguna respuesta.
+   */
+  forget(messageId: string | undefined): void {
+    if (messageId) this.seen.delete(messageId);
+  }
+
   private prune(): void {
     const limit = Date.now() - this.ttlMs;
 
