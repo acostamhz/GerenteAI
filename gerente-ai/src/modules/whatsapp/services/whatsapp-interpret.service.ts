@@ -142,6 +142,22 @@ export class WhatsappInterpretService {
       });
     }
 
+    try {
+      return await this.process(dto, phone, startedAt);
+    } catch (error) {
+      // El mensaje no llego a atenderse: se libera el id para que el reintento
+      // de n8n vuelva a intentarlo en vez de recibir "duplicado".
+      this.dedupe.forget(dto.messageId);
+      throw error;
+    }
+  }
+
+  /** Todo lo que ocurre una vez descartado el duplicado. */
+  private async process(
+    dto: InterpretMessageDto,
+    phone: string,
+    startedAt: number,
+  ): Promise<InterpretResponse> {
     // ---- 2. ¿De quien es este numero? -------------------------------------
     const context = await this.routing.resolve(phone);
 
