@@ -13,6 +13,11 @@ import { ProductosModule } from './modules/productos.module';
 import { ClientesModule } from './modules/clientes.module';
 import { ProveedoresModule } from './modules/proveedores.module';
 import { GastosModule } from './modules/gastos.module';
+import { UsuarioSedesModule } from './modules/usuario-sedes.module';
+import { VentasModule } from './modules/ventas.module';
+import { ComprasModule } from './modules/compras.module';
+import { AbonosModule } from './modules/abonos.module';
+import { ReportesModule } from './modules/reportes.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -35,6 +40,11 @@ import { AuthModule } from './auth/auth.module';
     ClientesModule,
     ProveedoresModule,
     GastosModule,
+    UsuarioSedesModule,
+    VentasModule,
+    ComprasModule,
+    AbonosModule,
+    ReportesModule,
     AuthModule,
   ],
   controllers: [AppController],

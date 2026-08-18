@@ -12,17 +12,21 @@ export class ClientesService {
   ) {}
 
   async create(userId: string, rolGlobal: string, dto: CreateClienteDto) {
-    const sede = await this.prisma.sede.findUnique({ where: { id: dto.sedeId } });
+    const sede = await this.prisma.sede.findUnique({
+      where: { id: dto.sedeId },
+    });
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarPropietario(userId, sede.negocioId, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
 
     return this.prisma.cliente.create({ data: dto });
   }
 
   findAll(sedeId?: string) {
-    return this.prisma.cliente.findMany({ where: sedeId ? { sedeId } : undefined });
+    return this.prisma.cliente.findMany({
+      where: sedeId ? { sedeId } : undefined,
+    });
   }
 
   async findOne(id: string) {
@@ -33,23 +37,34 @@ export class ClientesService {
     return cliente;
   }
 
-  async update(id: string, userId: string, rolGlobal: string, dto: UpdateClienteDto) {
+  async update(
+    id: string,
+    userId: string,
+    rolGlobal: string,
+    dto: UpdateClienteDto,
+  ) {
     const cliente = await this.findOne(id);
-    await this.verificarPropietarioDelCliente(cliente.sedeId, userId, rolGlobal);
+    await this.verificarAccesoAlCliente(cliente.sedeId, userId, rolGlobal);
     return this.prisma.cliente.update({ where: { id }, data: dto });
   }
 
   async remove(id: string, userId: string, rolGlobal: string) {
     const cliente = await this.findOne(id);
-    await this.verificarPropietarioDelCliente(cliente.sedeId, userId, rolGlobal);
+    await this.verificarAccesoAlCliente(cliente.sedeId, userId, rolGlobal);
     return this.prisma.cliente.delete({ where: { id } });
   }
 
-  private async verificarPropietarioDelCliente(sedeId: string, userId: string, rolGlobal: string) {
+  private async verificarAccesoAlCliente(
+    sedeId: string,
+    userId: string,
+    rolGlobal: string,
+  ) {
     const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
     if (!sede) {
-      throw new NotFoundException('La sede asociada a este cliente ya no existe');
+      throw new NotFoundException(
+        'La sede asociada a este cliente ya no existe',
+      );
     }
-    await this.negociosService.verificarPropietario(userId, sede.negocioId, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
   }
 }

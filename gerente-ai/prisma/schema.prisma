@@ -9,8 +9,6 @@ datasource db {
 
 enum Role {
   ADMIN
-  EMPLEADO
-  CONTADOR
 }
 
 enum RolGlobal {
@@ -55,7 +53,7 @@ model Usuario {
 model Negocio {
   id                 String   @id @default(uuid())
   nombre             String
-  telefono           String   @unique // Teléfono principal de WhatsApp
+  telefonoContacto   String?  // Teléfono general/administrativo (no usado por el bot)
   telefonoSecundario String?
   contexto           String?  @db.Text // Contexto general de IA para el negocio
   createdAt          DateTime @default(now())
@@ -69,6 +67,7 @@ model Negocio {
 model Sede {
   id        String   @id @default(uuid())
   nombre    String
+  telefono  String?  @unique // Línea de WhatsApp independiente para el bot de esta sede
   direccion String?
   contexto  String?  @db.Text // Contexto de IA individual para la sede
   createdAt DateTime @default(now())
@@ -87,6 +86,7 @@ model Sede {
   compras      Compra[]
   gastos       Gasto[]
   reportes     Reporte[]
+  abonos       Abono[]
 }
 
 model UsuarioNegocio {
@@ -163,6 +163,7 @@ model Cliente {
   sede           Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
   ventas         Venta[]
+  abonos         Abono[]
 }
 
 model Proveedor {
@@ -202,7 +203,7 @@ model DetalleVenta {
   venta      Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
 
   productoId String
-  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
 }
 
 model Compra {
@@ -228,7 +229,7 @@ model DetalleCompra {
   compra     Compra   @relation(fields: [compraId], references: [id], onDelete: Cascade)
 
   productoId String
-  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Cascade)
+  producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
 }
 
 model Gasto {
@@ -240,4 +241,16 @@ model Gasto {
 
   sedeId      String
   sede        Sede           @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+}
+
+model Abono {
+  id        String   @id @default(uuid())
+  monto     Decimal
+  fecha     DateTime @default(now())
+
+  clienteId String
+  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  sedeId    String
+  sede      Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 }

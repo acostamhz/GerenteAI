@@ -12,17 +12,21 @@ export class GastosService {
   ) {}
 
   async create(userId: string, rolGlobal: string, dto: CreateGastoDto) {
-    const sede = await this.prisma.sede.findUnique({ where: { id: dto.sedeId } });
+    const sede = await this.prisma.sede.findUnique({
+      where: { id: dto.sedeId },
+    });
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarPropietario(userId, sede.negocioId, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
 
     return this.prisma.gasto.create({ data: dto });
   }
 
   findAll(sedeId?: string) {
-    return this.prisma.gasto.findMany({ where: sedeId ? { sedeId } : undefined });
+    return this.prisma.gasto.findMany({
+      where: sedeId ? { sedeId } : undefined,
+    });
   }
 
   async findOne(id: string) {
@@ -33,23 +37,32 @@ export class GastosService {
     return gasto;
   }
 
-  async update(id: string, userId: string, rolGlobal: string, dto: UpdateGastoDto) {
+  async update(
+    id: string,
+    userId: string,
+    rolGlobal: string,
+    dto: UpdateGastoDto,
+  ) {
     const gasto = await this.findOne(id);
-    await this.verificarPropietarioDelGasto(gasto.sedeId, userId, rolGlobal);
+    await this.verificarAccesoAlGasto(gasto.sedeId, userId, rolGlobal);
     return this.prisma.gasto.update({ where: { id }, data: dto });
   }
 
   async remove(id: string, userId: string, rolGlobal: string) {
     const gasto = await this.findOne(id);
-    await this.verificarPropietarioDelGasto(gasto.sedeId, userId, rolGlobal);
+    await this.verificarAccesoAlGasto(gasto.sedeId, userId, rolGlobal);
     return this.prisma.gasto.delete({ where: { id } });
   }
 
-  private async verificarPropietarioDelGasto(sedeId: string, userId: string, rolGlobal: string) {
+  private async verificarAccesoAlGasto(
+    sedeId: string,
+    userId: string,
+    rolGlobal: string,
+  ) {
     const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
     if (!sede) {
       throw new NotFoundException('La sede asociada a este gasto ya no existe');
     }
-    await this.negociosService.verificarPropietario(userId, sede.negocioId, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
   }
 }
