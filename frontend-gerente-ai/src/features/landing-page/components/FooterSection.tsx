@@ -1,56 +1,138 @@
-import { Bot, Twitter, Linkedin, Instagram } from 'lucide-react';
+import { Bot, Twitter, Linkedin, Instagram } from "lucide-react";
 
-export function FooterSection() {
+export function InvestorFooter() {
   return (
-    <footer className="py-12 px-6 border-t border-white/10 bg-slate-950 relative z-10">
-      <div className="max-w-6xl mx-auto grid grid-cols-1 md:grid-cols-4 gap-8 mb-12">
+    <footer className="relative z-10 border-t border-slate-200/80 bg-white/60 px-6 py-16 backdrop-blur-xl transition-colors duration-300 dark:border-white/10 dark:bg-[#060A12]/80">
+      <div className="mx-auto mb-4 grid max-w-7xl grid-cols-1 gap-10 md:grid-cols-4">
+        {/* Brand */}
         <div className="md:col-span-1">
-          <div className="flex items-center gap-2 text-emerald-400 font-bold text-xl mb-4">
-            <Bot className="w-6 h-6" />
+          <div className="mb-4 flex items-center gap-2 text-xl font-bold text-emerald-600 dark:text-emerald-400">
+            <Bot className="h-6 w-6" />
             Luka AI
           </div>
-          <p className="text-slate-400 text-sm">
-            Toma decisiones con datos, no con intuición. El futuro de la gestión para micronegocios en LATAM.
+
+          <p className="text-sm font-medium leading-relaxed text-slate-600 dark:text-slate-400">
+            Toma decisiones con datos, no con intuición. El futuro de la
+            gestión para micronegocios en LATAM.
+          </p>
+
+          <p className="mt-6 text-sm font-medium text-slate-500 dark:text-slate-400">
+            Hecho en Cali, Colombia con mucho ❤️
           </p>
         </div>
-        
+
+        {/* Producto */}
         <div>
-          <h4 className="font-semibold text-white mb-4">Producto</h4>
-          <ul className="space-y-2 text-sm text-slate-400">
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Características</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Precios</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Casos de Uso</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Actualizaciones</a></li>
+          <h4 className="mb-4 font-bold text-slate-900 dark:text-white">
+            Producto
+          </h4>
+
+          <ul className="space-y-2.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+            <li>
+              <a
+                href="#overview"
+                className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                Características
+              </a>
+            </li>
+
+            <li>
+              <a
+                href="#growth"
+                className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                Casos de Uso
+              </a>
+            </li>
           </ul>
         </div>
-        
+
+        {/* Compañía */}
         <div>
-          <h4 className="font-semibold text-white mb-4">Compañía</h4>
-          <ul className="space-y-2 text-sm text-slate-400">
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Sobre Nosotros</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Blog</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Contacto</a></li>
+          <h4 className="mb-4 font-bold text-slate-900 dark:text-white">
+            Compañía
+          </h4>
+
+          <ul className="space-y-2.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+            <li>
+              <a
+                href="#"
+                className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                Preguntas Frecuentes
+              </a>
+            </li>
+
+            <li>
+              <a
+                href="mailto:contacto@luka.ai"
+                className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                Contacto
+              </a>
+            </li>
           </ul>
         </div>
-        
+
+        {/* Legal */}
         <div>
-          <h4 className="font-semibold text-white mb-4">Legal</h4>
-          <ul className="space-y-2 text-sm text-slate-400">
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Términos de Servicio</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Política de Privacidad</a></li>
-            <li><a href="#" className="hover:text-emerald-400 transition-colors">Tratamiento de Datos</a></li>
+          <h4 className="mb-4 font-bold text-slate-900 dark:text-white">
+            Legal
+          </h4>
+
+          <ul className="space-y-2.5 text-sm font-medium text-slate-600 dark:text-slate-400">
+            <li>
+              <a
+                href="#"
+                className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                Términos de Servicio
+              </a>
+            </li>
+
+            <li>
+              <a
+                href="#"
+                className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+              >
+                Política de Privacidad
+              </a>
+            </li>
           </ul>
         </div>
       </div>
-      
-      <div className="max-w-6xl mx-auto pt-8 border-t border-white/10 flex flex-col md:flex-row items-center justify-between gap-4">
-        <p className="text-sm text-slate-500">
+
+      {/* Bottom */}
+      <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-4 border-t border-slate-200/80 pt-4 dark:border-white/10 sm:flex-row">
+        <p className="text-sm font-medium text-slate-500 dark:text-slate-400">
           © {new Date().getFullYear()} Luka AI. Todos los derechos reservados.
         </p>
-        <div className="flex items-center gap-4 text-slate-400">
-          <a href="#" className="hover:text-emerald-400 transition-colors"><Twitter className="w-5 h-5" /></a>
-          <a href="#" className="hover:text-emerald-400 transition-colors"><Linkedin className="w-5 h-5" /></a>
-          <a href="#" className="hover:text-emerald-400 transition-colors"><Instagram className="w-5 h-5" /></a>
+
+        <div className="flex items-center gap-5 text-slate-600 dark:text-slate-400">
+          <a
+            href="#"
+            aria-label="Twitter"
+            className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+          >
+            <Twitter className="h-5 w-5" />
+          </a>
+
+          <a
+            href="#"
+            aria-label="LinkedIn"
+            className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+          >
+            <Linkedin className="h-5 w-5" />
+          </a>
+
+          <a
+            href="#"
+            aria-label="Instagram"
+            className="transition-colors hover:text-emerald-600 dark:hover:text-emerald-400"
+          >
+            <Instagram className="h-5 w-5" />
+          </a>
         </div>
       </div>
     </footer>

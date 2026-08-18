@@ -46,10 +46,7 @@ const cards = [
 
 export function InvestorKpiGrid() {
   return (
-    <section
-      id="overview"
-      className="px-6 pb-20"
-    >
+    <section id="overview" className="px-6 pb-20">
       <div className="mx-auto max-w-7xl">
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {cards.map((card) => {
@@ -58,32 +55,91 @@ export function InvestorKpiGrid() {
             return (
               <article
                 key={card.label}
-                className="group rounded-3xl border border-slate-200 bg-white p-6 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-xl hover:shadow-slate-200/50"
+                className="
+                  group relative overflow-hidden rounded-3xl
+                  border border-border
+                  bg-card/70
+                  p-6
+                  shadow-sm
+                  backdrop-blur-xl
+                  transition-all duration-300
+                  hover:-translate-y-1
+                  hover:shadow-xl
+                  hover:shadow-emerald-500/10
+                  dark:bg-card/60
+                "
               >
-                <div className="flex items-start justify-between">
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-slate-100 text-slate-700 transition-colors group-hover:bg-emerald-50 group-hover:text-emerald-600">
-                    <Icon className="h-5 w-5" />
+                {/* Ambient glow */}
+                <div
+                  className="
+                    pointer-events-none absolute -right-12 -top-12
+                    h-32 w-32 rounded-full
+                    bg-emerald-500/10
+                    blur-3xl
+                    opacity-0
+                    transition-opacity duration-500
+                    group-hover:opacity-100
+                  "
+                />
+
+                <div className="relative z-10">
+                  <div className="flex items-start justify-between">
+                    {/* Icon */}
+                    <div
+                      className="
+                        flex h-11 w-11 items-center justify-center
+                        rounded-2xl
+                        border border-border
+                        bg-muted/60
+                        text-muted-foreground
+                        shadow-sm
+                        transition-all duration-300
+                        group-hover:border-emerald-500/20
+                        group-hover:bg-emerald-500/10
+                        group-hover:text-emerald-600
+                        dark:group-hover:text-emerald-400
+                      "
+                    >
+                      <Icon className="h-5 w-5" strokeWidth={2} />
+                    </div>
+
+                    {/* Growth */}
+                    <div
+                      className="
+                        flex items-center gap-1
+                        rounded-full
+                        border border-emerald-500/10
+                        bg-emerald-500/10
+                        px-2.5 py-1
+                        text-xs font-semibold
+                        text-emerald-700
+                        dark:text-emerald-400
+                      "
+                    >
+                      <ArrowUpRight className="h-3 w-3" strokeWidth={2.5} />
+                      {card.growth}%
+                    </div>
                   </div>
 
-                  <div className="flex items-center gap-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">
-                    <ArrowUpRight className="h-3 w-3" />
+                  <div className="mt-8">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      {card.label}
+                    </p>
 
-                    {card.growth}%
+                    <p
+                      className="
+                        mt-2
+                        text-3xl font-bold tracking-tight
+                        text-foreground
+                      "
+                    >
+                      {card.value}
+                    </p>
+
+                    <p className="mt-2 text-sm text-muted-foreground/70">
+                      {card.description}
+                    </p>
                   </div>
-                </div>
-
-                <div className="mt-8">
-                  <p className="text-sm font-medium text-slate-500">
-                    {card.label}
-                  </p>
-
-                  <p className="mt-2 text-3xl font-bold tracking-tight text-slate-950">
-                    {card.value}
-                  </p>
-
-                  <p className="mt-2 text-sm text-slate-400">
-                    {card.description}
-                  </p>
                 </div>
               </article>
             );

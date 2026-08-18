@@ -14,33 +14,43 @@ export function InvestorGrowthChart() {
   return (
     <section
       id="growth"
-      className="px-6 pb-20"
+      className="px-6 pb-20 scroll-mt-28"
     >
       <div className="mx-auto max-w-7xl">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <div className="rounded-[2rem] border border-border bg-card p-6 shadow-sm transition-colors duration-500 sm:p-8 dark:shadow-none">
+          {/* Header */}
           <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
             <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.15em] text-emerald-600">
+              <p className="text-sm font-semibold uppercase tracking-[0.15em] text-emerald-600 dark:text-emerald-400">
                 Growth
               </p>
 
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+              <h2 className="mt-2 text-2xl font-bold tracking-tight text-foreground sm:text-3xl">
                 Crecimiento de usuarios
               </h2>
 
-              <p className="mt-2 text-sm text-slate-500">
+              <p className="mt-2 text-sm text-muted-foreground">
                 Evolución acumulada de usuarios registrados en Luka.
               </p>
             </div>
 
-            <div className="rounded-full border border-slate-200 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-600">
+            <div className="rounded-full border border-border bg-muted/50 px-4 py-2 text-sm font-medium text-muted-foreground">
               Últimos 6 meses
             </div>
           </div>
 
+          {/* Chart */}
           <div className="h-[340px] w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={userGrowthData}>
+              <AreaChart
+                data={userGrowthData}
+                margin={{
+                  top: 10,
+                  right: 10,
+                  left: 0,
+                  bottom: 0,
+                }}
+              >
                 <defs>
                   <linearGradient
                     id="usersGradient"
@@ -65,7 +75,8 @@ export function InvestorGrowthChart() {
 
                 <CartesianGrid
                   strokeDasharray="3 3"
-                  stroke="#e2e8f0"
+                  stroke="currentColor"
+                  strokeOpacity={0.08}
                   vertical={false}
                 />
 
@@ -73,20 +84,43 @@ export function InvestorGrowthChart() {
                   dataKey="month"
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
+                  tick={{
+                    fill: "currentColor",
+                    fontSize: 12,
+                    opacity: 0.55,
+                  }}
                 />
 
                 <YAxis
                   axisLine={false}
                   tickLine={false}
-                  tick={{ fill: "#94a3b8", fontSize: 12 }}
+                  tick={{
+                    fill: "currentColor",
+                    fontSize: 12,
+                    opacity: 0.55,
+                  }}
                 />
 
                 <Tooltip
+                  cursor={{
+                    stroke: "#10b981",
+                    strokeOpacity: 0.25,
+                  }}
                   contentStyle={{
                     borderRadius: "16px",
-                    border: "1px solid #e2e8f0",
-                    boxShadow: "0 10px 30px rgba(15, 23, 42, 0.08)",
+                    border: "1px solid rgba(148, 163, 184, 0.2)",
+                    backgroundColor: "var(--card)",
+                    color: "var(--foreground)",
+                    boxShadow:
+                      "0 10px 30px rgba(15, 23, 42, 0.12)",
+                  }}
+                  labelStyle={{
+                    color: "var(--foreground)",
+                    fontWeight: 600,
+                    marginBottom: "4px",
+                  }}
+                  itemStyle={{
+                    color: "#10b981",
                   }}
                   formatter={(value) => [
                     `${Number(value).toLocaleString("es-CO")} usuarios`,
@@ -100,6 +134,12 @@ export function InvestorGrowthChart() {
                   stroke="#10b981"
                   strokeWidth={3}
                   fill="url(#usersGradient)"
+                  activeDot={{
+                    r: 6,
+                    strokeWidth: 3,
+                    stroke: "#10b981",
+                    fill: "var(--card)",
+                  }}
                 />
               </AreaChart>
             </ResponsiveContainer>

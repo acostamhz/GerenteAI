@@ -4,7 +4,10 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { PageSkeleton } from "@/shared/components/ui/PageSkeleton";
 import { ProtectedRoute } from "./ProtectedRoute";
 
-// Lazy loaded feature modules
+// ============================================================
+// LAZY LOADED FEATURE MODULES
+// ============================================================
+
 const DashboardPage = lazy(() =>
   import("@/features/client-dashboard").then((m) => ({
     default: m.DashboardView,
@@ -59,12 +62,6 @@ const AdminOpsView = lazy(() =>
   }))
 );
 
-const InvestorDashboardPage = lazy(() =>
-  import("@/features/investor-dashboard").then((m) => ({
-    default: m.InvestorDashboardView,
-  }))
-);
-
 const LandingPage = lazy(() =>
   import("@/features/landing-page").then((m) => ({
     default: m.LandingPageView,
@@ -101,12 +98,27 @@ const ResetPasswordPage = lazy(() =>
   }))
 );
 
+// ============================================================
+// INVESTOR DASHBOARD
+// PUBLIC - NO REQUIERE AUTENTICACIÓN
+// ============================================================
+
+const InvestorDashboardPage = lazy(() =>
+  import("@/features/investor-dashboard").then((m) => ({
+    default: m.InvestorDashboardView,
+  }))
+);
+
+// ============================================================
+// ROUTES
+// ============================================================
+
 export function AppRoutes() {
   return (
     <Routes>
-      {/* =========================================================
+      {/* ======================================================
           PUBLIC ROUTES
-          ========================================================= */}
+          ====================================================== */}
 
       <Route
         path="/login"
@@ -146,7 +158,12 @@ export function AppRoutes() {
 
       <Route
         path="/recuperar-password"
-        element={<Navigate to="/forgot-password" replace />}
+        element={
+          <Navigate
+            to="/forgot-password"
+            replace
+          />
+        }
       />
 
       <Route
@@ -161,7 +178,10 @@ export function AppRoutes() {
       <Route
         path="/reset-password"
         element={
-          <Navigate to="/restablecer-password" replace />
+          <Navigate
+            to="/restablecer-password"
+            replace
+          />
         }
       />
 
@@ -174,29 +194,42 @@ export function AppRoutes() {
         }
       />
 
-      {/* =========================================================
+      {/* ======================================================
+          INVESTOR DASHBOARD
+          
+          ESTA RUTA ES PÚBLICA.
+          NO ESTÁ DENTRO DE ProtectedRoute.
+          
+          URL:
+          /investors
+          ====================================================== */}
+
+      <Route
+        path="/investors"
+        element={
+          <Suspense fallback={<PageSkeleton />}>
+            <InvestorDashboardPage />
+          </Suspense>
+        }
+      />
+
+      {/* ======================================================
           PROTECTED ROUTES
-          ========================================================= */}
+          
+          Todo lo que esté dentro de este Route requiere
+          autenticación.
+          ====================================================== */}
 
       <Route element={<ProtectedRoute />}>
-        {/* =====================================================
-            INVESTOR DASHBOARD
-            ===================================================== */}
+        {/* ====================================================
+            MAIN APPLICATION
+            ==================================================== */}
 
         <Route
-          path="/investors"
-          element={
-            <Suspense fallback={<PageSkeleton />}>
-              <InvestorDashboardPage />
-            </Suspense>
-          }
-        />
-
-        {/* =====================================================
-            MAIN APPLICATION
-            ===================================================== */}
-
-        <Route path="/" element={<AppLayout />}>
+          path="/"
+          element={<AppLayout />}
+        >
+          {/* Dashboard */}
           <Route
             index
             element={
@@ -206,6 +239,7 @@ export function AppRoutes() {
             }
           />
 
+          {/* Insights */}
           <Route
             path="insights"
             element={
@@ -215,6 +249,7 @@ export function AppRoutes() {
             }
           />
 
+          {/* Cashflow */}
           <Route
             path="cashflow"
             element={
@@ -224,6 +259,7 @@ export function AppRoutes() {
             }
           />
 
+          {/* Subscription */}
           <Route
             path="subscription"
             element={
@@ -233,6 +269,7 @@ export function AppRoutes() {
             }
           />
 
+          {/* Manage Subscription */}
           <Route
             path="manage-subscription"
             element={
@@ -242,6 +279,7 @@ export function AppRoutes() {
             }
           />
 
+          {/* Profile */}
           <Route
             path="profile"
             element={
@@ -251,9 +289,9 @@ export function AppRoutes() {
             }
           />
 
-          {/* =================================================
+          {/* ==================================================
               ADMIN ROUTES
-              ================================================= */}
+              ================================================== */}
 
           <Route
             path="admin"
@@ -263,11 +301,18 @@ export function AppRoutes() {
               </Suspense>
             }
           >
+            {/* /admin → /admin/crm */}
             <Route
               index
-              element={<Navigate to="crm" replace />}
+              element={
+                <Navigate
+                  to="crm"
+                  replace
+                />
+              }
             />
 
+            {/* Admin CRM */}
             <Route
               path="crm"
               element={
@@ -277,6 +322,7 @@ export function AppRoutes() {
               }
             />
 
+            {/* Admin Operations */}
             <Route
               path="ops"
               element={

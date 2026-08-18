@@ -25,71 +25,89 @@ export function InvestorBusinessMetrics() {
   return (
     <section className="px-6 pb-20">
       <div className="mx-auto max-w-7xl">
-        <div className="rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-          <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
-            <div>
-              <p className="text-sm font-semibold uppercase tracking-[0.15em] text-amber-600">
-                Market
-              </p>
+        <div className="relative overflow-hidden rounded-[2rem] border border-slate-200 bg-white p-6 shadow-sm transition-colors duration-300 dark:border-slate-800 dark:bg-slate-950 sm:p-8">
+          {/* Decorative background */}
+          <div className="pointer-events-none absolute -right-32 -top-32 h-72 w-72 rounded-full bg-amber-200/20 blur-3xl dark:bg-amber-500/5" />
 
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-950 sm:text-3xl">
+          <div className="pointer-events-none absolute -bottom-32 -left-32 h-72 w-72 rounded-full bg-emerald-200/20 blur-3xl dark:bg-emerald-500/5" />
+
+          <div className="relative grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:items-center">
+            {/* Intro */}
+            <div>
+              <div className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold uppercase tracking-[0.15em] text-amber-700 transition-colors duration-300 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-400">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+
+                Market
+              </div>
+
+              <h2 className="mt-4 text-2xl font-bold tracking-tight text-slate-950 transition-colors duration-300 dark:text-white sm:text-3xl">
                 Diversificación del mercado
               </h2>
 
-              <p className="mt-4 max-w-lg text-sm leading-7 text-slate-500">
+              <p className="mt-4 max-w-lg text-sm leading-7 text-slate-500 transition-colors duration-300 dark:text-slate-400">
                 Luka está diseñado para acompañar diferentes tipos de
                 micronegocios y convertirse en una capa inteligente de
                 gestión para cada uno de ellos.
               </p>
 
+              {/* Total */}
               <div className="mt-8">
-                <p className="text-sm font-medium text-slate-500">
+                <p className="text-sm font-medium text-slate-500 transition-colors duration-300 dark:text-slate-400">
                   Negocios representados
                 </p>
 
-                <p className="mt-2 text-4xl font-bold tracking-tight text-slate-950">
-                  {total.toLocaleString("es-CO")}
-                </p>
+                <div className="mt-2 flex items-end gap-3">
+                  <p className="text-4xl font-bold tracking-tight text-slate-950 transition-colors duration-300 dark:text-white">
+                    {total.toLocaleString("es-CO")}
+                  </p>
+
+                  <span className="mb-1 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition-colors duration-300 dark:bg-emerald-950/40 dark:text-emerald-400">
+                    Activos
+                  </span>
+                </div>
               </div>
             </div>
 
+            {/* Business distribution */}
             <div className="space-y-5">
               {businessTypeData.map((business) => {
                 const Icon =
                   icons[business.name as keyof typeof icons] ?? BarChart3;
 
-                const percentage = Math.round(
-                  (business.value / total) * 100,
-                );
+                const percentage =
+                  total > 0
+                    ? Math.round((business.value / total) * 100)
+                    : 0;
 
                 return (
-                  <div key={business.name}>
+                  <div key={business.name} className="group">
                     <div className="mb-2 flex items-center justify-between">
                       <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600">
+                        <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-all duration-300 group-hover:bg-amber-50 group-hover:text-amber-600 dark:bg-slate-900 dark:text-slate-400 dark:group-hover:bg-amber-950/40 dark:group-hover:text-amber-400">
                           <Icon className="h-4 w-4" />
                         </div>
 
-                        <span className="text-sm font-semibold text-slate-700">
+                        <span className="text-sm font-semibold text-slate-700 transition-colors duration-300 dark:text-slate-300">
                           {business.name}
                         </span>
                       </div>
 
-                      <div className="text-sm font-semibold text-slate-950">
-                        {business.value}
+                      <div className="text-sm font-semibold text-slate-950 transition-colors duration-300 dark:text-white">
+                        {business.value.toLocaleString("es-CO")}
                       </div>
                     </div>
 
-                    <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                    {/* Progress */}
+                    <div className="h-2 overflow-hidden rounded-full bg-slate-100 transition-colors duration-300 dark:bg-slate-800">
                       <div
-                        className="h-full rounded-full bg-slate-900 transition-all"
+                        className="h-full rounded-full bg-slate-900 transition-all duration-700 ease-out group-hover:bg-emerald-500 dark:bg-slate-300 dark:group-hover:bg-emerald-400"
                         style={{
                           width: `${percentage}%`,
                         }}
                       />
                     </div>
 
-                    <p className="mt-1 text-right text-xs text-slate-400">
+                    <p className="mt-1 text-right text-xs text-slate-400 transition-colors duration-300 dark:text-slate-500">
                       {percentage}% del total
                     </p>
                   </div>
