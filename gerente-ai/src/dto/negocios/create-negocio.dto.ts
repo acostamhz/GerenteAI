@@ -5,17 +5,21 @@ export class CreateNegocioDto {
   @IsNotEmpty()
   nombre!: string;
 
+  // Contacto administrativo del negocio. La línea que atiende el bot vive en Sede.telefono,
+  // porque cada sede tiene su propio WhatsApp.
   @IsString()
-  @IsNotEmpty()
+  @IsOptional()
   @Matches(/^\+?[1-9]\d{6,14}$/, {
-    message: 'telefono debe ser un número válido en formato internacional',
+    message:
+      'telefonoContacto debe ser un número válido en formato internacional',
   })
-  telefono!: string;
+  telefonoContacto?: string;
 
   @IsString()
   @IsOptional()
   @Matches(/^\+?[1-9]\d{6,14}$/, {
-    message: 'telefonoSecundario debe ser un número válido en formato internacional',
+    message:
+      'telefonoSecundario debe ser un número válido en formato internacional',
   })
   telefonoSecundario?: string;
 
