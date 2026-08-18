@@ -194,16 +194,7 @@ export function AppRoutes() {
         }
       />
 
-      {/* ======================================================
-          INVESTOR DASHBOARD
-          
-          ESTA RUTA ES PÚBLICA.
-          NO ESTÁ DENTRO DE ProtectedRoute.
-          
-          URL:
-          /investors
-          ====================================================== */}
-
+      {/* Investor Dashboard público */}
       <Route
         path="/investors"
         element={
@@ -213,7 +204,7 @@ export function AppRoutes() {
         }
       />
 
-      {/* ======================================================
+      {/* =========================================================
           PROTECTED ROUTES
           
           Todo lo que esté dentro de este Route requiere
@@ -221,15 +212,11 @@ export function AppRoutes() {
           ====================================================== */}
 
       <Route element={<ProtectedRoute />}>
-        {/* ====================================================
+        {/* =====================================================
             MAIN APPLICATION
-            ==================================================== */}
+            ===================================================== */}
 
-        <Route
-          path="/"
-          element={<AppLayout />}
-        >
-          {/* Dashboard */}
+        <Route path="/" element={<AppLayout />}>
           <Route
             index
             element={

@@ -1,37 +1,79 @@
-import { PersonalDataCard } from "./components/PersonalDataCard";
-import { ApprovedPhonesCard } from "./components/ApprovedPhonesCard";
-import { BusinessListCard } from "./components/BusinessListCard";
+import { motion } from 'motion/react';
+import { IdentityHeroCard } from './components/IdentityHeroCard';
+import { QuickContactCard } from './components/QuickContactCard';
+import { BusinessBentoGrid } from './components/BusinessBentoGrid';
+import { WhatsAppChannelsCard } from './components/WhatsAppChannelsCard';
+import { useProfileData } from './hooks/useProfileData';
 
-export function ProfileView({ isAdmin }: { isAdmin: boolean }) {
+export function ProfileView({ isAdmin: _isAdmin }: { isAdmin?: boolean } = {}) {
+  const {
+    user,
+    negocios,
+    isLoadingNegocios,
+    isSavingUser,
+    actionError,
+    actionSuccess,
+    updateTelefono,
+    requestEmailChange,
+    createNegocio,
+    deleteNegocio,
+    clearFeedback,
+  } = useProfileData();
+
   return (
-    <div className="pb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
+    <div className="space-y-6 pb-16 max-w-7xl mx-auto">
+      {/* Top Breadcrumb / Page Title */}
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-black text-foreground tracking-tight">Mi Perfil</h1>
-          <p className="text-muted-foreground mt-1">Gestiona tu información personal y accesos</p>
+          <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+            Centro de Perfil & Negocios
+          </h1>
+          <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
+            Administra tu identidad, empresas registradas y canales autónomos de Inteligencia Artificial.
+          </p>
         </div>
       </div>
 
-      {/* Bento Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-6 auto-rows-[minmax(320px,auto)]">
-        
-        {/* Personal Data - Spans 8 columns */}
-        <div className="md:col-span-8">
-          <PersonalDataCard isAdmin={isAdmin} />
+      {/* Main 2-Column Asymmetric Bento Grid */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.35, ease: [0.22, 1, 0.36, 1] }}
+        className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start"
+      >
+        {/* Left Column (1/3 Width - Sticky Hero Card) */}
+        <div className="lg:col-span-4 lg:sticky lg:top-6 space-y-6">
+          <IdentityHeroCard
+            user={user}
+            isSavingUser={isSavingUser}
+            onRequestEmailChange={requestEmailChange}
+          />
         </div>
 
-        {/* Approved Phones - Spans 4 columns */}
-        <div className="md:col-span-4">
-          <ApprovedPhonesCard isAdmin={isAdmin} />
-        </div>
+        {/* Right Column (2/3 Width - Interactive Bento Hub) */}
+        <div className="lg:col-span-8 space-y-6">
+          {/* Bloque 1: Contacto Directo */}
+          <QuickContactCard
+            user={user}
+            isSavingUser={isSavingUser}
+            actionError={actionError}
+            actionSuccess={actionSuccess}
+            onUpdatePhone={updateTelefono}
+            onClearFeedback={clearFeedback}
+          />
 
-        {/* Businesses List - Spans 12 columns for admin (hero) or 12 for client (grid) */}
-        <div className="md:col-span-12">
-          <BusinessListCard isAdmin={isAdmin} />
-        </div>
+          {/* Bloque 2: Empresas Administradas */}
+          <BusinessBentoGrid
+            negocios={negocios}
+            isLoading={isLoadingNegocios}
+            onCreateNegocio={createNegocio}
+            onDeleteNegocio={deleteNegocio}
+          />
 
-      </div>
+          {/* Bloque 3: Canales WhatsApp & Bots */}
+          <WhatsAppChannelsCard />
+        </div>
+      </motion.div>
     </div>
   );
 }

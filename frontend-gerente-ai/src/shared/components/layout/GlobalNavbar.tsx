@@ -15,17 +15,20 @@ import {
   ChevronDown
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
+import { useAuth } from "@/features/auth";
 
 export function GlobalNavbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const isAdmin = location.pathname.startsWith("/admin");
+  const { user, logout } = useAuth();
+  const isAdmin = location.pathname.startsWith("/admin") || user?.rolGlobal === "MASTER";
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const handleLogout = () => {
     setIsDropdownOpen(false);
-    navigate("/login");
+    logout();
+    navigate("/login", { replace: true });
   };
 
   useEffect(() => {
@@ -123,7 +126,7 @@ export function GlobalNavbar() {
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               className="flex items-center gap-2 text-emerald-800 dark:text-emerald-100 hover:text-emerald-900 transition-colors bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 px-4 py-2 rounded-xl border border-emerald-500/20 shadow-sm cursor-pointer"
             >
-              José Meza <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              {user?.nombre || "José Meza"} <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isDropdownOpen && (

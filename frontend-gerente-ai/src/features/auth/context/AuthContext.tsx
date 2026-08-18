@@ -20,18 +20,55 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const TOKEN_KEY = 'access_token';
 const USER_KEY = 'user_session';
 
+/**
+ * Validador seguro de expiración de JWT en el cliente sin llamadas de red
+ */
+function isTokenExpired(jwtToken: string): boolean {
+  try {
+    const payloadBase64 = jwtToken.split('.')[1];
+    if (!payloadBase64) return true;
+    const normalized = payloadBase64.replace(/-/g, '+').replace(/_/g, '/');
+    const jsonPayload = decodeURIComponent(
+      atob(normalized)
+        .split('')
+        .map((c) => '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2))
+        .join('')
+    );
+    const decoded = JSON.parse(jsonPayload);
+    if (!decoded.exp) return false;
+    // Si expira en los próximos 10 segundos, considerarlo expirado
+    return decoded.exp * 1000 < Date.now() + 10000;
+  } catch {
+    return true;
+  }
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem(TOKEN_KEY));
+  const [token, setToken] = useState<string | null>(() => {
+    const savedToken = localStorage.getItem(TOKEN_KEY);
+    if (!savedToken || isTokenExpired(savedToken)) {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      return null;
+    }
+    return savedToken;
+  });
+
   const [user, setUser] = useState<AuthUser | null>(() => {
-    const saved = localStorage.getItem(USER_KEY);
-    if (!saved) return null;
+    const savedToken = localStorage.getItem(TOKEN_KEY);
+    if (!savedToken || isTokenExpired(savedToken)) {
+      return null;
+    }
+    const savedUser = localStorage.getItem(USER_KEY);
+    if (!savedUser) return null;
     try {
-      return JSON.parse(saved);
+      return JSON.parse(savedUser);
     } catch {
       return null;
     }
   });
-  const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const clearError = useCallback(() => {
@@ -46,41 +83,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
-  // Rehidratar sesión en el montaje inicial
+  // Rehidratación síncrona / Verificación de expiración al montar
   useEffect(() => {
-    let isMounted = true;
-
-    async function rehydrateSession() {
-      const storedToken = localStorage.getItem(TOKEN_KEY);
-      if (!storedToken) {
-        if (isMounted) setIsLoading(false);
-        return;
-      }
-
-      try {
-        const freshUser = await authApi.getMe();
-        if (isMounted) {
-          setUser(freshUser);
-          localStorage.setItem(USER_KEY, JSON.stringify(freshUser));
-        }
-      } catch (err) {
-        if (isMounted) {
-          // Si el token es inválido o expiró
-          logout();
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
+    const storedToken = localStorage.getItem(TOKEN_KEY);
+    if (!storedToken || isTokenExpired(storedToken)) {
+      logout();
     }
-
-    rehydrateSession();
-
-    return () => {
-      isMounted = false;
-    };
   }, [logout]);
+
+  // Sincronización multi-pestaña en el navegador (Multi-Tab Sync)
+  useEffect(() => {
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === TOKEN_KEY) {
+        if (!e.newValue) {
+          // Sesión cerrada en otra pestaña
+          setToken(null);
+          setUser(null);
+          window.location.href = '/login';
+        } else {
+          setToken(e.newValue);
+        }
+      }
+      if (e.key === USER_KEY) {
+        if (!e.newValue) {
+          setUser(null);
+        } else {
+          try {
+            setUser(JSON.parse(e.newValue));
+          } catch {
+            setUser(null);
+          }
+        }
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const login = async (credentials: LoginCredentials): Promise<AuthUser> => {
     setIsLoading(true);
