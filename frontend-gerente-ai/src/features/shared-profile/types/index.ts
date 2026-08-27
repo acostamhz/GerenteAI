@@ -12,7 +12,8 @@ export interface Negocio {
 
 export interface CreateNegocioDto {
   nombre: string;
-  telefono: string;
+  telefonoContacto?: string;
+  telefono?: string;
   telefonoSecundario?: string;
   contexto?: string;
 }

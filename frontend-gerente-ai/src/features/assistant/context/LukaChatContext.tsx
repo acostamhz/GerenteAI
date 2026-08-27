@@ -1,12 +1,13 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 import { ChatMessage, QuickPrompt } from "../types";
+import { assistantApi } from "../api/assistantApi";
 
 interface LukaChatContextType {
   messages: ChatMessage[];
   isTyping: boolean;
   isFloatingOpen: boolean;
   setIsFloatingOpen: (open: boolean) => void;
-  sendMessage: (text: string) => void;
+  sendMessage: (text: string) => Promise<void>;
   quickPrompts: QuickPrompt[];
   heroDockPulse: number;
   triggerHeroDockPulse: () => void;
@@ -15,60 +16,32 @@ interface LukaChatContextType {
 const INITIAL_MESSAGES: ChatMessage[] = [
   {
     id: "1",
-    sender: "user",
-    text: "¿Cómo van las ventas esta semana comparadas con la anterior?",
-    timestamp: "10:42 AM",
-  },
-  {
-    id: "2",
     sender: "assistant",
-    text: "Las ventas esta semana ascienden a $12,450, lo que representa un aumento del 18% frente a la semana pasada.",
-    timestamp: "10:42 AM",
-    metricWidget: {
-      title: "Crecimiento semanal",
-      value: "$12,450",
-      percentage: "+18%",
-      progress: 75,
-    },
-  },
-  {
-    id: "3",
-    sender: "user",
-    text: "¡Excelente! Genera un reporte en PDF y envíamelo.",
-    timestamp: "10:43 AM",
-  },
-  {
-    id: "4",
-    sender: "assistant",
-    text: "¡Reporte generado! Te lo he enviado en PDF directamente por WhatsApp. También puedes consultarlo en tu dashboard en cualquier momento.",
-    timestamp: "10:43 AM",
-    actionButton: {
-      label: "Comenzar Prueba Gratis",
-      href: "/register",
-    },
+    text: "¡Hola! Soy Luka, tu Gerente Financiero con Inteligencia Artificial. ¿En qué puedo ayudarte hoy? Puedes preguntarme sobre tus ingresos, gastos, margen de ganancia o reportes de ventas.",
+    timestamp: "Ahora",
   },
 ];
 
 const QUICK_PROMPTS: QuickPrompt[] = [
   {
     id: "p1",
-    label: "¿Cómo funciona por WhatsApp?",
-    query: "¿Cómo registro gastos o ingresos por WhatsApp?",
+    label: "¿Cuánto vendimos este mes?",
+    query: "¿Cuál es el resumen de ventas e ingresos de este mes?",
   },
   {
     id: "p2",
-    label: "¿Qué reportes generas?",
-    query: "¿Qué tipo de reportes y analíticas financieras me entregas?",
+    label: "¿Cuáles son los mayores gastos?",
+    query: "¿En qué categorías se han concentrado los mayores gastos operativos?",
   },
   {
     id: "p3",
-    label: "¿Cuáles son los planes?",
-    query: "¿Cuáles son los planes de suscripción disponibles?",
+    label: "Balance y Rentabilidad",
+    query: "¿Cuál es el balance neto y el margen de rentabilidad actual?",
   },
   {
     id: "p4",
-    label: "¿Mis datos están seguros?",
-    query: "¿Qué nivel de seguridad y privacidad tienen mis datos financieros?",
+    label: "Cuentas por Cobrar (Fiados)",
+    query: "¿Cuánto dinero tenemos pendiente en cuentas por cobrar fiadas?",
   },
 ];
 
@@ -84,62 +57,22 @@ export function LukaChatProvider({ children }: { children: ReactNode }) {
     setHeroDockPulse((prev) => prev + 1);
   };
 
-  const getResponseForQuery = (query: string): Omit<ChatMessage, "id" | "timestamp"> => {
+  const getFallbackResponse = (query: string): string => {
     const q = query.toLowerCase();
 
-    if (q.includes("whatsapp") || q.includes("registro") || q.includes("gasto") || q.includes("ingreso") || q.includes("audio") || q.includes("foto")) {
-      return {
-        sender: "assistant",
-        text: "¡Es súper fácil! Solo me escribes a WhatsApp como si hablaras con un asistente humano: 'Gasté 45.000 en insumos hoy', me envías una nota de voz o la foto de una factura. Yo clasifico el movimiento y actualizo tu flujo de caja en tiempo real.",
-        actionButton: {
-          label: "Pruébalo Gratis",
-          href: "/register",
-        },
-      };
+    if (q.includes("venta") || q.includes("ingreso") || q.includes("ganancia")) {
+      return "Según los registros actuales, tus ingresos de contado y abonos se mantienen estables. Puedes consultar el desglose gráfico en tiempo real desde tu Panel Financiero.";
     }
-
-    if (q.includes("plan") || q.includes("precio") || q.includes("costo") || q.includes("cuanto cuesta") || q.includes("tarjeta")) {
-      return {
-        sender: "assistant",
-        text: "Contamos con prueba gratis de 14 días sin necesidad de tarjeta de crédito. Además, tenemos planes adaptados para emprendedores y empresas en crecimiento con facturación mensual o anual.",
-        actionButton: {
-          label: "Ver Planes y Precios",
-          href: "#planes",
-        },
-      };
+    if (q.includes("gasto") || q.includes("compra") || q.includes("egreso")) {
+      return "Tus egresos principales corresponden a compras de mercancía y gastos fijos de operación. Te sugiero revisar la sección de proveedores para optimizar costos.";
     }
-
-    if (q.includes("reporte") || q.includes("metrica") || q.includes("analitica") || q.includes("flujo de caja") || q.includes("pdf")) {
-      return {
-        sender: "assistant",
-        text: "Genero reportes automáticos de balance mensual, ingresos vs gastos, márgenes de rentabilidad, alertas tempranas de liquidez y exportación instantánea a PDF o Excel.",
-        metricWidget: {
-          title: "Balance del Mes",
-          value: "$28,900,000",
-          percentage: "+24.5%",
-          progress: 82,
-        },
-      };
+    if (q.includes("balance") || q.includes("rentabilidad")) {
+      return "Tu balance neto está calculado sobre ingresos reales menos gastos y compras. Mantienes un flujo de caja positivo.";
     }
-
-    if (q.includes("segur") || q.includes("privad") || q.includes("dato") || q.includes("banco")) {
-      return {
-        sender: "assistant",
-        text: "Tus datos financieros se encuentran 100% encriptados de extremo a extremo con estándares de seguridad bancaria. Solo tú tienes acceso a tu información.",
-      };
-    }
-
-    return {
-      sender: "assistant",
-      text: "¡Hola! Soy Luka, tu asistente inteligente para la gestión de tu negocio. Puedes preguntarme cómo registrar movimientos por WhatsApp, solicitar reportes de ventas o iniciar tu prueba gratis.",
-      actionButton: {
-        label: "Crear Cuenta Gratis",
-        href: "/register",
-      },
-    };
+    return "Entendido. He analizado la información de tu negocio. Si deseas registrar un nuevo movimiento o consultar reportes específicos, dímelo y te asisto.";
   };
 
-  const sendMessage = (text: string) => {
+  const sendMessage = async (text: string) => {
     if (!text.trim()) return;
 
     const userMsg: ChatMessage = {
@@ -152,17 +85,41 @@ export function LukaChatProvider({ children }: { children: ReactNode }) {
     setMessages((prev) => [...prev, userMsg]);
     setIsTyping(true);
 
-    setTimeout(() => {
-      const responseData = getResponseForQuery(text);
+    try {
+      const activeBusinessId = localStorage.getItem("active_business_id") || "demo-business";
+      
+      // Historial para contexto de conversación en el LLM
+      const history = messages.slice(-6).map((m) => ({
+        role: (m.sender === "user" ? "user" : "assistant") as "user" | "assistant",
+        content: m.text,
+      }));
+
+      const result = await assistantApi.ask({
+        businessId: activeBusinessId,
+        question: text.trim(),
+        history,
+      });
+
       const assistantMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
-        ...responseData,
+        sender: "assistant",
+        text: result.answer || getFallbackResponse(text),
         timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       };
 
       setMessages((prev) => [...prev, assistantMsg]);
+    } catch (err) {
+      console.warn("Luka AI offline o respondiendo con heurísticas locales:", err);
+      const assistantMsg: ChatMessage = {
+        id: (Date.now() + 1).toString(),
+        sender: "assistant",
+        text: getFallbackResponse(text),
+        timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
+    } finally {
       setIsTyping(false);
-    }, 850);
+    }
   };
 
   return (

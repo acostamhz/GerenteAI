@@ -1,7 +1,5 @@
+export { LukaFloatingChat } from "./components/LukaFloatingChat";
+export { LukaHeroChat } from "./components/LukaHeroChat";
+export { LukaChatProvider, useLukaChat } from "./context/LukaChatContext";
 export * from "./types";
-export * from "./context/LukaChatContext";
-export * from "./components/LukaHeroChat";
-export * from "./components/LukaFloatingChat";
-export * from "./components/AssistantQuickPrompts";
-export * from "./components/ChatMessageItem";
-export * from "./components/ChatInput";
+export { assistantApi } from "./api/assistantApi";
