@@ -12,18 +12,50 @@ import {
   CreditCard,
   ShieldCheck,
   LogOut,
-  ChevronDown
+  ChevronDown,
+  Building2,
+  Check
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/features/auth";
+import { apiClient } from "@/lib/apiClient";
+
+interface NegocioItem {
+  id: string;
+  nombre: string;
+}
+
+interface UsuarioMeResponse {
+  id: string;
+  nombre: string;
+  email: string;
+  rolGlobal: string;
+  negocios: Array<{
+    negocio: {
+      id: string;
+      nombre: string;
+    };
+  }>;
+}
 
 export function GlobalNavbar() {
   const location = useLocation();
   const navigate = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, token } = useAuth();
   const isAdmin = location.pathname.startsWith("/admin") || user?.rolGlobal === "MASTER";
+  
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isBusinessDropdownOpen, setIsBusinessDropdownOpen] = useState(false);
+  const [negocios, setNegocios] = useState<NegocioItem[]>([]);
+  const [activeBusinessName, setActiveBusinessName] = useState<string>(() => {
+    return localStorage.getItem('active_business_name') || 'Mi Negocio';
+  });
+  const [activeBusinessId, setActiveBusinessId] = useState<string>(() => {
+    return localStorage.getItem('active_business_id') || '';
+  });
+
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const businessDropdownRef = useRef<HTMLDivElement>(null);
 
   const handleLogout = () => {
     setIsDropdownOpen(false);
@@ -31,10 +63,61 @@ export function GlobalNavbar() {
     navigate("/login", { replace: true });
   };
 
+  // Cargar exclusivamente los negocios a los que este usuario tiene permiso
+  useEffect(() => {
+    if (!token) return;
+
+    apiClient<UsuarioMeResponse>('/auth/usuarios/me')
+      .then((data) => {
+        const userBusinesses = data.negocios?.map((n) => n.negocio) || [];
+        if (userBusinesses.length > 0) {
+          setNegocios(userBusinesses);
+          const savedId = localStorage.getItem('active_business_id');
+          const matched = userBusinesses.find((n) => n.id === savedId) || userBusinesses[0];
+          
+          setActiveBusinessId(matched.id);
+          setActiveBusinessName(matched.nombre);
+          localStorage.setItem('active_business_id', matched.id);
+          localStorage.setItem('active_business_name', matched.nombre);
+        } else {
+          setNegocios([]);
+          setActiveBusinessName('Sin Negocio');
+        }
+      })
+      .catch((err) => {
+        console.warn('No se pudieron cargar los negocios en el navbar:', err);
+      });
+  }, [token]);
+
+  // Escuchar cambios de negocio entre componentes
+  useEffect(() => {
+    const handleBusinessSync = () => {
+      const savedName = localStorage.getItem('active_business_name');
+      const savedId = localStorage.getItem('active_business_id');
+      if (savedName) setActiveBusinessName(savedName);
+      if (savedId) setActiveBusinessId(savedId);
+    };
+
+    window.addEventListener('business_changed', handleBusinessSync);
+    return () => window.removeEventListener('business_changed', handleBusinessSync);
+  }, []);
+
+  const handleSelectBusiness = (negocio: NegocioItem) => {
+    setActiveBusinessId(negocio.id);
+    setActiveBusinessName(negocio.nombre);
+    localStorage.setItem('active_business_id', negocio.id);
+    localStorage.setItem('active_business_name', negocio.nombre);
+    setIsBusinessDropdownOpen(false);
+    window.dispatchEvent(new Event('business_changed'));
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
         setIsDropdownOpen(false);
+      }
+      if (businessDropdownRef.current && !businessDropdownRef.current.contains(event.target as Node)) {
+        setIsBusinessDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -112,12 +195,45 @@ export function GlobalNavbar() {
           </nav>
         </div>
 
-        {/* Right: Context Selectors (El Virrey & Jose Mesa) */}
+        {/* Right: Context Selectors (Business Dropdown & User Profile) */}
         <div className="flex items-center gap-4 text-sm font-semibold">
           {!isAdmin && (
-            <button className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 px-3 py-1.5 rounded-lg border border-border cursor-pointer">
-              El Virrey <ChevronDown className="w-3 h-3 text-muted-foreground/60" />
-            </button>
+            <div className="relative" ref={businessDropdownRef}>
+              <button
+                onClick={() => setIsBusinessDropdownOpen(!isBusinessDropdownOpen)}
+                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
+              >
+                <Building2 className="w-3.5 h-3.5 text-emerald-500" />
+                <span>{activeBusinessName}</span>
+                <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isBusinessDropdownOpen ? 'rotate-180' : ''}`} />
+              </button>
+
+              {isBusinessDropdownOpen && (
+                <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-lg py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                  <div className="px-4 py-2 border-b border-border text-xs font-bold text-muted-foreground uppercase">
+                    Tus Negocios
+                  </div>
+                  {negocios.length > 0 ? (
+                    negocios.map((negocio) => (
+                      <button
+                        key={negocio.id}
+                        onClick={() => handleSelectBusiness(negocio)}
+                        className={`w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer ${
+                          activeBusinessId === negocio.id ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
+                        }`}
+                      >
+                        <span className="truncate">{negocio.nombre}</span>
+                        {activeBusinessId === negocio.id && <Check className="w-4 h-4 text-emerald-500" />}
+                      </button>
+                    ))
+                  ) : (
+                    <div className="px-4 py-3 text-xs text-muted-foreground">
+                      No tienes comercios registrados.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           )}
 
           {/* User Dropdown */}
@@ -126,7 +242,7 @@ export function GlobalNavbar() {
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
               className="flex items-center gap-2 text-emerald-800 dark:text-emerald-100 hover:text-emerald-900 transition-colors bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 px-4 py-2 rounded-xl border border-emerald-500/20 shadow-sm cursor-pointer"
             >
-              {user?.nombre || "José Meza"} <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              {user?.nombre || "Usuario"} <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
             </button>
 
             {isDropdownOpen && (
