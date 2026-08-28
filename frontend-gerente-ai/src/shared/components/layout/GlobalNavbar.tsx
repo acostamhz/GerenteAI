@@ -14,15 +14,27 @@ import {
   LogOut,
   ChevronDown,
   Building2,
-  Check
+  MapPin,
+  Check,
+  Layers
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/features/auth";
 import { apiClient } from "@/lib/apiClient";
+import { profileApi } from "@/features/shared-profile/api/profileApi";
 
 interface NegocioItem {
   id: string;
   nombre: string;
+}
+
+interface SedeItem {
+  id: string;
+  nombre: string;
+  negocioId: string;
+  direccion?: string | null;
+  telefono?: string | null;
+  whatsappUsername?: string | null;
 }
 
 interface UsuarioMeResponse {
@@ -46,7 +58,11 @@ export function GlobalNavbar() {
   
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [isBusinessDropdownOpen, setIsBusinessDropdownOpen] = useState(false);
+  const [isSedeDropdownOpen, setIsSedeDropdownOpen] = useState(false);
+
   const [negocios, setNegocios] = useState<NegocioItem[]>([]);
+  const [sedes, setSedes] = useState<SedeItem[]>([]);
+
   const [activeBusinessName, setActiveBusinessName] = useState<string>(() => {
     return localStorage.getItem('active_business_name') || 'Mi Negocio';
   });
@@ -54,13 +70,62 @@ export function GlobalNavbar() {
     return localStorage.getItem('active_business_id') || '';
   });
 
+  const [activeSedeName, setActiveSedeName] = useState<string>(() => {
+    return localStorage.getItem('active_sede_name') || 'Todas las Sedes';
+  });
+  const [activeSedeId, setActiveSedeId] = useState<string>(() => {
+    return localStorage.getItem('active_sede_id') || 'all';
+  });
+
   const dropdownRef = useRef<HTMLDivElement>(null);
   const businessDropdownRef = useRef<HTMLDivElement>(null);
+  const sedeDropdownRef = useRef<HTMLDivElement>(null);
 
   const handleLogout = () => {
     setIsDropdownOpen(false);
     logout();
     navigate("/login", { replace: true });
+  };
+
+  // Cargar sedes para un negocio dado
+  const loadSedesForBusiness = async (negocioId: string) => {
+    if (!negocioId) {
+      setSedes([]);
+      return;
+    }
+    try {
+      const data = await profileApi.getSedes(negocioId);
+      setSedes(data || []);
+
+      const savedSedeId = localStorage.getItem('active_sede_id');
+      if (savedSedeId === 'all' || !savedSedeId) {
+        setActiveSedeId('all');
+        setActiveSedeName('Todas las Sedes');
+        localStorage.setItem('active_sede_id', 'all');
+        localStorage.setItem('active_sede_name', 'Todas las Sedes');
+      } else {
+        const found = (data || []).find((s: SedeItem) => s.id === savedSedeId);
+        if (found) {
+          setActiveSedeId(found.id);
+          setActiveSedeName(found.nombre);
+          localStorage.setItem('active_sede_id', found.id);
+          localStorage.setItem('active_sede_name', found.nombre);
+        } else if (data && data.length > 0) {
+          setActiveSedeId(data[0].id);
+          setActiveSedeName(data[0].nombre);
+          localStorage.setItem('active_sede_id', data[0].id);
+          localStorage.setItem('active_sede_name', data[0].nombre);
+        } else {
+          setActiveSedeId('all');
+          setActiveSedeName('Todas las Sedes');
+          localStorage.setItem('active_sede_id', 'all');
+          localStorage.setItem('active_sede_name', 'Todas las Sedes');
+        }
+      }
+    } catch (err) {
+      console.warn('Error cargando sedes para el negocio:', err);
+      setSedes([]);
+    }
   };
 
   // Cargar exclusivamente los negocios a los que este usuario tiene permiso
@@ -78,12 +143,14 @@ export function GlobalNavbar() {
           setActiveBusinessId(matched.id);
           setActiveBusinessName(matched.nombre);
           localStorage.setItem('active_business_id', matched.id);
-      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
-      localStorage.removeItem('active_sede_id');
           localStorage.setItem('active_business_name', matched.nombre);
+
+          loadSedesForBusiness(matched.id);
         } else {
           setNegocios([]);
+          setSedes([]);
           setActiveBusinessName('Sin Negocio');
+          setActiveSedeName('Sin Sede');
         }
       })
       .catch((err) => {
@@ -91,28 +158,53 @@ export function GlobalNavbar() {
       });
   }, [token]);
 
-  // Escuchar cambios de negocio entre componentes
+  // Escuchar cambios de negocio o sede entre componentes
   useEffect(() => {
     const handleBusinessSync = () => {
       const savedName = localStorage.getItem('active_business_name');
       const savedId = localStorage.getItem('active_business_id');
       if (savedName) setActiveBusinessName(savedName);
-      if (savedId) setActiveBusinessId(savedId);
+      if (savedId && savedId !== activeBusinessId) {
+        setActiveBusinessId(savedId);
+        loadSedesForBusiness(savedId);
+      }
+    };
+
+    const handleSedeSync = () => {
+      const savedSedeName = localStorage.getItem('active_sede_name');
+      const savedSedeId = localStorage.getItem('active_sede_id');
+      if (savedSedeName) setActiveSedeName(savedSedeName);
+      if (savedSedeId) setActiveSedeId(savedSedeId);
     };
 
     window.addEventListener('business_changed', handleBusinessSync);
-    return () => window.removeEventListener('business_changed', handleBusinessSync);
-  }, []);
+    window.addEventListener('sede_changed', handleSedeSync);
+    return () => {
+      window.removeEventListener('business_changed', handleBusinessSync);
+      window.removeEventListener('sede_changed', handleSedeSync);
+    };
+  }, [activeBusinessId]);
 
   const handleSelectBusiness = (negocio: NegocioItem) => {
     setActiveBusinessId(negocio.id);
     setActiveBusinessName(negocio.nombre);
     localStorage.setItem('active_business_id', negocio.id);
-      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
-      localStorage.removeItem('active_sede_id');
     localStorage.setItem('active_business_name', negocio.nombre);
     setIsBusinessDropdownOpen(false);
-    window.dispatchEvent(new Event('business_changed'));
+
+    loadSedesForBusiness(negocio.id).then(() => {
+      window.dispatchEvent(new Event('business_changed'));
+      window.dispatchEvent(new Event('sede_changed'));
+    });
+  };
+
+  const handleSelectSede = (sedeId: string, nombre: string) => {
+    setActiveSedeId(sedeId);
+    setActiveSedeName(nombre);
+    localStorage.setItem('active_sede_id', sedeId);
+    localStorage.setItem('active_sede_name', nombre);
+    setIsSedeDropdownOpen(false);
+    window.dispatchEvent(new Event('sede_changed'));
   };
 
   useEffect(() => {
@@ -122,6 +214,9 @@ export function GlobalNavbar() {
       }
       if (businessDropdownRef.current && !businessDropdownRef.current.contains(event.target as Node)) {
         setIsBusinessDropdownOpen(false);
+      }
+      if (sedeDropdownRef.current && !sedeDropdownRef.current.contains(event.target as Node)) {
+        setIsSedeDropdownOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -199,44 +294,116 @@ export function GlobalNavbar() {
           </nav>
         </div>
 
-        {/* Right: Context Selectors (Business Dropdown & User Profile) */}
-        <div className="flex items-center gap-4 text-sm font-semibold">
+        {/* Right: Context Selectors (Business Dropdown, Sede Dropdown & User Profile) */}
+        <div className="flex items-center gap-2.5 text-sm font-semibold">
           {!isAdmin && (
-            <div className="relative" ref={businessDropdownRef}>
-              <button
-                onClick={() => setIsBusinessDropdownOpen(!isBusinessDropdownOpen)}
-                className="flex items-center gap-2 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
-              >
-                <Building2 className="w-3.5 h-3.5 text-emerald-500" />
-                <span>{activeBusinessName}</span>
-                <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isBusinessDropdownOpen ? 'rotate-180' : ''}`} />
-              </button>
+            <div className="flex items-center gap-1.5">
+              {/* 🏢 1. Selector de Negocio / Empresa */}
+              <div className="relative" ref={businessDropdownRef}>
+                <button
+                  onClick={() => {
+                    setIsBusinessDropdownOpen(!isBusinessDropdownOpen);
+                    setIsSedeDropdownOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 hover:bg-muted/80 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
+                  title="Empresa o Comercio Activo"
+                >
+                  <Building2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  <span className="max-w-[120px] truncate">{activeBusinessName}</span>
+                  <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isBusinessDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
 
-              {isBusinessDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-lg py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                  <div className="px-4 py-2 border-b border-border text-xs font-bold text-muted-foreground uppercase">
-                    Tus Negocios
-                  </div>
-                  {negocios.length > 0 ? (
-                    negocios.map((negocio) => (
-                      <button
-                        key={negocio.id}
-                        onClick={() => handleSelectBusiness(negocio)}
-                        className={`w-full flex items-center justify-between px-4 py-2.5 text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer ${
-                          activeBusinessId === negocio.id ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
-                        }`}
-                      >
-                        <span className="truncate">{negocio.nombre}</span>
-                        {activeBusinessId === negocio.id && <Check className="w-4 h-4 text-emerald-500" />}
-                      </button>
-                    ))
-                  ) : (
-                    <div className="px-4 py-3 text-xs text-muted-foreground">
-                      No tienes comercios registrados.
+                {isBusinessDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                    <div className="px-4 py-2 border-b border-border text-[11px] font-bold text-muted-foreground uppercase flex items-center justify-between">
+                      <span>Tus Empresas</span>
+                      <Building2 className="w-3.5 h-3.5 text-emerald-500" />
                     </div>
-                  )}
-                </div>
-              )}
+                    {negocios.length > 0 ? (
+                      negocios.map((negocio) => (
+                        <button
+                          key={negocio.id}
+                          onClick={() => handleSelectBusiness(negocio)}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer ${
+                            activeBusinessId === negocio.id ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
+                          }`}
+                        >
+                          <span className="truncate">{negocio.nombre}</span>
+                          {activeBusinessId === negocio.id && <Check className="w-4 h-4 text-emerald-500" />}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-4 py-3 text-xs text-muted-foreground">
+                        No tienes comercios registrados.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* 📍 2. Selector de Sede / Sucursal */}
+              <div className="relative" ref={sedeDropdownRef}>
+                <button
+                  onClick={() => {
+                    setIsSedeDropdownOpen(!isSedeDropdownOpen);
+                    setIsBusinessDropdownOpen(false);
+                  }}
+                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 hover:bg-muted/80 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
+                  title="Sede o Sucursal Activa"
+                >
+                  <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  <span className="max-w-[110px] truncate">{activeSedeName}</span>
+                  <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isSedeDropdownOpen ? 'rotate-180' : ''}`} />
+                </button>
+
+                {isSedeDropdownOpen && (
+                  <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                    <div className="px-4 py-2 border-b border-border text-[11px] font-bold text-muted-foreground uppercase flex items-center justify-between">
+                      <span>Sedes de {activeBusinessName}</span>
+                      <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                    </div>
+
+                    {/* Opción Consolidado (Todas las Sedes) */}
+                    <button
+                      onClick={() => handleSelectSede('all', 'Todas las Sedes')}
+                      className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer border-b border-border/50 ${
+                        activeSedeId === 'all' ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Layers className="w-3.5 h-3.5 text-emerald-500" />
+                        <span>Todas las Sedes (Consolidado)</span>
+                      </div>
+                      {activeSedeId === 'all' && <Check className="w-4 h-4 text-emerald-500" />}
+                    </button>
+
+                    {/* Sedes Individuales */}
+                    {sedes.length > 0 ? (
+                      sedes.map((sede) => (
+                        <button
+                          key={sede.id}
+                          onClick={() => handleSelectSede(sede.id, sede.nombre)}
+                          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer ${
+                            activeSedeId === sede.id ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
+                          }`}
+                        >
+                          <div className="truncate">
+                            <div className="truncate font-semibold">{sede.nombre}</div>
+                            {sede.direccion && (
+                              <div className="text-[10px] text-muted-foreground truncate">{sede.direccion}</div>
+                            )}
+                          </div>
+                          {activeSedeId === sede.id && <Check className="w-4 h-4 text-emerald-500 shrink-0 ml-2" />}
+                        </button>
+                      ))
+                    ) : (
+                      <div className="px-4 py-3 text-xs text-muted-foreground">
+                        No hay sucursales registradas para esta empresa.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 

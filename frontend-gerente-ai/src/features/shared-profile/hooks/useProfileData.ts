@@ -78,16 +78,32 @@ export function useProfileData() {
     }
   };
 
-  // Crear un nuevo negocio
-  const createNegocio = async (dto: CreateNegocioDto) => {
+  // Crear un nuevo negocio con su sede inicial
+  const createNegocio = async (dto: any) => {
     setActionError(null);
     setActionSuccess(null);
 
     try {
-      const nuevoNegocio = await profileApi.createNegocio(dto);
-      setNegocios((prev) => [nuevoNegocio, ...prev]);
-      setActionSuccess(`Negocio "${nuevoNegocio.nombre}" creado exitosamente.`);
-      return nuevoNegocio;
+      const { negocio, sede } = await profileApi.createNegocioConSede({
+        nombre: dto.nombre,
+        telefonoContacto: dto.telefonoContacto || undefined,
+        telefonoSecundario: dto.telefonoSecundario || undefined,
+        nombreSede: dto.nombreSede || 'Sede Principal',
+        direccionSede: dto.direccionSede || undefined,
+        whatsappPhone: dto.whatsappPhone || dto.telefono || undefined,
+        whatsappUsername: dto.whatsappUsername || undefined,
+      });
+      setNegocios((prev) => [negocio, ...prev]);
+      if (sede?.id) {
+        localStorage.setItem('active_sede_id', sede.id);
+        localStorage.setItem('active_sede_name', sede.nombre || dto.nombreSede || 'Sede Principal');
+      }
+      localStorage.setItem('active_business_id', negocio.id);
+      localStorage.setItem('active_business_name', negocio.nombre);
+      window.dispatchEvent(new Event('business_changed'));
+      window.dispatchEvent(new Event('sede_changed'));
+      setActionSuccess(`Empresa "${negocio.nombre}" creada exitosamente con su sede.`);
+      return negocio;
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : 'Error al crear el negocio';
       setActionError(msg);
