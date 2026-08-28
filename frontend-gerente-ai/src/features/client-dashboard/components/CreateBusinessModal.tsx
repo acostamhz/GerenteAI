@@ -43,6 +43,8 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
 
       // Persistir como negocio activo
       localStorage.setItem('active_business_id', newNegocio.id);
+      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
+      localStorage.removeItem('active_sede_id');
       localStorage.setItem('active_business_name', newNegocio.nombre);
 
       // Notificar a toda la aplicación

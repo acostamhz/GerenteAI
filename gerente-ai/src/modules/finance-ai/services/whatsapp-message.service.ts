@@ -319,6 +319,7 @@ const INTENT_TYPES: MessageIntentType[] = [
   'query',
   'correction',
   'unclear',
+  'out_of_scope',
 ];
 
 const TRANSACTION_TYPES: TransactionType[] = [
@@ -379,6 +380,8 @@ function normalizeConfidence(
   }
 
   if (intent.type === 'unclear') return 0.3;
+  // Reconocer que algo NO es del dominio suele ser facil: no es una duda.
+  if (intent.type === 'out_of_scope') return 0.9;
   if (intent.type === 'query') return 0.85;
   if (intent.type === 'correction') return 0.6;
   if (intent.amount === null) return 0.4;

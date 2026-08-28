@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { FinanceAiModule } from '../finance-ai/finance-ai.module';
+import { PlanesModule } from '../planes.module';
 import { MessageDedupeService } from './services/message-dedupe.service';
 import { WhatsappInterpretService } from './services/whatsapp-interpret.service';
 import { WhatsappRoutingService } from './services/whatsapp-routing.service';
@@ -14,10 +15,13 @@ import { WhatsappController } from './whatsapp.controller';
  * mundo de n8n/Meta (telefonos, wamid, texto plano) y el dominio del backend
  * (sedes, movimientos, intenciones).
  *
+ * `PlanesModule` aporta `PlanesService`, que traduce el plan del negocio a la
+ * cuota de IA que le corresponde (y aplica el vencimiento).
+ *
  * `PrismaService` no se importa: `PrismaModule` es @Global.
  */
 @Module({
-  imports: [FinanceAiModule],
+  imports: [FinanceAiModule, PlanesModule],
   controllers: [WhatsappController],
   providers: [
     WhatsappInterpretService,

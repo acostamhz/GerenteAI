@@ -1,9 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
-import { Eye, EyeOff, Loader2, Building2, User, Mail, Phone, Lock, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Eye, EyeOff, Loader2, Building2, User, Mail, Phone, Lock, AlertCircle, CheckCircle2, MessageCircle } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/app/components/ui/button";
+import { lukaWhatsappUrl } from "@/lib/whatsapp";
 import { useAuth } from "../hooks/useAuth";
+
+/** Segundos antes de mandar al usuario a WhatsApp. Da tiempo a leer la pantalla. */
+const SEGUNDOS_PARA_WHATSAPP = 4;
 
 export function RegisterForm() {
   const navigate = useNavigate();
@@ -23,6 +27,9 @@ export function RegisterForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  /** Si el login automático funcionó, el usuario ya tiene sesión abierta. */
+  const [sesionIniciada, setSesionIniciada] = useState(false);
+  const [cuenta, setCuenta] = useState(SEGUNDOS_PARA_WHATSAPP);
 
   // Limpiar errores residuales al montar o desmontar la vista
   useEffect(() => {
@@ -32,6 +39,26 @@ export function RegisterForm() {
       clearError();
     };
   }, [clearError]);
+
+  /**
+   * Tras registrarse, el usuario termina en WhatsApp con Luka.
+   *
+   * Se usa una redirección de la pestaña actual y no `window.open`: un popup
+   * lanzado después de un `await` lo bloquea el navegador, y el usuario se
+   * quedaría mirando una pantalla sin entender que debía seguir en WhatsApp.
+   * La cuenta regresiva deja leer el mensaje y da salida a quien prefiera el panel.
+   */
+  useEffect(() => {
+    if (!success) return;
+
+    if (cuenta <= 0) {
+      window.location.href = lukaWhatsappUrl('Hola Luka, acabo de registrarme');
+      return;
+    }
+
+    const t = setTimeout(() => setCuenta((s) => s - 1), 1000);
+    return () => clearTimeout(t);
+  }, [success, cuenta]);
 
   const calculatePasswordStrength = (pass: string) => {
     if (!pass) return { score: 0, label: "", color: "bg-border" };
@@ -112,10 +139,15 @@ export function RegisterForm() {
           email: formData.email,
           password: formData.password,
         });
-        navigate('/', { replace: true });
+        setSesionIniciada(true);
       } catch {
-        setSuccess(true);
+        // La cuenta quedó creada; solo falta que verifique el correo.
+        setSesionIniciada(false);
       }
+
+      // 3. Luka vive en WhatsApp: el registro termina llevando al usuario allá.
+      //    No se navega al dashboard de inmediato para no perder ese hilo.
+      setSuccess(true);
     } catch (err) {
       // Error manejado por AuthContext
     }
@@ -135,12 +167,30 @@ export function RegisterForm() {
             Hemos enviado un correo de confirmación a <span className="font-semibold text-foreground">{formData.email}</span>.
           </p>
         </div>
-        <Button
-          onClick={() => navigate('/login')}
-          className="w-full py-5 text-base font-bold rounded-xl"
+
+        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-3">
+          <p className="text-sm font-bold text-foreground">Ahora conocé a Luka en WhatsApp</p>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Luka es tu asistente financiero: le escribís “compré mercancía por 8.000” y lo registra
+            al instante. Te llevamos al chat en {cuenta}…
+          </p>
+          <Button
+            onClick={() => {
+              window.location.href = lukaWhatsappUrl('Hola Luka, acabo de registrarme');
+            }}
+            className="w-full py-5 text-base font-bold rounded-xl gap-2"
+          >
+            <MessageCircle className="w-5 h-5" />
+            Abrir chat con Luka
+          </Button>
+        </div>
+
+        <button
+          onClick={() => navigate(sesionIniciada ? '/' : '/login', { replace: true })}
+          className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
-          Iniciar sesión ahora
-        </Button>
+          {sesionIniciada ? 'Prefiero ir al panel' : 'Prefiero iniciar sesión'}
+        </button>
       </div>
     );
   }

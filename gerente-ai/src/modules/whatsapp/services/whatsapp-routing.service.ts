@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import type { PlanId } from '../../../ai/usage/usage.service';
+import {
+  PLAN_ADMINISTRADOR,
+  PLAN_ASISTENTE,
+  PLAN_GERENTE,
+  PLAN_SOCIO,
+  PlanesService,
+} from '../../../services/planes.service';
 import { PrismaService } from '../../../services/prisma.service';
 
 /**
@@ -26,7 +33,10 @@ export interface WhatsappContext {
 export class WhatsappRoutingService {
   private readonly logger = new Logger(WhatsappRoutingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly planes: PlanesService,
+  ) {}
 
   /**
    * Resuelve el remitente. Devuelve null si el numero no pertenece a ningun
@@ -77,17 +87,8 @@ export class WhatsappRoutingService {
         'exact' in match
           ? { telefono: match.exact }
           : { telefono: { endsWith: match.tail } },
-      include: {
-        negocio: {
-          include: {
-            usuariosNegocio: {
-              orderBy: { id: 'asc' },
-              take: 1,
-              include: { usuario: true },
-            },
-          },
-        },
-      },
+      // Ya no hace falta traer usuariosNegocio: el plan vive en el negocio.
+      include: { negocio: true },
     });
 
     if (!sede) return null;
@@ -97,7 +98,7 @@ export class WhatsappRoutingService {
       negocioNombre: sede.negocio.nombre,
       sedeId: sede.id,
       sedeNombre: sede.nombre,
-      plan: planFromNumber(sede.negocio.usuariosNegocio[0]?.usuario.plan),
+      plan: this.planDelNegocio(sede.negocio),
       currency: DEFAULT_CURRENCY,
       contexto: sede.contexto ?? sede.negocio.contexto,
     };
@@ -139,7 +140,7 @@ export class WhatsappRoutingService {
         negocioNombre: porSede.negocio.nombre,
         sedeId: porSede.id,
         sedeNombre: porSede.nombre,
-        plan: planFromNumber(usuario.plan),
+        plan: this.planDelNegocio(porSede.negocio),
         currency: DEFAULT_CURRENCY,
         contexto: porSede.contexto ?? porSede.negocio.contexto,
       };
@@ -154,14 +155,49 @@ export class WhatsappRoutingService {
       negocioNombre: negocio.nombre,
       sedeId: sede.id,
       sedeNombre: sede.nombre,
-      plan: planFromNumber(usuario.plan),
+      plan: this.planDelNegocio(negocio),
       currency: DEFAULT_CURRENCY,
       contexto: sede.contexto ?? negocio.contexto,
     };
   }
+
+  /**
+   * Cuota de IA que le corresponde al negocio.
+   *
+   * El plan vive en `Negocio`, no en `Usuario`: comercialmente se compra por
+   * negocio, asi que quien maneja dos negocios paga dos planes. `Usuario.plan`
+   * sigue existiendo por compatibilidad pero ya nadie lo actualiza; leerlo
+   * dejaba en 50 mensajes/mes a clientes que habian pagado por 500 o 5.000.
+   *
+   * Se resuelve contra el plan VIGENTE y no el contratado: un Gerente vencido
+   * cae a Asistente, igual que en el resto del backend (`PlanesService.estado`).
+   */
+  private planDelNegocio(negocio: {
+    plan: number;
+    planVenceEl: Date | null;
+  }): PlanId {
+    const { vigente } = this.planes.estado(negocio.plan, negocio.planVenceEl);
+    return CUOTA_POR_PLAN[vigente.id] ?? 'asistente';
+  }
 }
 
 // ------------------------------------------------------------------- helpers
+
+/**
+ * Catalogo comercial (`planes.service`) -> cuotas de IA (`PLAN_LIMITS`).
+ *
+ * Los nombres no coinciden porque cada lado bautizo sus planes por separado: el
+ * plan 3 es "Administrador" en comercial y "director" en las cuotas; el 4 es
+ * "Socio" y "corporativo". El mapeo va por id numerico, que si es estable.
+ * Unificar los nombres tocaria `PLAN_LIMITS` y los DTOs de finance-ai: queda
+ * pendiente, no es parte de este arreglo.
+ */
+const CUOTA_POR_PLAN: Record<number, PlanId> = {
+  [PLAN_ASISTENTE]: 'asistente',
+  [PLAN_GERENTE]: 'gerente',
+  [PLAN_ADMINISTRADOR]: 'director',
+  [PLAN_SOCIO]: 'corporativo',
+};
 
 /**
  * Moneda del negocio.
@@ -174,12 +210,6 @@ const DEFAULT_CURRENCY = 'COP';
 /** Deja solo digitos: "+57 300 123 4567" y "573001234567" deben coincidir. */
 export function normalizePhone(value: string): string {
   return value.replace(/\D/g, '');
-}
-
-/** Los planes del dashboard son numeros; los limites de IA, nombres. */
-function planFromNumber(plan: number | undefined): PlanId {
-  const PLANS: PlanId[] = ['asistente', 'gerente', 'director', 'corporativo'];
-  return PLANS[(plan ?? 1) - 1] ?? 'asistente';
 }
 
 /** Para logs: nunca se escribe un telefono completo en texto plano. */

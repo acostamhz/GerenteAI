@@ -1,6 +1,10 @@
-import { INSIGHTS_DATA } from "@/mocks";
+import type { Insight } from "../api/insightsApi";
 
-export function InsightMini({ insight }: { insight: (typeof INSIGHTS_DATA)[0] }) {
+/**
+ * Versión compacta de una recomendación, para incrustarla en otras pantallas.
+ * Recibe el insight ya cargado: quien la use decide de dónde lo saca.
+ */
+export function InsightMini({ insight }: { insight: Insight }) {
   const cfg = {
     warning: { dot: "bg-amber-500", bg: "bg-amber-50 border border-amber-100", text: "text-gray-900", body: "text-gray-500" },
     success: { dot: "bg-emerald-500", bg: "bg-emerald-50 border border-emerald-100", text: "text-gray-900", body: "text-gray-500" },
