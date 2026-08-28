@@ -436,6 +436,21 @@ El backend acepta `phone`, `userId` o ambos, y resuelve en este orden:
 
 **Vincular a alguien que escribe con identidad**
 
+Lo que se le pide a la persona es su **nombre de usuario** ("jdar0423"), no el
+BSUID: es lo que ella conoce y puede escribir. El BSUID lo captura el sistema
+solo, del primer mensaje, y a partir del segundo resuelve por él (es más estable,
+porque el nombre de usuario se puede cambiar).
+
+```sql
+UPDATE "Sede" SET "whatsappUsername" = jdar0423
+WHERE telefono = 573014132284;
+```
+
+Cuando el frontend tenga el campo "Usuario de WhatsApp" en el formulario de
+negocio, esto deja de necesitar SQL.
+
+**Vincular a mano por identidad** (si Meta no mandó el nombre de usuario)
+
 Su identificador aparece en el mensaje que Luka le responde (y en los logs del
 backend). Con eso:
 

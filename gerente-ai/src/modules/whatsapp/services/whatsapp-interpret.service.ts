@@ -352,23 +352,22 @@ export class WhatsappInterpretService {
       this.config.get<string>('FRONTEND_REGISTER_URL')?.trim() ||
       DEFAULT_REGISTER_URL;
 
-    // Quien tiene el nombre de usuario de WhatsApp activado llega SIN telefono:
-    // pedirle que "agregue este numero" no le sirve, porque ni el ni nosotros
-    // lo vemos. A esa persona hay que darle su identificador para vincularse.
-    const sinTelefono = !sender.phone && Boolean(sender.userId);
-
-    const cuerpo = sinTelefono
+    // A quien tiene el nombre de usuario de WhatsApp activado no se le puede
+    // pedir "agrega este numero": ni el ni nosotros lo vemos. Se le pide su
+    // nombre de usuario, que si conoce y puede escribir. El BSUID solo aparece
+    // si Meta no mando el usuario, porque es la unica llave que quedaria.
+    const cuerpo = sender.phone
       ? [
-          'Todavía no puedo asociarte a ningún negocio. Como tienes activado el nombre de usuario de WhatsApp, no veo tu número, así que hay que vincularte con este identificador:',
-          '',
-          sender.userId ?? '',
-          '',
-          'Crea tu cuenta aquí y pásale ese identificador a quien administra tu negocio:',
-        ]
-      : [
           'Todavía no encuentro este número registrado en ningún negocio, así que aún no puedo llevarte las cuentas.',
           '',
           'Regístrate aquí y agrega este número a tu negocio:',
+        ]
+      : [
+          'Todavía no encuentro tu negocio. Regístrate y, al crearlo, pon tu usuario de WhatsApp:',
+          '',
+          sender.username ?? sender.userId ?? '',
+          '',
+          'Puedes hacerlo aquí:',
         ];
 
     return [
@@ -428,6 +427,7 @@ function readSender(dto: InterpretMessageDto): WhatsappSender {
   return {
     phone: phone.length > 0 ? phone : undefined,
     userId: dto.userId?.trim() || undefined,
+    username: dto.username?.trim() || undefined,
   };
 }
 
