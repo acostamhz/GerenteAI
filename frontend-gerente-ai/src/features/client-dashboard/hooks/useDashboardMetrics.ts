@@ -71,6 +71,8 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
         const matched = userNegocios.find((n) => n.id === savedId) || userNegocios[0];
 
         localStorage.setItem('active_business_id', matched.id);
+      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
+      localStorage.removeItem('active_sede_id');
         localStorage.setItem('active_business_name', matched.nombre);
         setBusinessName(matched.nombre);
         return matched.id;
@@ -79,6 +81,8 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
       if (me.sedes && me.sedes.length > 0) {
         const firstSede = me.sedes[0].sede;
         localStorage.setItem('active_business_id', firstSede.negocioId);
+      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
+      localStorage.removeItem('active_sede_id');
         return firstSede.negocioId;
       }
     } catch (err) {

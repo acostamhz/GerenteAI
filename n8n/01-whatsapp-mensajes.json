@@ -191,7 +191,7 @@
         "specifyBody": "json",
         "jsonBody": "={{ JSON.stringify({ message: $json.message, phone: $json.phone, name: $json.name, conversationId: $json.conversationId, messageId: $json.messageId }) }}",
         "options": {
-          "timeout": 45000
+          "timeout": 90000
         }
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -212,7 +212,7 @@
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 3000,
-      "notes": "Timeout 45 s (el modelo puede tardar). 2 intentos. Si aun así falla, sale por la salida roja y el usuario recibe el mensaje de emergencia.\nEl body se arma con JSON.stringify: si se escribiera a mano, un mensaje con comillas o saltos de línea rompería el JSON."
+      "notes": "Timeout 90 s: si Render tenia el servicio dormido, el arranque en frio se lleva 30-60 s. Con 45 s el primer mensaje del dia se perdia por timeout.\nn8n ya respondio 200 a Meta antes de este nodo, asi que esperar de mas no rompe nada: el usuario solo tarda mas en recibir la respuesta.\n2 intentos. Si aun asi falla, sale por la salida roja y el usuario recibe el mensaje de emergencia.\nEl body se arma con JSON.stringify: si se escribiera a mano, un mensaje con comillas o saltos de linea romperia el JSON."
     },
     {
       "parameters": {

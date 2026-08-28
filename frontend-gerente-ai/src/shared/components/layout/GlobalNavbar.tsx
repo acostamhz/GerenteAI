@@ -78,6 +78,8 @@ export function GlobalNavbar() {
           setActiveBusinessId(matched.id);
           setActiveBusinessName(matched.nombre);
           localStorage.setItem('active_business_id', matched.id);
+      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
+      localStorage.removeItem('active_sede_id');
           localStorage.setItem('active_business_name', matched.nombre);
         } else {
           setNegocios([]);
@@ -106,6 +108,8 @@ export function GlobalNavbar() {
     setActiveBusinessId(negocio.id);
     setActiveBusinessName(negocio.nombre);
     localStorage.setItem('active_business_id', negocio.id);
+      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
+      localStorage.removeItem('active_sede_id');
     localStorage.setItem('active_business_name', negocio.nombre);
     setIsBusinessDropdownOpen(false);
     window.dispatchEvent(new Event('business_changed'));

@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { LlmError, type LlmErrorCode } from '../../../ai/core/llm.errors';
 import { PrismaService } from '../../../services/prisma.service';
@@ -45,6 +46,7 @@ export type PublicIntentType =
   | 'consulta'
   | 'correccion'
   | 'no_claro'
+  | 'fuera_de_alcance'
   | 'no_registrado'
   | 'error';
 
@@ -88,6 +90,7 @@ const TYPE_LABELS: Record<MessageIntentType, PublicIntentType> = {
   query: 'consulta',
   correction: 'correccion',
   unclear: 'no_claro',
+  out_of_scope: 'fuera_de_alcance',
 };
 
 /**
@@ -110,6 +113,16 @@ const FALLBACK_REPLY: Partial<Record<LlmErrorCode, string>> = {
   auth: 'El asistente esta en mantenimiento. Ya estamos trabajando en ello 🙏',
 };
 
+/**
+ * A donde se manda a registrar a quien escribe desde un numero desconocido.
+ * Se puede sobreescribir con FRONTEND_REGISTER_URL.
+ *
+ * No se reutiliza FRONTEND_URL a proposito: esa apunta al entorno desde el que
+ * se arman los enlaces de los correos, y en desarrollo vale localhost, que
+ * dentro de un WhatsApp no le sirve a nadie.
+ */
+const DEFAULT_REGISTER_URL = 'https://luka-gules.vercel.app/home';
+
 const GENERIC_FALLBACK =
   'No pude procesar tu mensaje en este momento 😔 Intenta de nuevo en unos minutos.';
 
@@ -122,6 +135,7 @@ export class WhatsappInterpretService {
     private readonly whatsapp: WhatsAppMessageService,
     private readonly dedupe: MessageDedupeService,
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
   ) {}
 
   async interpret(dto: InterpretMessageDto): Promise<InterpretResponse> {
@@ -166,7 +180,7 @@ export class WhatsappInterpretService {
       // numeros desconocidos (y ahi es donde llega el spam).
       return this.emptyResponse({
         type: 'no_registrado',
-        reply: unregisteredReply(dto.name),
+        reply: this.unregisteredReply(dto.name),
         durationMs: Date.now() - startedAt,
         duplicate: false,
       });
@@ -298,6 +312,31 @@ export class WhatsappInterpretService {
     };
   }
 
+  /**
+   * Numero desconocido: no hay negocio al cual imputar nada.
+   *
+   * Se responde igual, porque del otro lado puede haber un cliente, pero sin
+   * gastar un solo token de IA: el modelo ni se llama. El enlace de registro va
+   * explicito porque es la unica salida posible.
+   */
+  private unregisteredReply(name?: string): string {
+    const saludo = name ? SALUDO_CON_NOMBRE(name) : '¡Hola! 👋';
+    const url =
+      this.config.get<string>('FRONTEND_REGISTER_URL')?.trim() ||
+      DEFAULT_REGISTER_URL;
+
+    return [
+      saludo + ' Soy Luka, tu asistente financiero con IA.',
+      '',
+      'Todavía no encuentro este número registrado en ningún negocio, así que aún no puedo llevarte las cuentas.',
+      '',
+      'Regístrate aquí y agrega este número a tu negocio:',
+      url,
+      '',
+      'Cuando termines, escríbeme de nuevo y empezamos 🚀',
+    ].join('\n');
+  }
+
   private emptyResponse(options: {
     type: PublicIntentType;
     reply: string;
@@ -334,11 +373,6 @@ export class WhatsappInterpretService {
   }
 }
 
-/**
- * Numero desconocido. Se responde igual (es un posible cliente) pero sin gastar
- * un solo token de IA.
- */
-function unregisteredReply(name?: string): string {
-  const saludo = name ? `Hola ${name.split(' ')[0]} 👋` : 'Hola 👋';
-  return `${saludo} Soy el asistente financiero de Luka AI, pero este numero todavia no esta registrado en ningun negocio.\n\nPara empezar a registrar tus gastos e ingresos por WhatsApp, crea tu cuenta y agrega este numero desde el panel.`;
-}
+/** "Angelica Marcillo" -> "¡Hola Angelica! 👋". Solo el primer nombre. */
+const SALUDO_CON_NOMBRE = (name: string): string =>
+  `¡Hola ${name.trim().split(' ')[0]}! 👋`;

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, ReactNode } from "react";
 import { ChatMessage, QuickPrompt } from "../types";
+import { resolveActiveSedeId } from "@/lib/activeBusiness";
 import { assistantApi } from "../api/assistantApi";
 
 interface LukaChatContextType {
@@ -86,8 +87,16 @@ export function LukaChatProvider({ children }: { children: ReactNode }) {
     setIsTyping(true);
 
     try {
-      const activeBusinessId = localStorage.getItem("active_business_id") || "demo-business";
-      
+      // /ai/* identifica al negocio por su SEDE, no por el Negocio: es donde
+      // cuelgan las ventas y los gastos. Con el id del negocio la respuesta
+      // llegaba igual, pero calculada sobre cero movimientos.
+      const sedeId = await resolveActiveSedeId();
+      const tenantId = localStorage.getItem("active_business_id") ?? undefined;
+
+      if (!sedeId) {
+        throw new Error("Todavía no hay una sede asociada a este negocio.");
+      }
+
       // Historial para contexto de conversación en el LLM
       const history = messages.slice(-6).map((m) => ({
         role: (m.sender === "user" ? "user" : "assistant") as "user" | "assistant",
@@ -95,7 +104,8 @@ export function LukaChatProvider({ children }: { children: ReactNode }) {
       }));
 
       const result = await assistantApi.ask({
-        businessId: activeBusinessId,
+        businessId: sedeId,
+        ...(tenantId ? { tenantId } : {}),
         question: text.trim(),
         history,
       });

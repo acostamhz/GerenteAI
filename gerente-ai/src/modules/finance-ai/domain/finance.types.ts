@@ -5,7 +5,14 @@
  * Coincide exactamente con el campo `type` del JSON que devuelve el modelo.
  */
 export type MessageIntentType =
-  'income' | 'expense' | 'investment' | 'query' | 'correction' | 'unclear';
+  | 'income'
+  | 'expense'
+  | 'investment'
+  | 'query'
+  | 'correction'
+  | 'unclear'
+  /** Le pidieron algo que no son las finanzas del negocio (codigo, poemas...). */
+  | 'out_of_scope';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';

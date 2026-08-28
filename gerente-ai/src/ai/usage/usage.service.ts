@@ -56,7 +56,10 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
 
 export function resolvePlan(plan: string | undefined): PlanLimits {
   const key = (plan ?? '').toLowerCase() as PlanId;
-  return PLAN_LIMITS[key] ?? PLAN_LIMITS.gerente;
+  // Ante un plan vacio o desconocido se cae al MAS restrictivo. Caer a
+  // "gerente" regalaba 500 mensajes al mes a cualquiera cuyo plan no se pudiera
+  // resolver, incluidos los del plan gratuito.
+  return PLAN_LIMITS[key] ?? PLAN_LIMITS.asistente;
 }
 
 export interface AiCallContext {
