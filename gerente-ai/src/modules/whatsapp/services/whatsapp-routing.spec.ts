@@ -17,8 +17,21 @@ function fakePrisma(sedes: unknown[]) {
       ({
         where,
       }: {
-        where: { telefono?: unknown; whatsappUserId?: string };
+        where: {
+          telefono?: unknown;
+          whatsappUserId?: string;
+          whatsappUsername?: string;
+        };
       }) => {
+        if (where.whatsappUsername !== undefined) {
+          const match = sedes.find(
+            (fila) =>
+              (fila as { whatsappUsername?: string }).whatsappUsername ===
+              where.whatsappUsername,
+          );
+          return Promise.resolve(match ?? null);
+        }
+
         if (where.whatsappUserId !== undefined) {
           const match = sedes.find(
             (fila) =>
@@ -42,8 +55,12 @@ function fakePrisma(sedes: unknown[]) {
   };
 
   const usuario = { findFirst: jest.fn(() => Promise.resolve(null)) };
+  const update = jest.fn(() => Promise.resolve({}));
 
-  return { sede, usuario } as unknown as PrismaService;
+  return {
+    prisma: { sede: { ...sede, update }, usuario } as unknown as PrismaService,
+    update,
+  };
 }
 
 function sedeCon(plan: number, planVenceEl: Date | null = null) {
@@ -52,6 +69,7 @@ function sedeCon(plan: number, planVenceEl: Date | null = null) {
     nombre: 'Sede principal',
     telefono: '573001234567',
     whatsappUserId: null as string | null,
+    whatsappUsername: null as string | null,
     contexto: null,
     negocio: {
       id: 'negocio-1',
@@ -67,7 +85,9 @@ function sedeCon(plan: number, planVenceEl: Date | null = null) {
 }
 
 function servicio(sedes: unknown[]) {
-  return new WhatsappRoutingService(fakePrisma(sedes), new PlanesService());
+  const { prisma, update } = fakePrisma(sedes);
+  const routing = new WhatsappRoutingService(prisma, new PlanesService());
+  return Object.assign(routing, { __update: update });
 }
 
 const EN_UN_MES = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
@@ -176,6 +196,60 @@ describe('WhatsappRoutingService', () => {
     });
 
     expect(contexto?.sedeId).toBe('sede-1');
+  });
+
+  it('resuelve por nombre de usuario cuando el BSUID aún no está vinculado', async () => {
+    // Es lo que hace que al duenno solo se le pida su usuario ("jdar0423"),
+    // que si conoce, en vez de un identificador que nadie sabria copiar.
+    const sede = {
+      ...sedeCon(2),
+      telefono: null,
+      whatsappUsername: 'jdar0423',
+    };
+
+    const contexto = await servicio([sede]).resolve({
+      userId: 'CO.1710763673557397',
+      username: 'jdar0423',
+    });
+
+    expect(contexto).toMatchObject({ sedeId: 'sede-1', plan: 'gerente' });
+  });
+
+  it('guarda el BSUID la primera vez que resuelve por usuario', async () => {
+    const sede = {
+      ...sedeCon(1),
+      telefono: null,
+      whatsappUsername: 'jdar0423',
+    };
+    const routing = servicio([sede]);
+
+    await routing.resolve({
+      userId: 'CO.1710763673557397',
+      username: 'jdar0423',
+    });
+
+    expect(routing.__update).toHaveBeenCalledWith({
+      where: { id: 'sede-1' },
+      data: { whatsappUserId: 'CO.1710763673557397' },
+    });
+  });
+
+  it('no vuelve a vincular si el BSUID ya estaba guardado', async () => {
+    const sede = {
+      ...sedeCon(1),
+      telefono: null,
+      whatsappUserId: 'CO.1710763673557397',
+      whatsappUsername: 'jdar0423',
+    };
+    const routing = servicio([sede]);
+
+    await routing.resolve({
+      userId: 'CO.1710763673557397',
+      username: 'jdar0423',
+    });
+
+    // Resolvio por BSUID directo: ni siquiera llego a la busqueda por usuario.
+    expect(routing.__update).not.toHaveBeenCalled();
   });
 
   it('normaliza el teléfono a solo dígitos', () => {
