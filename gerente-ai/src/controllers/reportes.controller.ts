@@ -43,4 +43,26 @@ export class ReportesController {
       query.fecha,
     );
   }
+
+  // --- Reportes Premium: planes Gerente y Administrador ---
+
+  @Get('producto/:sedeId')
+  porProducto(
+    @Param('sedeId') sedeId: string,
+    @CurrentUser() user: AuthUser,
+    @Query() query: ReporteQueryDto,
+  ) {
+    return this.reportesService.porProducto(
+      sedeId,
+      user.userId,
+      user.rolGlobal,
+      query.periodo ?? 'mensual',
+      query.fecha,
+    );
+  }
+
+  @Get('fiados/:sedeId')
+  fiados(@Param('sedeId') sedeId: string, @CurrentUser() user: AuthUser) {
+    return this.reportesService.fiados(sedeId, user.userId, user.rolGlobal);
+  }
 }

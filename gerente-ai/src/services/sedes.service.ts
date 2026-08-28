@@ -1,5 +1,6 @@
 import {
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -28,12 +29,38 @@ export class SedesService {
       dto.negocioId,
       rolGlobal,
     );
+    await this.verificarTopeDeSedes(dto.negocioId, rolGlobal);
 
     try {
       return await this.prisma.sede.create({ data: dto });
     } catch (error) {
       throw this.traducirTelefonoDuplicado(error);
     }
+  }
+
+  /**
+   * El plan del negocio define cuántas sedes puede tener: Asistente 1,
+   * Gerente 4, Administrador 10. Se valida aquí y no en el frontend porque es
+   * una regla de negocio: si solo estuviera en la pantalla, bastaría con llamar
+   * la API directamente para saltársela.
+   */
+  private async verificarTopeDeSedes(negocioId: string, rolGlobal: string) {
+    if (rolGlobal === 'MASTER') return;
+
+    const estado = await this.negociosService.estadoDelPlan(negocioId);
+    const tope = estado.vigente.maxSedes;
+    if (tope === Number.POSITIVE_INFINITY) return;
+
+    const existentes = await this.prisma.sede.count({ where: { negocioId } });
+    if (existentes < tope) return;
+
+    const motivo = estado.vencido
+      ? `El plan ${estado.contratado.nombre} está vencido, así que el negocio quedó con el tope del plan Asistente`
+      : `El plan ${estado.vigente.nombre} permite ${tope} sede(s)`;
+
+    throw new ForbiddenException(
+      `${motivo} y ya tiene ${existentes}. Cambia de plan para agregar más sedes.`,
+    );
   }
 
   // El filtro por telefono es cómo se resuelve de qué sede viene un mensaje de WhatsApp.

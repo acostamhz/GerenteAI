@@ -1,6 +1,7 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { NegociosService } from '../src/services/negocios.service';
+import { PlanesService } from '../src/services/planes.service';
 import { PrismaService } from '../src/services/prisma.service';
 import { ReportesService } from '../src/services/reportes.service';
 import { limpiar, sembrar, type Semilla } from './helpers/contexto';
@@ -21,7 +22,12 @@ describe('ReportesService (contra Postgres real)', () => {
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
-      providers: [ReportesService, NegociosService, PrismaService],
+      providers: [
+        ReportesService,
+        NegociosService,
+        PlanesService,
+        PrismaService,
+      ],
     }).compile();
 
     prisma = moduleRef.get(PrismaService);
