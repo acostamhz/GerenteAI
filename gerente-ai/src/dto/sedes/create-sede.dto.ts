@@ -14,6 +14,17 @@ export class CreateSedeDto {
   })
   telefono?: string;
 
+  // Nombre de usuario de WhatsApp del duenno ("jdar0423"). Sirve para las
+  // cuentas que activaron esa opcion en WhatsApp: Meta oculta su telefono, asi
+  // que es la unica forma de que el bot sepa quien escribe. Tambien es unico.
+  @IsString()
+  @IsOptional()
+  @Matches(/^[a-zA-Z0-9._-]{3,30}$/, {
+    message:
+      'whatsappUsername solo admite letras, numeros, punto, guion y guion bajo',
+  })
+  whatsappUsername?: string;
+
   @IsString()
   @IsOptional()
   direccion?: string;

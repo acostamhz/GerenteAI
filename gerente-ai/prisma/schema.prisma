@@ -75,6 +75,11 @@ model Sede {
   // Meta oculta el teléfono de esas cuentas y las identifica con un id propio
   // (ej. "CO.1710763673557397"): sin esto el bot no puede saber quién escribe.
   whatsappUserId String? @unique
+
+  // Nombre de usuario de WhatsApp ("jdar0423"). Es el dato que la persona SI
+  // conoce y puede escribir en el panel; el whatsappUserId de arriba se captura
+  // solo, del primer mensaje que envie.
+  whatsappUsername String? @unique
   direccion String?
   contexto  String?  @db.Text // Contexto de IA individual para la sede
   createdAt DateTime @default(now())
