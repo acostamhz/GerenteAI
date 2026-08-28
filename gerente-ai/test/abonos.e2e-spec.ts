@@ -35,7 +35,7 @@ describe('AbonosService (contra Postgres real)', () => {
   });
 
   it('descuenta el abono del saldo pendiente', async () => {
-    const abono = await ctx.abonos.create(s.duenoId, 'CLIENTE', {
+    const [abono] = await ctx.abonos.create(s.duenoId, 'CLIENTE', {
       clienteId: s.clienteAId,
       monto: 1000.5,
     });
@@ -45,7 +45,7 @@ describe('AbonosService (contra Postgres real)', () => {
   });
 
   it('deriva la sede del cliente, no la recibe del body', async () => {
-    const abono = await ctx.abonos.create(s.duenoId, 'CLIENTE', {
+    const [abono] = await ctx.abonos.create(s.duenoId, 'CLIENTE', {
       clienteId: s.clienteAId,
       monto: 500,
     });
@@ -96,7 +96,7 @@ describe('AbonosService (contra Postgres real)', () => {
   });
 
   it('al anular un abono la deuda vuelve al cliente', async () => {
-    const abono = await ctx.abonos.create(s.duenoId, 'CLIENTE', {
+    const [abono] = await ctx.abonos.create(s.duenoId, 'CLIENTE', {
       clienteId: s.clienteAId,
       monto: 1000,
     });

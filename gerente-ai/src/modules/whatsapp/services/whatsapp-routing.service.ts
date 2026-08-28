@@ -1,14 +1,36 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import type { PlanId } from '../../../ai/usage/usage.service';
+import {
+  PLAN_ADMINISTRADOR,
+  PLAN_ASISTENTE,
+  PLAN_GERENTE,
+  PLAN_SOCIO,
+  PlanesService,
+} from '../../../services/planes.service';
 import { PrismaService } from '../../../services/prisma.service';
 
 /**
- * Traduce "un numero de WhatsApp" a "que sede de que negocio esta escribiendo".
+ * Traduce "quien escribio por WhatsApp" a "que sede de que negocio es".
  *
- * n8n solo sabe el telefono del remitente; el resto del backend necesita
+ * n8n solo conoce la identidad del remitente; el resto del backend necesita
  * `sedeId` para poder guardar un movimiento. Toda esa resolucion vive aqui.
  */
+
+/**
+ * Como llega identificado quien escribe.
+ *
+ * Normalmente es el telefono. Pero Meta permite activar un nombre de usuario, y
+ * esas cuentas llegan SIN telefono: el webhook trae el BSUID (business-scoped
+ * user id, p. ej. "CO.1710763673557397") y el nombre de usuario publico.
+ */
+export interface WhatsappSender {
+  phone?: string;
+  /** BSUID: identidad de quien oculto su telefono. Estable, pero ilegible. */
+  userId?: string;
+  /** Nombre de usuario de WhatsApp ("jdar0423"). Es el que la persona conoce. */
+  username?: string;
+}
 
 export interface WhatsappContext {
   negocioId: string;
@@ -22,85 +44,144 @@ export interface WhatsappContext {
   contexto: string | null;
 }
 
+/** Lo minimo que hace falta de la base para armar un `WhatsappContext`. */
+interface SedeConNegocio {
+  id: string;
+  nombre: string;
+  contexto: string | null;
+  whatsappUserId: string | null;
+  negocio: {
+    id: string;
+    nombre: string;
+    contexto: string | null;
+    plan: number;
+    planVenceEl: Date | null;
+  };
+}
+
 @Injectable()
 export class WhatsappRoutingService {
   private readonly logger = new Logger(WhatsappRoutingService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly planes: PlanesService,
+  ) {}
 
   /**
-   * Resuelve el remitente. Devuelve null si el numero no pertenece a ningun
-   * negocio: en ese caso NO se llama al modelo (no se gasta cuota con
-   * desconocidos) y se responde con un mensaje de alta.
+   * Resuelve el remitente. Devuelve null si no pertenece a ningun negocio: en
+   * ese caso NO se llama al modelo (no se gasta cuota con desconocidos) y se
+   * responde con un mensaje de alta.
    *
    * Orden de busqueda:
-   *   1. `Sede.telefono`     la linea de WhatsApp del bot, una por sede
-   *   2. `Usuario.telefono`  el numero personal de un socio o empleado
+   *   1. `Sede.whatsappUserId`    el BSUID, si ya quedo vinculado
+   *   2. `Sede.whatsappUsername`  el nombre de usuario que cargo el duenno
+   *   3. `Sede.telefono`          la linea de WhatsApp del bot, una por sede
+   *   4. `Usuario.telefono`       el numero personal de un socio o empleado
    *
-   * En ambos casos, si no hay coincidencia exacta se reintenta por los ultimos
-   * 10 digitos (Meta normaliza prefijos: 52 vs 521, 57 vs +57...).
+   * Con telefono, si no hay coincidencia exacta se reintenta por los ultimos 10
+   * digitos (Meta normaliza prefijos: 52 vs 521, 57 vs +57...). Con identidad y
+   * con usuario la comparacion es exacta: no son numeros, no admiten variantes.
    *
    * `Negocio.telefonoContacto` NO se consulta a proposito: el esquema lo marca
    * como telefono administrativo, no como linea del bot.
    */
-  async resolve(rawPhone: string): Promise<WhatsappContext | null> {
-    const phone = normalizePhone(rawPhone);
-    const tail = phone.slice(-10);
+  async resolve(
+    sender: WhatsappSender | string,
+  ): Promise<WhatsappContext | null> {
+    // Se acepta un string suelto por comodidad: es el caso mas comun.
+    const {
+      phone: rawPhone,
+      userId,
+      username,
+    } = typeof sender === 'string' ? { phone: sender } : sender;
 
-    const bySede =
-      (await this.findBySede({ exact: phone })) ??
-      (await this.findBySede({ tail }));
-    if (bySede) return bySede;
+    if (userId) {
+      const sede = await this.buscarSede({ whatsappUserId: userId });
+      if (sede) return this.toContext(sede);
+    }
 
-    const byUsuario =
-      (await this.findByUsuario({ exact: phone })) ??
-      (await this.findByUsuario({ tail }));
-    if (byUsuario) return byUsuario;
+    if (username) {
+      const sede = await this.buscarSede({ whatsappUsername: username });
+      if (sede) {
+        // Autovinculacion: al duenno solo se le pide su nombre de usuario, que
+        // si conoce. El BSUID, que nadie sabria copiar, lo captura el sistema
+        // del primer mensaje; desde el segundo resuelve por el, que es mas
+        // estable (el nombre de usuario se puede cambiar).
+        if (userId && sede.whatsappUserId !== userId) {
+          await this.vincularIdentidad(sede.id, userId);
+        }
+        return this.toContext(sede);
+      }
+    }
 
-    this.logger.warn(`Numero sin negocio asociado: ${maskPhone(phone)}`);
+    if (rawPhone) {
+      const phone = normalizePhone(rawPhone);
+      const tail = phone.slice(-10);
+
+      const sede =
+        (await this.buscarSede({ telefono: phone })) ??
+        (await this.buscarSede({ telefono: { endsWith: tail } }));
+      if (sede) return this.toContext(sede);
+
+      const byUsuario =
+        (await this.findByUsuario({ exact: phone })) ??
+        (await this.findByUsuario({ tail }));
+      if (byUsuario) return byUsuario;
+
+      this.logger.warn(`Numero sin negocio asociado: ${maskPhone(phone)}`);
+      return null;
+    }
+
+    this.logger.warn(
+      `Identidad de WhatsApp sin negocio asociado: ${username ?? userId ?? '(sin remitente)'}`,
+    );
     return null;
   }
 
   // --------------------------------------------------------------- busquedas
 
   /**
-   * La sede es la unidad con linea de WhatsApp propia (`Sede.telefono`, unico
-   * en la base) y es tambien la unidad contable: Gasto, Venta y Compra cuelgan
-   * de ella. Por eso una coincidencia aqui resuelve el enrutamiento completo,
-   * sin ambiguedad sobre a que sede se imputa el movimiento.
+   * La sede es la unidad con linea de WhatsApp propia y es tambien la unidad
+   * contable: Gasto, Venta y Compra cuelgan de ella. Por eso una coincidencia
+   * aqui resuelve el enrutamiento completo, sin ambiguedad sobre a que sede se
+   * imputa el movimiento.
    */
-  private async findBySede(
-    match: { exact: string } | { tail: string },
-  ): Promise<WhatsappContext | null> {
-    const sede = await this.prisma.sede.findFirst({
-      where:
-        'exact' in match
-          ? { telefono: match.exact }
-          : { telefono: { endsWith: match.tail } },
-      include: {
-        negocio: {
-          include: {
-            usuariosNegocio: {
-              orderBy: { id: 'asc' },
-              take: 1,
-              include: { usuario: true },
-            },
-          },
-        },
-      },
+  private buscarSede(where: {
+    whatsappUserId?: string;
+    whatsappUsername?: string;
+    telefono?: string | { endsWith: string };
+  }): Promise<SedeConNegocio | null> {
+    return this.prisma.sede.findFirst({
+      where,
+      // No hace falta traer usuariosNegocio: el plan vive en el negocio.
+      include: { negocio: true },
     });
+  }
 
-    if (!sede) return null;
-
-    return {
-      negocioId: sede.negocio.id,
-      negocioNombre: sede.negocio.nombre,
-      sedeId: sede.id,
-      sedeNombre: sede.nombre,
-      plan: planFromNumber(sede.negocio.usuariosNegocio[0]?.usuario.plan),
-      currency: DEFAULT_CURRENCY,
-      contexto: sede.contexto ?? sede.negocio.contexto,
-    };
+  /** Guarda el BSUID en la sede para que el proximo mensaje resuelva directo. */
+  private async vincularIdentidad(
+    sedeId: string,
+    whatsappUserId: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.sede.update({
+        where: { id: sedeId },
+        data: { whatsappUserId },
+      });
+      this.logger.log(
+        `Sede ${sedeId} vinculada a la identidad ${whatsappUserId}.`,
+      );
+    } catch (error) {
+      // Que falle la vinculacion no puede dejar sin respuesta al usuario: el
+      // mensaje ya quedo resuelto por nombre de usuario, y se reintentara sola
+      // en el proximo.
+      this.logger.warn(
+        `No se pudo vincular la sede ${sedeId} con ${whatsappUserId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+    }
   }
 
   private async findByUsuario(
@@ -133,35 +214,66 @@ export class WhatsappRoutingService {
     if (!usuario) return null;
 
     const porSede = usuario.sedes[0]?.sede;
-    if (porSede) {
-      return {
-        negocioId: porSede.negocio.id,
-        negocioNombre: porSede.negocio.nombre,
-        sedeId: porSede.id,
-        sedeNombre: porSede.nombre,
-        plan: planFromNumber(usuario.plan),
-        currency: DEFAULT_CURRENCY,
-        contexto: porSede.contexto ?? porSede.negocio.contexto,
-      };
-    }
+    if (porSede) return this.toContext(porSede);
 
     const negocio = usuario.negocios[0]?.negocio;
     const sede = negocio?.sedes[0];
     if (!negocio || !sede) return null;
 
+    return this.toContext({ ...sede, negocio });
+  }
+
+  // ----------------------------------------------------------------- interno
+
+  private toContext(sede: SedeConNegocio): WhatsappContext {
     return {
-      negocioId: negocio.id,
-      negocioNombre: negocio.nombre,
+      negocioId: sede.negocio.id,
+      negocioNombre: sede.negocio.nombre,
       sedeId: sede.id,
       sedeNombre: sede.nombre,
-      plan: planFromNumber(usuario.plan),
+      plan: this.planDelNegocio(sede.negocio),
       currency: DEFAULT_CURRENCY,
-      contexto: sede.contexto ?? negocio.contexto,
+      contexto: sede.contexto ?? sede.negocio.contexto,
     };
+  }
+
+  /**
+   * Cuota de IA que le corresponde al negocio.
+   *
+   * El plan vive en `Negocio`, no en `Usuario`: comercialmente se compra por
+   * negocio, asi que quien maneja dos negocios paga dos planes. `Usuario.plan`
+   * sigue existiendo por compatibilidad pero ya nadie lo actualiza; leerlo
+   * dejaba en 50 mensajes/mes a clientes que habian pagado por 500 o 5.000.
+   *
+   * Se resuelve contra el plan VIGENTE y no el contratado: un Gerente vencido
+   * cae a Asistente, igual que en el resto del backend (`PlanesService.estado`).
+   */
+  private planDelNegocio(negocio: {
+    plan: number;
+    planVenceEl: Date | null;
+  }): PlanId {
+    const { vigente } = this.planes.estado(negocio.plan, negocio.planVenceEl);
+    return CUOTA_POR_PLAN[vigente.id] ?? 'asistente';
   }
 }
 
 // ------------------------------------------------------------------- helpers
+
+/**
+ * Catalogo comercial (`planes.service`) -> cuotas de IA (`PLAN_LIMITS`).
+ *
+ * Los nombres no coinciden porque cada lado bautizo sus planes por separado: el
+ * plan 3 es "Administrador" en comercial y "director" en las cuotas; el 4 es
+ * "Socio" y "corporativo". El mapeo va por id numerico, que si es estable.
+ * Unificar los nombres tocaria `PLAN_LIMITS` y los DTOs de finance-ai: queda
+ * pendiente, no es parte de este arreglo.
+ */
+const CUOTA_POR_PLAN: Record<number, PlanId> = {
+  [PLAN_ASISTENTE]: 'asistente',
+  [PLAN_GERENTE]: 'gerente',
+  [PLAN_ADMINISTRADOR]: 'director',
+  [PLAN_SOCIO]: 'corporativo',
+};
 
 /**
  * Moneda del negocio.
@@ -174,12 +286,6 @@ const DEFAULT_CURRENCY = 'COP';
 /** Deja solo digitos: "+57 300 123 4567" y "573001234567" deben coincidir. */
 export function normalizePhone(value: string): string {
   return value.replace(/\D/g, '');
-}
-
-/** Los planes del dashboard son numeros; los limites de IA, nombres. */
-function planFromNumber(plan: number | undefined): PlanId {
-  const PLANS: PlanId[] = ['asistente', 'gerente', 'director', 'corporativo'];
-  return PLANS[(plan ?? 1) - 1] ?? 'asistente';
 }
 
 /** Para logs: nunca se escribe un telefono completo en texto plano. */

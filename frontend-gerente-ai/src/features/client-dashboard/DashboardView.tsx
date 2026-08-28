@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Sparkles, RefreshCw, AlertTriangle, PlusCircle } from "lucide-react";
+import { Sparkles, RefreshCw, AlertTriangle, PlusCircle, Building2, MapPin, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BalanceCard } from "./components/BalanceCard";
 import { SpendChartCard } from "./components/SpendChartCard";
@@ -25,6 +25,8 @@ export function DashboardView() {
     periodo,
     setPeriodo,
     businessName,
+    sedeName,
+    sedeId,
   } = useDashboardMetrics();
 
   return (
@@ -56,12 +58,26 @@ export function DashboardView() {
               className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6"
             >
               <div>
-                <h1 className="text-3xl font-black text-foreground tracking-tight">
-                  Detalles de Saldo
-                </h1>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Monitoreo en tiempo real de ingresos, egresos y flujo de caja operativo.
-                </p>
+                <div className="flex items-center gap-2 mb-1">
+                  <h1 className="text-3xl font-black text-foreground tracking-tight">
+                    Detalles de Saldo
+                  </h1>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5 text-foreground bg-muted/60 px-2.5 py-0.5 rounded-lg border border-border">
+                    <Building2 className="w-3.5 h-3.5 text-emerald-500" />
+                    <span>{businessName}</span>
+                  </span>
+                  <span className="text-muted-foreground/40">/</span>
+                  <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-lg border border-emerald-500/20">
+                    {sedeId && sedeId !== 'all' ? (
+                      <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                    ) : (
+                      <Layers className="w-3.5 h-3.5 text-emerald-500" />
+                    )}
+                    <span>{sedeName}</span>
+                  </span>
+                </div>
               </div>
               
               <div className="flex flex-wrap items-center gap-3">

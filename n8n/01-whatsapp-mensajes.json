@@ -99,11 +99,21 @@
           "conditions": [
             {
               "id": "b1000000-0000-4000-8000-000000000002",
-              "leftValue": "={{ $json.body?.entry?.[0]?.changes?.[0]?.value?.messages?.[0]?.type || 'ninguno' }}",
+              "leftValue": "={{ $json.body.entry[0].changes[0].value?.messages?.[0]?.type || 'ninguno' }}",
               "rightValue": "text",
               "operator": {
                 "type": "string",
                 "operation": "equals"
+              }
+            },
+            {
+              "id": "b1000000-0000-4000-8000-000000000004",
+              "leftValue": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.from || $json.body.entry[0].changes[0].value.contacts?.[0]?.wa_id || $json.body.entry[0].changes[0].value.messages?.[0]?.from_user_id || $json.body.entry[0].changes[0].value.contacts?.[0]?.user_id || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
               }
             }
           ],
@@ -120,7 +130,7 @@
       ],
       "id": "a1000000-0000-4000-8000-000000000005",
       "name": "¿Es mensaje de texto?",
-      "notes": "Meta manda por el mismo webhook los acuses (sent/delivered/read) y los audios/imágenes. Sin este filtro el flujo intenta procesarlos y explota."
+      "notes": "Meta manda por el mismo webhook los acuses (sent/delivered/read) y los audios/imagenes. Sin este filtro el flujo intenta procesarlos y explota.\nLa segunda condicion exige saber quien escribe: telefono (from / wa_id) o identidad (from_user_id / user_id)."
     },
     {
       "parameters": {},
@@ -146,7 +156,7 @@
             {
               "id": "c1000000-0000-4000-8000-000000000002",
               "name": "phone",
-              "value": "={{ $json.body.entry[0].changes[0].value.messages[0].from }}",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.from || $json.body.entry[0].changes[0].value.contacts?.[0]?.wa_id || '' }}",
               "type": "string"
             },
             {
@@ -158,13 +168,31 @@
             {
               "id": "c1000000-0000-4000-8000-000000000004",
               "name": "conversationId",
-              "value": "={{ $json.body.entry[0].changes[0].value.messages[0].from }}",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.from || $json.body.entry[0].changes[0].value.contacts?.[0]?.wa_id || $json.body.entry[0].changes[0].value.messages?.[0]?.from_user_id || $json.body.entry[0].changes[0].value.contacts?.[0]?.user_id || '' }}",
               "type": "string"
             },
             {
               "id": "c1000000-0000-4000-8000-000000000005",
               "name": "messageId",
               "value": "={{ $json.body.entry[0].changes[0].value.messages[0].id }}",
+              "type": "string"
+            },
+            {
+              "id": "c1-userId",
+              "name": "userId",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.from_user_id || $json.body.entry[0].changes[0].value.contacts?.[0]?.user_id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "c1-username",
+              "name": "username",
+              "value": "={{ $json.body.entry[0].changes[0].value.contacts?.[0]?.profile?.username || $json.body.entry[0].changes[0].value.contacts?.[0]?.username || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "c1-destinatario",
+              "name": "destinatario",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.from || $json.body.entry[0].changes[0].value.contacts?.[0]?.wa_id || $json.body.entry[0].changes[0].value.messages?.[0]?.from_user_id || $json.body.entry[0].changes[0].value.contacts?.[0]?.user_id || '' }}",
               "type": "string"
             }
           ]
@@ -179,7 +207,7 @@
       ],
       "id": "a1000000-0000-4000-8000-000000000007",
       "name": "Extraer datos",
-      "notes": "messageId (wamid) es la clave de idempotencia: el backend descarta el mensaje si Meta reintenta el evento."
+      "notes": "Meta identifica a quien escribe de dos formas:\n  - telefono: messages[0].from (o contacts[0].wa_id)\n  - identidad: messages[0].from_user_id (o contacts[0].user_id), para las cuentas que activaron el nombre de usuario de WhatsApp y ocultan su numero\nSe extraen las dos y \"destinatario\" es la que se usa para responder. El backend acepta phone, userId o ambos."
     },
     {
       "parameters": {
@@ -189,9 +217,9 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ message: $json.message, phone: $json.phone, name: $json.name, conversationId: $json.conversationId, messageId: $json.messageId }) }}",
+        "jsonBody": "={{ JSON.stringify(Object.fromEntries(Object.entries({ message: $json.message, phone: $json.phone, userId: $json.userId, username: $json.username, name: $json.name, conversationId: $json.conversationId, messageId: $json.messageId }).filter(([, v]) => v !== undefined && v !== null && v !== ''))) }}",
         "options": {
-          "timeout": 45000
+          "timeout": 90000
         }
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -212,7 +240,7 @@
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 3000,
-      "notes": "Timeout 45 s (el modelo puede tardar). 2 intentos. Si aun así falla, sale por la salida roja y el usuario recibe el mensaje de emergencia.\nEl body se arma con JSON.stringify: si se escribiera a mano, un mensaje con comillas o saltos de línea rompería el JSON."
+      "notes": "Timeout 90 s: si Render tenia el servicio dormido, el arranque en frio se lleva 30-60 s. Con 45 s el primer mensaje del dia se perdia por timeout.\nn8n ya respondio 200 a Meta antes de este nodo, asi que esperar de mas no rompe nada: el usuario solo tarda mas en recibir la respuesta.\n2 intentos. Si aun asi falla, sale por la salida roja y el usuario recibe el mensaje de emergencia.\nEl body se arma con JSON.stringify: si se escribiera a mano, un mensaje con comillas o saltos de linea romperia el JSON."
     },
     {
       "parameters": {
@@ -220,8 +248,8 @@
           "assignments": [
             {
               "id": "c1000000-0000-4000-8000-000000000010",
-              "name": "phone",
-              "value": "={{ $('Extraer datos').item.json.phone }}",
+              "name": "destinatario",
+              "value": "={{ $('Extraer datos').item.json.destinatario }}",
               "type": "string"
             },
             {
@@ -268,8 +296,8 @@
           "assignments": [
             {
               "id": "c1000000-0000-4000-8000-000000000020",
-              "name": "phone",
-              "value": "={{ $('Extraer datos').item.json.phone }}",
+              "name": "destinatario",
+              "value": "={{ $('Extraer datos').item.json.destinatario }}",
               "type": "string"
             },
             {
@@ -323,6 +351,16 @@
                 "operation": "notEmpty",
                 "singleValue": true
               }
+            },
+            {
+              "id": "b1000000-0000-4000-8000-000000000005",
+              "leftValue": "={{ $json.destinatario || '' }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
             }
           ],
           "combinator": "and"
@@ -338,7 +376,7 @@
       ],
       "id": "a1000000-0000-4000-8000-000000000011",
       "name": "¿Hay respuesta?",
-      "notes": "El backend devuelve reply vacío cuando el mensaje era un duplicado. En ese caso no se envía nada."
+      "notes": "El backend devuelve reply vacio cuando el mensaje era un duplicado. En ese caso no se envia nada.\nTambien se exige phone: sin destinatario, Meta responde \"The parameter to is required\" y la ejecucion queda en rojo sin motivo claro."
     },
     {
       "parameters": {},
@@ -359,7 +397,7 @@
         "genericAuthType": "httpBearerAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.phone, type: 'text', text: { preview_url: false, body: $json.reply } }) }}",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ messaging_product: 'whatsapp', recipient_type: 'individual' }, $json.destinatario.includes('.') ? { recipient: $json.destinatario } : { to: $json.destinatario }, { type: 'text', text: { preview_url: false, body: $json.reply } })) }}",
         "options": {
           "timeout": 15000
         }
@@ -382,7 +420,7 @@
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 2000,
-      "notes": "El cuerpo se construye con JSON.stringify. Es obligatorio: los resúmenes traen saltos de línea y emojis, y escribir el JSON a mano los rompe."
+      "notes": "Segun el destinatario se usa un campo distinto, y no son intercambiables:\n  to        -> numero de telefono (573014132284)\n  recipient -> BSUID completo, con prefijo de pais y punto (CO.1710763673557397), para las cuentas que ocultan su numero\nVerificado: mandar un BSUID en \"to\" devuelve 200 y un wamid, pero el acuse posterior llega como failed porque Meta le quita el prefijo y lo interpreta como telefono.\nEl cuerpo se arma con JSON.stringify: los resumenes traen saltos de linea y emojis, y escribir el JSON a mano los rompe."
     },
     {
       "parameters": {

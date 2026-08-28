@@ -23,7 +23,9 @@ export class ComprasService {
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     const proveedorId = dto.proveedorId ?? null;
     if (proveedorId) {
@@ -148,7 +150,9 @@ export class ComprasService {
         'La sede asociada a esta compra ya no existe',
       );
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       for (const detalle of compra.detalles) {

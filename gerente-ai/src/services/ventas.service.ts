@@ -9,6 +9,14 @@ import { PrismaService } from './prisma.service';
 import { NegociosService } from './negocios.service';
 import { CreateVentaDto } from '../dto/ventas/create-venta.dto';
 
+/** Plazo estándar de un fiado cuando el mensaje no dice otra cosa. */
+const DIAS_CREDITO_POR_DEFECTO = 30;
+const UN_DIA_MS = 86_400_000;
+
+function vencimientoEn(dias: number): Date {
+  return new Date(Date.now() + dias * UN_DIA_MS);
+}
+
 @Injectable()
 export class VentasService {
   constructor(
@@ -23,7 +31,9 @@ export class VentasService {
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     const tipo = dto.tipo ?? 'CONTADO';
     const clienteId = dto.clienteId ?? null;
@@ -32,6 +42,14 @@ export class VentasService {
     // el saldo pendiente tiene que quedar cargado a alguien.
     if (tipo === 'FIADO' && !clienteId) {
       throw new BadRequestException('Una venta FIADO requiere un clienteId');
+    }
+
+    // Un plazo de crédito sobre una venta de contado no significa nada, y
+    // aceptarlo en silencio haría creer que quedó registrado.
+    if (tipo !== 'FIADO' && dto.diasCredito !== undefined) {
+      throw new BadRequestException(
+        'diasCredito solo aplica a las ventas de tipo FIADO',
+      );
     }
 
     if (clienteId) {
@@ -127,12 +145,20 @@ export class VentasService {
         });
       }
 
+      const esFiado = tipo === 'FIADO';
+
       return tx.venta.create({
         data: {
           tipo,
           total,
           sedeId: dto.sedeId,
           clienteId,
+          // El saldo por venta es lo que permite calcular antigüedad de deuda:
+          // Cliente.saldoPendiente dice cuánto debe en total, pero no desde cuándo.
+          saldoPendiente: esFiado ? total : new Prisma.Decimal(0),
+          fechaVencimiento: esFiado
+            ? vencimientoEn(dto.diasCredito ?? DIAS_CREDITO_POR_DEFECTO)
+            : null,
           detalles: { create: lineas },
         },
         include: { detalles: true },
@@ -172,7 +198,9 @@ export class VentasService {
     if (!sede) {
       throw new NotFoundException('La sede asociada a esta venta ya no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     return this.prisma.$transaction(async (tx) => {
       // Los productos siguen existiendo: la FK con onDelete: Restrict impide borrar

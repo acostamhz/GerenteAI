@@ -73,6 +73,66 @@ export const profileApi = {
   },
 
   /**
+   * Listar todas las sedes de un negocio.
+   * Llama a GET /sedes?negocioId=...
+   */
+  async getSedes(negocioId: string): Promise<any[]> {
+    return apiClient<any[]>(`/sedes?negocioId=${negocioId}`, {
+      method: 'GET',
+    });
+  },
+
+  /**
+   * Crear una sede asociada a un negocio.
+   * Llama a POST /sedes
+   */
+  async createSede(data: {
+    nombre: string;
+    negocioId: string;
+    telefono?: string;
+    whatsappUsername?: string;
+    direccion?: string;
+  }): Promise<any> {
+    return apiClient('/sedes', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  /**
+   * Orquesta la creación de una empresa matriz y su primera sede/sucursal.
+   */
+  async createNegocioConSede(data: {
+    nombre: string;
+    telefonoContacto?: string;
+    telefonoSecundario?: string;
+    nombreSede: string;
+    direccionSede?: string;
+    whatsappPhone?: string;
+    whatsappUsername?: string;
+  }): Promise<{ negocio: Negocio; sede: any }> {
+    // 1. Crear la empresa matriz
+    const negocioPayload: CreateNegocioDto = {
+      nombre: data.nombre.trim(),
+      ...(data.telefonoContacto?.trim() ? { telefonoContacto: data.telefonoContacto.trim() } : {}),
+      ...(data.telefonoSecundario?.trim() ? { telefonoSecundario: data.telefonoSecundario.trim() } : {}),
+    };
+    const negocio = await this.createNegocio(negocioPayload);
+
+    // 2. Crear la sede/sucursal inicial
+    const sedePayload = {
+      nombre: data.nombreSede.trim() || 'Sede Principal',
+      negocioId: negocio.id,
+      ...(data.direccionSede?.trim() ? { direccion: data.direccionSede.trim() } : {}),
+      ...(data.whatsappPhone?.trim() ? { telefono: data.whatsappPhone.trim() } : {}),
+      ...(data.whatsappUsername?.trim() ? { whatsappUsername: data.whatsappUsername.trim().replace(/^@/, '') } : {}),
+    };
+    const sede = await this.createSede(sedePayload);
+
+    return { negocio, sede };
+  },
+
+  /**
    * Actualizar un negocio.
    * Llama a PATCH /negocios/:id
    */

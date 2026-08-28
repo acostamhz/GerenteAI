@@ -34,8 +34,35 @@ export interface CambiarEmailDto {
   nuevoEmail: string;
 }
 
-export interface PhoneEntry {
-  id: string | number;
-  number: string;
-  active: boolean;
+export interface Sede {
+  id: string;
+  nombre: string;
+  negocioId: string;
+  telefono?: string | null;
+  whatsappUsername?: string | null;
+  direccion?: string | null;
+  contexto?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface CreateSedeDto {
+  nombre: string;
+  negocioId: string;
+  telefono?: string;
+  whatsappUsername?: string;
+  direccion?: string;
+  contexto?: string;
+}
+
+export interface CreateNegocioConSedeDto {
+  // Datos Empresa Matriz
+  nombre: string;
+  telefonoContacto?: string;
+  telefonoSecundario?: string;
+  // Datos Primera Sede
+  nombreSede: string;
+  direccionSede?: string;
+  whatsappPhone?: string;
+  whatsappUsername?: string;
 }

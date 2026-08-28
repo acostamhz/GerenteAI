@@ -1,4 +1,5 @@
 import { apiClient } from '@/lib/apiClient';
+
 import {
   AuthResponse,
   AuthUser,
@@ -14,7 +15,12 @@ import {
 export const authApi = {
   /**
    * Iniciar sesión con email y password.
-   * Normaliza la respuesta del backend (accessToken / usuario).
+   *
+   * Normaliza la respuesta del backend:
+   * - accessToken
+   * - access_token
+   * - usuario
+   * - user
    */
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
     const raw = await apiClient<BackendAuthResponse>('/auth/login', {
@@ -23,11 +29,13 @@ export const authApi = {
     });
 
     const token = raw.accessToken || raw.access_token || '';
-    const user = raw.usuario || raw.user || {
-      id: '',
-      nombre: '',
-      rolGlobal: 'CLIENTE',
-    };
+
+    const user = raw.usuario ||
+      raw.user || {
+        id: '',
+        nombre: '',
+        rolGlobal: 'CLIENTE',
+      };
 
     return {
       access_token: token,
@@ -36,21 +44,36 @@ export const authApi = {
   },
 
   /**
-   * Registro de nuevo usuario.
+   * Registrar un nuevo usuario.
+   *
+   * El backend NO devuelve accessToken en el registro.
+   *
+   * Flujo:
+   * registro → correo de verificación → verificar email → login
    */
   async register(credentials: RegisterCredentials): Promise<AuthUser> {
-    const raw = await apiClient<BackendAuthResponse | AuthUser>('/auth/register', {
-      method: 'POST',
-      body: JSON.stringify(credentials),
-    });
+    const raw = await apiClient<BackendAuthResponse | AuthUser>(
+      '/auth/register',
+      {
+        method: 'POST',
+        body: JSON.stringify(credentials),
+      },
+    );
 
-    if ('usuario' in raw && raw.usuario) return raw.usuario;
-    if ('user' in raw && raw.user) return raw.user;
+    if ('usuario' in raw && raw.usuario) {
+      return raw.usuario;
+    }
+
+    if ('user' in raw && raw.user) {
+      return raw.user;
+    }
+
     return raw as AuthUser;
   },
 
   /**
    * Obtener perfil del usuario autenticado actual.
+   *
    * Requiere token JWT.
    */
   async getMe(): Promise<AuthUser> {
@@ -60,30 +83,45 @@ export const authApi = {
   },
 
   /**
-   * Verificar correo electrónico mediante token recibido por email.
-   * Llama a GET /auth/verificar-email?token=...
+   * Verificar correo electrónico mediante el token
+   * recibido por email.
+   *
+   * GET /auth/verificar-email?token=...
    */
   async verificarEmail(token: string): Promise<VerifyEmailResponse> {
-    return apiClient<VerifyEmailResponse>(`/auth/verificar-email?token=${encodeURIComponent(token)}`, {
-      method: 'GET',
-    });
+    return apiClient<VerifyEmailResponse>(
+      `/auth/verificar-email?token=${encodeURIComponent(token)}`,
+      {
+        method: 'GET',
+      },
+    );
   },
 
   /**
    * Reenviar correo de verificación.
-   * Llama a POST /auth/reenviar-verificacion con { email }
+   *
+   * POST /auth/reenviar-verificacion
    */
-  async reenviarVerificacion(email: string): Promise<ResendVerificationResponse> {
-    return apiClient<ResendVerificationResponse>('/auth/reenviar-verificacion', {
-      method: 'POST',
-      body: JSON.stringify({ email }),
-    });
+  async reenviarVerificacion(
+    email: string,
+  ): Promise<ResendVerificationResponse> {
+    return apiClient<ResendVerificationResponse>(
+      '/auth/reenviar-verificacion',
+      {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      },
+    );
   },
 
   /**
    * Solicitar correo de recuperación de contraseña.
+   *
+   * POST /auth/forgot-password
    */
-  async forgotPassword(data: ForgotPasswordCredentials): Promise<{ mensaje: string }> {
+  async forgotPassword(
+    data: ForgotPasswordCredentials,
+  ): Promise<{ mensaje: string }> {
     return apiClient<{ mensaje: string }>('/auth/forgot-password', {
       method: 'POST',
       body: JSON.stringify(data),
@@ -92,8 +130,12 @@ export const authApi = {
 
   /**
    * Restablecer contraseña con token.
+   *
+   * POST /auth/reset-password
    */
-  async resetPassword(data: ResetPasswordCredentials): Promise<{ mensaje: string }> {
+  async resetPassword(
+    data: ResetPasswordCredentials,
+  ): Promise<{ mensaje: string }> {
     return apiClient<{ mensaje: string }>('/auth/reset-password', {
       method: 'POST',
       body: JSON.stringify(data),

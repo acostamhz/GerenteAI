@@ -56,6 +56,8 @@ model Negocio {
   telefonoContacto   String?  // Teléfono general/administrativo (no usado por el bot)
   telefonoSecundario String?
   contexto           String?  @db.Text // Contexto general de IA para el negocio
+  plan               Int      @default(1)
+  planVenceEl        DateTime?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
@@ -68,6 +70,16 @@ model Sede {
   id        String   @id @default(uuid())
   nombre    String
   telefono  String?  @unique // Línea de WhatsApp independiente para el bot de esta sede
+
+  // Identidad de WhatsApp del usuario, para quienes activaron nombre de usuario.
+  // Meta oculta el teléfono de esas cuentas y las identifica con un id propio
+  // (ej. "CO.1710763673557397"): sin esto el bot no puede saber quién escribe.
+  whatsappUserId String? @unique
+
+  // Nombre de usuario de WhatsApp ("jdar0423"). Es el dato que la persona SI
+  // conoce y puede escribir en el panel; el whatsappUserId de arriba se captura
+  // solo, del primer mensaje que envie.
+  whatsappUsername String? @unique
   direccion String?
   contexto  String?  @db.Text // Contexto de IA individual para la sede
   createdAt DateTime @default(now())
@@ -87,6 +99,8 @@ model Sede {
   gastos       Gasto[]
   reportes     Reporte[]
   abonos       Abono[]
+
+  @@index([negocioId, createdAt])
 }
 
 model UsuarioNegocio {
@@ -151,6 +165,8 @@ model Producto {
 
   detallesVenta  DetalleVenta[]
   detallesCompra DetalleCompra[]
+
+  @@index([sedeId])
 }
 
 model Cliente {
@@ -180,10 +196,12 @@ model Proveedor {
 }
 
 model Venta {
-  id        String    @id @default(uuid())
-  tipo      TipoVenta @default(CONTADO)
-  total     Decimal
-  fecha     DateTime  @default(now())
+  id               String    @id @default(uuid())
+  tipo             TipoVenta @default(CONTADO)
+  total            Decimal
+  saldoPendiente   Decimal   @default(0)
+  fechaVencimiento DateTime?
+  fecha            DateTime  @default(now())
 
   clienteId String?
   cliente   Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
@@ -192,6 +210,10 @@ model Venta {
   sede      Sede      @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
   detalles  DetalleVenta[]
+  abonos    Abono[]
+
+  @@index([sedeId, fecha])
+  @@index([clienteId, saldoPendiente])
 }
 
 model DetalleVenta {
@@ -204,6 +226,8 @@ model DetalleVenta {
 
   productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@index([productoId])
 }
 
 model Compra {
@@ -218,6 +242,8 @@ model Compra {
   sede        Sede       @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
   detalles    DetalleCompra[]
+
+  @@index([sedeId, fecha])
 }
 
 model DetalleCompra {
@@ -230,6 +256,8 @@ model DetalleCompra {
 
   productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
+
+  @@index([productoId])
 }
 
 model Gasto {
@@ -241,6 +269,8 @@ model Gasto {
 
   sedeId      String
   sede        Sede           @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  @@index([sedeId, fecha])
 }
 
 model Abono {
@@ -253,4 +283,10 @@ model Abono {
 
   sedeId    String
   sede      Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  ventaId   String?
+  venta     Venta?   @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+
+  @@index([sedeId, fecha])
+  @@index([clienteId])
 }

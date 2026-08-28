@@ -1,11 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../src/services/prisma.service';
 import { NegociosService } from '../../src/services/negocios.service';
+import { PlanesService } from '../../src/services/planes.service';
 import { ProductosService } from '../../src/services/productos.service';
 import { VentasService } from '../../src/services/ventas.service';
 import { ComprasService } from '../../src/services/compras.service';
 import { AbonosService } from '../../src/services/abonos.service';
 import { UsuarioSedesService } from '../../src/services/usuario-sedes.service';
+import { SedesService } from '../../src/services/sedes.service';
+import { ReportesService } from '../../src/services/reportes.service';
 
 export interface Contexto {
   moduleRef: TestingModule;
@@ -16,6 +19,8 @@ export interface Contexto {
   compras: ComprasService;
   abonos: AbonosService;
   usuarioSedes: UsuarioSedesService;
+  sedes: SedesService;
+  reportes: ReportesService;
 }
 
 // Se instancian los servicios sueltos en vez de levantar AppModule entero:
@@ -26,11 +31,14 @@ export async function crearContexto(): Promise<Contexto> {
     providers: [
       PrismaService,
       NegociosService,
+      PlanesService,
       ProductosService,
       VentasService,
       ComprasService,
       AbonosService,
       UsuarioSedesService,
+      SedesService,
+      ReportesService,
     ],
   }).compile();
 
@@ -46,6 +54,8 @@ export async function crearContexto(): Promise<Contexto> {
     compras: moduleRef.get(ComprasService),
     abonos: moduleRef.get(AbonosService),
     usuarioSedes: moduleRef.get(UsuarioSedesService),
+    sedes: moduleRef.get(SedesService),
+    reportes: moduleRef.get(ReportesService),
   };
 }
 
@@ -115,8 +125,16 @@ export async function sembrar(prisma: PrismaService): Promise<Semilla> {
     },
   });
 
+  // Plan Gerente vigente: el negocio de la semilla tiene dos sedes, y con el plan
+  // Asistente (tope 1) la segunda quedaría en solo lectura y rompería las pruebas
+  // que no van de planes. Los límites por plan se prueban aparte, en planes.e2e-spec.
   const negocio = await prisma.negocio.create({
-    data: { nombre: 'Tienda Don José', telefonoContacto: '+573001112233' },
+    data: {
+      nombre: 'Tienda Don José',
+      telefonoContacto: '+573001112233',
+      plan: 2,
+      planVenceEl: new Date(Date.now() + 365 * 86_400_000),
+    },
   });
   // Cada sede tiene su propia línea de WhatsApp: es la llave de enrutamiento del bot.
   const sedeA = await prisma.sede.create({

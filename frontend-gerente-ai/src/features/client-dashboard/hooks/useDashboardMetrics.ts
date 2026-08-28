@@ -50,7 +50,16 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
   const [allTransactions, setAllTransactions] = useState<DashboardTransactionItem[]>([]);
   
   const [resolvedBusinessId, setResolvedBusinessId] = useState<string | null>(null);
-  const [businessName, setBusinessName] = useState<string>('Mi Negocio');
+  const [businessName, setBusinessName] = useState<string>(() => {
+    return localStorage.getItem('active_business_name') || 'Mi Negocio';
+  });
+  const [resolvedSedeId, setResolvedSedeId] = useState<string | null>(() => {
+    const s = localStorage.getItem('active_sede_id');
+    return s && s !== 'all' ? s : null;
+  });
+  const [sedeName, setSedeName] = useState<string>(() => {
+    return localStorage.getItem('active_sede_name') || 'Todas las Sedes';
+  });
   const [hasNoBusiness, setHasNoBusiness] = useState<boolean>(false);
   
   const [isLoading, setIsLoading] = useState<boolean>(true);
@@ -106,7 +115,15 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
         const targetBusinessId = await resolveActiveBusiness();
         setResolvedBusinessId(targetBusinessId);
 
-        if (!targetBusinessId && !customSedeId) {
+        // Verificar sede activa desde prop o storage
+        const currentSedeStorage = localStorage.getItem('active_sede_id');
+        const effectiveSedeId = customSedeId || (currentSedeStorage && currentSedeStorage !== 'all' ? currentSedeStorage : null);
+        setResolvedSedeId(effectiveSedeId);
+
+        const currentSedeName = localStorage.getItem('active_sede_name');
+        setSedeName(effectiveSedeId ? (currentSedeName || 'Sede Seleccionada') : 'Todas las Sedes');
+
+        if (!targetBusinessId && !effectiveSedeId) {
           setHasNoBusiness(true);
           setPeriodMetrics(EMPTY_METRICS(periodo));
           setGeneralMetrics(EMPTY_METRICS(periodo));
@@ -118,10 +135,10 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
 
         setHasNoBusiness(false);
 
-        // 1. Cargar Reporte Financiero real para el período activo y reporte acumulado
+        // 1. Cargar Reporte Financiero real para el período activo
         let reportResult: ReporteFinanciero;
-        if (customSedeId) {
-          reportResult = await dashboardApi.getReporteSede(customSedeId, periodo);
+        if (effectiveSedeId) {
+          reportResult = await dashboardApi.getReporteSede(effectiveSedeId, periodo);
         } else if (targetBusinessId) {
           reportResult = await dashboardApi.getReporteNegocio(targetBusinessId, periodo);
         } else {
@@ -136,11 +153,11 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
         setPeriodMetrics(reportResult || EMPTY_METRICS(periodo));
         setGeneralMetrics(reportResult || EMPTY_METRICS(periodo));
 
-        // 2. Cargar Transacciones reales de las sedes de este negocio
+        // 2. Cargar Transacciones reales
         try {
           let targetSedeIds: string[] = [];
-          if (customSedeId) {
-            targetSedeIds = [customSedeId];
+          if (effectiveSedeId) {
+            targetSedeIds = [effectiveSedeId];
           } else if (reportResult?.sedes && reportResult.sedes.length > 0) {
             targetSedeIds = reportResult.sedes.map((s) => s.sede.id);
           }
@@ -169,18 +186,21 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
     [token, resolveActiveBusiness, customSedeId, periodo],
   );
 
-  // Cambio de período rápido: SOLO actualiza la gráfica de gastos y el filtro de transacciones
+  // Cambio de período rápido
   const handlePeriodChange = async (newPeriodo: PeriodoTipo) => {
     if (newPeriodo === periodo) return;
     setPeriodoState(newPeriodo);
     
-    if (!resolvedBusinessId && !customSedeId) return;
+    const currentSedeStorage = localStorage.getItem('active_sede_id');
+    const effectiveSedeId = customSedeId || (currentSedeStorage && currentSedeStorage !== 'all' ? currentSedeStorage : null);
+
+    if (!resolvedBusinessId && !effectiveSedeId) return;
 
     setIsChartLoading(true);
     try {
       let reportResult: ReporteFinanciero;
-      if (customSedeId) {
-        reportResult = await dashboardApi.getReporteSede(customSedeId, newPeriodo);
+      if (effectiveSedeId) {
+        reportResult = await dashboardApi.getReporteSede(effectiveSedeId, newPeriodo);
       } else if (resolvedBusinessId) {
         reportResult = await dashboardApi.getReporteNegocio(resolvedBusinessId, newPeriodo);
       } else {
@@ -199,14 +219,18 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
   }, [fetchMetrics]);
 
   useEffect(() => {
-    const handleBusinessChange = () => {
+    const handleSync = () => {
       fetchMetrics(true);
     };
-    window.addEventListener('business_changed', handleBusinessChange);
-    return () => window.removeEventListener('business_changed', handleBusinessChange);
+    window.addEventListener('business_changed', handleSync);
+    window.addEventListener('sede_changed', handleSync);
+    return () => {
+      window.removeEventListener('business_changed', handleSync);
+      window.removeEventListener('sede_changed', handleSync);
+    };
   }, [fetchMetrics]);
 
-  // Transacciones filtradas según el período (Hoy / Esta semana / Últimos meses)
+  // Transacciones filtradas según el período
   const filteredTransactions = useMemo(() => {
     if (!allTransactions.length) return [];
 
@@ -255,6 +279,8 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
     hasNoBusiness,
     businessId: resolvedBusinessId,
     businessName,
+    sedeId: resolvedSedeId,
+    sedeName,
     user,
   };
 }

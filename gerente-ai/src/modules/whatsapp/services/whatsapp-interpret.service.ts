@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 
 import { LlmError, type LlmErrorCode } from '../../../ai/core/llm.errors';
 import { PrismaService } from '../../../services/prisma.service';
@@ -19,6 +20,7 @@ import {
   normalizePhone,
   WhatsappRoutingService,
   type WhatsappContext,
+  type WhatsappSender,
 } from './whatsapp-routing.service';
 
 /**
@@ -45,6 +47,7 @@ export type PublicIntentType =
   | 'consulta'
   | 'correccion'
   | 'no_claro'
+  | 'fuera_de_alcance'
   | 'no_registrado'
   | 'error';
 
@@ -88,6 +91,7 @@ const TYPE_LABELS: Record<MessageIntentType, PublicIntentType> = {
   query: 'consulta',
   correction: 'correccion',
   unclear: 'no_claro',
+  out_of_scope: 'fuera_de_alcance',
 };
 
 /**
@@ -110,6 +114,16 @@ const FALLBACK_REPLY: Partial<Record<LlmErrorCode, string>> = {
   auth: 'El asistente esta en mantenimiento. Ya estamos trabajando en ello 🙏',
 };
 
+/**
+ * A donde se manda a registrar a quien escribe desde un numero desconocido.
+ * Se puede sobreescribir con FRONTEND_REGISTER_URL.
+ *
+ * No se reutiliza FRONTEND_URL a proposito: esa apunta al entorno desde el que
+ * se arman los enlaces de los correos, y en desarrollo vale localhost, que
+ * dentro de un WhatsApp no le sirve a nadie.
+ */
+const DEFAULT_REGISTER_URL = 'https://luka-gules.vercel.app/home';
+
 const GENERIC_FALLBACK =
   'No pude procesar tu mensaje en este momento 😔 Intenta de nuevo en unos minutos.';
 
@@ -122,18 +136,40 @@ export class WhatsappInterpretService {
     private readonly whatsapp: WhatsAppMessageService,
     private readonly dedupe: MessageDedupeService,
     private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
   ) {}
 
   async interpret(dto: InterpretMessageDto): Promise<InterpretResponse> {
     const startedAt = Date.now();
-    const phone = normalizePhone(dto.phone);
+    const sender = readSender(dto);
+
+    if (!sender.phone && !sender.userId) {
+      // n8n no deberia llamar sin remitente; si pasa, conviene un 400 claro y
+      // no un fallo mas adelante con un mensaje que no explica nada.
+      throw new BadRequestException(
+        'Falta identificar al remitente: se requiere phone o userId.',
+      );
+    }
 
     this.logger.log(
-      `Mensaje de ${dto.name ?? 'sin nombre'} (${maskPhone(phone)}): "${dto.message.slice(0, 120)}"`,
+      `Mensaje de ${dto.name ?? 'sin nombre'} (${describeSender(sender)}): "${dto.message.slice(0, 120)}"`,
     );
 
     // ---- 1. Duplicados ----------------------------------------------------
     if (!this.dedupe.isFirstTime(dto.messageId)) {
+      const previa = this.dedupe.recall<InterpretResponse>(dto.messageId);
+
+      if (previa) {
+        // Se repite la respuesta ya calculada en vez de devolver vacio: el
+        // movimiento NO se registra dos veces, pero el usuario recibe su
+        // confirmacion aunque n8n haya reintentado por timeout.
+        this.logger.log(
+          `Mensaje repetido (${dto.messageId}): se reenvia la respuesta anterior.`,
+        );
+        return { ...previa, meta: { ...previa.meta, duplicate: true } };
+      }
+
+      // Sin respuesta guardada, el original sigue en curso: contestara el.
       return this.emptyResponse({
         type: 'no_claro',
         reply: '',
@@ -143,7 +179,9 @@ export class WhatsappInterpretService {
     }
 
     try {
-      return await this.process(dto, phone, startedAt);
+      const respuesta = await this.process(dto, sender, startedAt);
+      this.dedupe.remember(dto.messageId, respuesta);
+      return respuesta;
     } catch (error) {
       // El mensaje no llego a atenderse: se libera el id para que el reintento
       // de n8n vuelva a intentarlo en vez de recibir "duplicado".
@@ -155,18 +193,18 @@ export class WhatsappInterpretService {
   /** Todo lo que ocurre una vez descartado el duplicado. */
   private async process(
     dto: InterpretMessageDto,
-    phone: string,
+    sender: WhatsappSender,
     startedAt: number,
   ): Promise<InterpretResponse> {
-    // ---- 2. ¿De quien es este numero? -------------------------------------
-    const context = await this.routing.resolve(phone);
+    // ---- 2. ¿De quien es este remitente? ----------------------------------
+    const context = await this.routing.resolve(sender);
 
     if (!context) {
       // Sin negocio asociado no se llama al modelo: no se gasta cuota con
       // numeros desconocidos (y ahi es donde llega el spam).
       return this.emptyResponse({
         type: 'no_registrado',
-        reply: unregisteredReply(dto.name),
+        reply: this.unregisteredReply(dto.name, sender),
         durationMs: Date.now() - startedAt,
         duplicate: false,
       });
@@ -298,6 +336,50 @@ export class WhatsappInterpretService {
     };
   }
 
+  /**
+   * Numero desconocido: no hay negocio al cual imputar nada.
+   *
+   * Se responde igual, porque del otro lado puede haber un cliente, pero sin
+   * gastar un solo token de IA: el modelo ni se llama. El enlace de registro va
+   * explicito porque es la unica salida posible.
+   */
+  private unregisteredReply(
+    name: string | undefined,
+    sender: WhatsappSender,
+  ): string {
+    const saludo = name ? SALUDO_CON_NOMBRE(name) : '¡Hola! 👋';
+    const url =
+      this.config.get<string>('FRONTEND_REGISTER_URL')?.trim() ||
+      DEFAULT_REGISTER_URL;
+
+    // A quien tiene el nombre de usuario de WhatsApp activado no se le puede
+    // pedir "agrega este numero": ni el ni nosotros lo vemos. Se le pide su
+    // nombre de usuario, que si conoce y puede escribir. El BSUID solo aparece
+    // si Meta no mando el usuario, porque es la unica llave que quedaria.
+    const cuerpo = sender.phone
+      ? [
+          'Todavía no encuentro este número registrado en ningún negocio, así que aún no puedo llevarte las cuentas.',
+          '',
+          'Regístrate aquí y agrega este número a tu negocio:',
+        ]
+      : [
+          'Todavía no encuentro tu negocio. Regístrate y, al crearlo, pon tu usuario de WhatsApp:',
+          '',
+          sender.username ?? sender.userId ?? '',
+          '',
+          'Puedes hacerlo aquí:',
+        ];
+
+    return [
+      saludo + ' Soy Luka, tu asistente financiero con IA.',
+      '',
+      ...cuerpo,
+      url,
+      '',
+      'Cuando termines, escríbeme de nuevo y empezamos 🚀',
+    ].join('\n');
+  }
+
   private emptyResponse(options: {
     type: PublicIntentType;
     reply: string;
@@ -335,10 +417,26 @@ export class WhatsappInterpretService {
 }
 
 /**
- * Numero desconocido. Se responde igual (es un posible cliente) pero sin gastar
- * un solo token de IA.
+ * Identidad del remitente tal como la manda n8n.
+ *
+ * El telefono se normaliza a digitos; la identidad de WhatsApp se toma tal cual,
+ * porque no es un numero y cualquier "limpieza" la romperia.
  */
-function unregisteredReply(name?: string): string {
-  const saludo = name ? `Hola ${name.split(' ')[0]} 👋` : 'Hola 👋';
-  return `${saludo} Soy el asistente financiero de Luka AI, pero este numero todavia no esta registrado en ningun negocio.\n\nPara empezar a registrar tus gastos e ingresos por WhatsApp, crea tu cuenta y agrega este numero desde el panel.`;
+function readSender(dto: InterpretMessageDto): WhatsappSender {
+  const phone = dto.phone ? normalizePhone(dto.phone) : '';
+  return {
+    phone: phone.length > 0 ? phone : undefined,
+    userId: dto.userId?.trim() || undefined,
+    username: dto.username?.trim() || undefined,
+  };
 }
+
+/** Para logs: nunca el telefono completo, y algo util cuando solo hay identidad. */
+function describeSender(sender: WhatsappSender): string {
+  if (sender.phone) return maskPhone(sender.phone);
+  return sender.userId ? `id ${sender.userId}` : 'sin remitente';
+}
+
+/** "Angelica Marcillo" -> "¡Hola Angelica! 👋". Solo el primer nombre. */
+const SALUDO_CON_NOMBRE = (name: string): string =>
+  `¡Hola ${name.trim().split(' ')[0]}! 👋`;

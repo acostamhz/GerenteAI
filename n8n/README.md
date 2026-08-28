@@ -403,3 +403,90 @@ Logs útiles del backend (Render → pestaña Logs):
    del webhook puede simular un mensaje de Meta. Como el backend sí valida el
    número contra la base, el daño está acotado, pero conviene añadirlo antes de
    operar con clientes reales.
+
+---
+
+## 8. Usuarios con nombre de usuario de WhatsApp (sin teléfono)
+
+Meta permite activar un **nombre de usuario** en WhatsApp. Las cuentas que lo
+hacen **no exponen su número**: el webhook llega sin `from` ni `wa_id`, y en su
+lugar trae una identidad propia.
+
+```
+messages[0].from_user_id : "CO.1710763673557397"
+contacts[0].user_id      : "CO.1710763673557397"
+contacts[0].username     : "jdar0423"
+```
+
+Antes esto rompía el flujo: `phone` quedaba `null`, el backend respondía `400`
+(`phone must be a string`) y el envío de la respuesta fallaba con
+`The parameter to is required`. El usuario se quedaba sin ninguna respuesta y no
+era evidente por qué le pasaba solo a él.
+
+**Cómo funciona ahora**
+
+| Dato | De dónde sale | Para qué |
+|---|---|---|
+| `phone` | `messages[0].from` o `contacts[0].wa_id` | Identificar la sede |
+| `userId` | `messages[0].from_user_id` o `contacts[0].user_id` | Identificar la sede cuando no hay teléfono |
+| `destinatario` | el primero de los dos que exista | Campo `to` al responder |
+
+El backend acepta `phone`, `userId` o ambos, y resuelve en este orden:
+`Sede.whatsappUserId` → `Sede.telefono` → `Usuario.telefono`.
+
+**Vincular a alguien que escribe con identidad**
+
+Lo que se le pide a la persona es su **nombre de usuario** ("jdar0423"), no el
+BSUID: es lo que ella conoce y puede escribir. El BSUID lo captura el sistema
+solo, del primer mensaje, y a partir del segundo resuelve por él (es más estable,
+porque el nombre de usuario se puede cambiar).
+
+```sql
+UPDATE "Sede" SET "whatsappUsername" = jdar0423
+WHERE telefono = 573014132284;
+```
+
+Cuando el frontend tenga el campo "Usuario de WhatsApp" en el formulario de
+negocio, esto deja de necesitar SQL.
+
+**Vincular a mano por identidad** (si Meta no mandó el nombre de usuario)
+
+Su identificador aparece en el mensaje que Luka le responde (y en los logs del
+backend). Con eso:
+
+```sql
+UPDATE "Sede"
+SET "whatsappUserId" = 'CO.1710763673557397'
+WHERE telefono = '573014132284';
+```
+
+El campo es único: una identidad no puede estar en dos sedes.
+
+**Cómo responderles: con `recipient`, no con `to`.**
+
+Meta llama a esa identidad **BSUID** (*business-scoped user ID*) y la Cloud API
+usa un campo distinto según a quién se le escriba:
+
+| Destinatario | Campo | Ejemplo |
+|---|---|---|
+| Teléfono | `to` | `573014132284` |
+| Cuenta que oculta su número | `recipient` | `CO.1710763673557397` |
+
+No son intercambiables. Mandar un BSUID en `to` devuelve **200 y un `wamid`**, así
+que parece que funcionó, pero el acuse posterior llega así:
+
+```json
+"statuses": [{ "status": "failed", "recipient_id": "1710763673557397" }]
+```
+
+Meta le quitó el prefijo `CO.` y lo trató como si fuera un teléfono. Verificado en
+producción el 28/08/2026, respondiendo dentro de la ventana de 24 h (o sea, no era
+un problema de ventana).
+
+El BSUID va **completo**: prefijo de país, punto y todos los caracteres. Quitar o
+cambiar cualquier parte hace fallar la petición.
+
+**Limitación que queda:** los BSUID no sirven para plantillas de autenticación
+(one-tap, zero-tap, copy code), que exigen teléfono. No afecta a este proyecto.
+
+Documentación: https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/
