@@ -11,11 +11,25 @@ import {
 import { PrismaService } from '../../../services/prisma.service';
 
 /**
- * Traduce "un numero de WhatsApp" a "que sede de que negocio esta escribiendo".
+ * Traduce "quien escribio por WhatsApp" a "que sede de que negocio es".
  *
- * n8n solo sabe el telefono del remitente; el resto del backend necesita
+ * n8n solo conoce la identidad del remitente; el resto del backend necesita
  * `sedeId` para poder guardar un movimiento. Toda esa resolucion vive aqui.
  */
+
+/**
+ * Como llega identificado quien escribe.
+ *
+ * Normalmente es el telefono. Pero Meta permite activar un nombre de usuario, y
+ * esas cuentas llegan SIN telefono: el webhook trae `from_user_id` en su lugar
+ * (p. ej. "CO.1710763673557397"). Son cada vez mas, asi que el enrutamiento
+ * acepta cualquiera de los dos.
+ */
+export interface WhatsappSender {
+  phone?: string;
+  /** Identidad de WhatsApp de quien oculto su telefono. */
+  userId?: string;
+}
 
 export interface WhatsappContext {
   negocioId: string;
@@ -39,35 +53,57 @@ export class WhatsappRoutingService {
   ) {}
 
   /**
-   * Resuelve el remitente. Devuelve null si el numero no pertenece a ningun
-   * negocio: en ese caso NO se llama al modelo (no se gasta cuota con
-   * desconocidos) y se responde con un mensaje de alta.
+   * Resuelve el remitente. Devuelve null si no pertenece a ningun negocio: en
+   * ese caso NO se llama al modelo (no se gasta cuota con desconocidos) y se
+   * responde con un mensaje de alta.
    *
    * Orden de busqueda:
-   *   1. `Sede.telefono`     la linea de WhatsApp del bot, una por sede
-   *   2. `Usuario.telefono`  el numero personal de un socio o empleado
+   *   1. `Sede.whatsappUserId`  identidad de quien oculto su telefono
+   *   2. `Sede.telefono`        la linea de WhatsApp del bot, una por sede
+   *   3. `Usuario.telefono`     el numero personal de un socio o empleado
    *
-   * En ambos casos, si no hay coincidencia exacta se reintenta por los ultimos
-   * 10 digitos (Meta normaliza prefijos: 52 vs 521, 57 vs +57...).
+   * Con telefono, si no hay coincidencia exacta se reintenta por los ultimos 10
+   * digitos (Meta normaliza prefijos: 52 vs 521, 57 vs +57...). Con identidad
+   * la comparacion es exacta: no es un numero y no admite variantes.
    *
    * `Negocio.telefonoContacto` NO se consulta a proposito: el esquema lo marca
    * como telefono administrativo, no como linea del bot.
    */
-  async resolve(rawPhone: string): Promise<WhatsappContext | null> {
-    const phone = normalizePhone(rawPhone);
-    const tail = phone.slice(-10);
+  async resolve(
+    sender: WhatsappSender | string,
+  ): Promise<WhatsappContext | null> {
+    // Se acepta un string suelto por comodidad: es el caso mas comun.
+    const { phone: rawPhone, userId } =
+      typeof sender === 'string'
+        ? { phone: sender, userId: undefined }
+        : sender;
 
-    const bySede =
-      (await this.findBySede({ exact: phone })) ??
-      (await this.findBySede({ tail }));
-    if (bySede) return bySede;
+    if (userId) {
+      const byIdentity = await this.findBySede({ whatsappUserId: userId });
+      if (byIdentity) return byIdentity;
+    }
 
-    const byUsuario =
-      (await this.findByUsuario({ exact: phone })) ??
-      (await this.findByUsuario({ tail }));
-    if (byUsuario) return byUsuario;
+    if (rawPhone) {
+      const phone = normalizePhone(rawPhone);
+      const tail = phone.slice(-10);
 
-    this.logger.warn(`Numero sin negocio asociado: ${maskPhone(phone)}`);
+      const bySede =
+        (await this.findBySede({ exact: phone })) ??
+        (await this.findBySede({ tail }));
+      if (bySede) return bySede;
+
+      const byUsuario =
+        (await this.findByUsuario({ exact: phone })) ??
+        (await this.findByUsuario({ tail }));
+      if (byUsuario) return byUsuario;
+
+      this.logger.warn(`Numero sin negocio asociado: ${maskPhone(phone)}`);
+      return null;
+    }
+
+    this.logger.warn(
+      `Identidad de WhatsApp sin negocio asociado: ${userId ?? '(sin remitente)'}`,
+    );
     return null;
   }
 
@@ -80,13 +116,15 @@ export class WhatsappRoutingService {
    * sin ambiguedad sobre a que sede se imputa el movimiento.
    */
   private async findBySede(
-    match: { exact: string } | { tail: string },
+    match: { exact: string } | { tail: string } | { whatsappUserId: string },
   ): Promise<WhatsappContext | null> {
     const sede = await this.prisma.sede.findFirst({
       where:
-        'exact' in match
-          ? { telefono: match.exact }
-          : { telefono: { endsWith: match.tail } },
+        'whatsappUserId' in match
+          ? { whatsappUserId: match.whatsappUserId }
+          : 'exact' in match
+            ? { telefono: match.exact }
+            : { telefono: { endsWith: match.tail } },
       // Ya no hace falta traer usuariosNegocio: el plan vive en el negocio.
       include: { negocio: true },
     });

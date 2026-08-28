@@ -24,13 +24,38 @@ export class InterpretMessageDto {
   /**
    * Numero del remitente en formato internacional sin "+", como lo entrega
    * Meta en `entry[0].changes[0].value.messages[0].from`.
+   *
+   * OPCIONAL desde que Meta soporta nombres de usuario: las cuentas que
+   * activaron esa opcion no exponen su telefono y llegan solo con `userId`.
+   * Debe venir uno de los dos; lo verifica el servicio.
    */
+  @IsOptional()
   @IsString()
   @Matches(/^\+?\d{7,20}$/, {
     message:
       'phone debe ser un numero internacional (solo digitos, sin espacios).',
   })
-  phone!: string;
+  phone?: string;
+
+  /**
+   * Identidad de WhatsApp del remitente cuando su telefono viene oculto
+   * (`messages[0].from_user_id`, por ejemplo "CO.1710763673557397").
+   *
+   * Sirve para dos cosas: identificar la sede y responderle, porque la Graph
+   * API acepta esta identidad como destinatario.
+   */
+  @IsOptional()
+  @IsString()
+  @Matches(/^[A-Za-z0-9][A-Za-z0-9._:-]{3,63}$/, {
+    message: 'userId no tiene el formato de una identidad de WhatsApp.',
+  })
+  userId?: string;
+
+  /** Nombre de usuario publico de WhatsApp. Solo para logs y soporte. */
+  @IsOptional()
+  @IsString()
+  @Length(1, 120)
+  username?: string;
 
   /** Nombre del perfil de WhatsApp. Solo se usa para el saludo y los logs. */
   @IsOptional()
