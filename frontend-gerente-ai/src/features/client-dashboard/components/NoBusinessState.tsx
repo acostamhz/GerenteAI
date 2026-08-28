@@ -1,31 +1,50 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { 
   Building2, 
+  MapPin,
   Sparkles, 
+  CheckCircle2, 
+  ArrowRight, 
+  Layers, 
   MessageSquare, 
+  Bot, 
+  ShieldCheck, 
+  HelpCircle, 
+  Phone, 
+  AtSign,
+  Loader2, 
   Mic, 
   Camera, 
-  ArrowRight, 
-  KeyRound, 
-  ShieldCheck, 
-  Bot, 
-  Phone, 
-  Loader2, 
-  CheckCircle2, 
+  Zap, 
+  KeyRound,
   AlertCircle 
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import confetti from 'canvas-confetti';
 import { profileApi } from '@/features/shared-profile/api/profileApi';
 import { ApiError } from '@/lib/apiClient';
+import { getRandomUsernamePlaceholder } from '@/lib/activeBusiness';
 
 interface NoBusinessStateProps {
   onBusinessCreated?: (negocioId: string, nombre: string) => void;
 }
 
+const PHONE_REGEX = /^\+?[1-9]\d{6,14}$/;
+const USERNAME_REGEX = /^[a-zA-Z0-9._-]{3,30}$/;
+
 export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
+  // Datos Empresa Matriz
   const [nombre, setNombre] = useState('');
   const [telefonoContacto, setTelefonoContacto] = useState('');
+  const [telefonoSecundario, setTelefonoSecundario] = useState('');
+
+  // Datos Primera Sede
+  const [nombreSede, setNombreSede] = useState('Sede Principal');
+  const [direccionSede, setDireccionSede] = useState('');
+  const [whatsappPhone, setWhatsappPhone] = useState('');
+  const [whatsappUsername, setWhatsappUsername] = useState('');
+  const [usernamePlaceholder, setUsernamePlaceholder] = useState('cafecentral');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +54,10 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
 
   const inputNameRef = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    setUsernamePlaceholder(getRandomUsernamePlaceholder());
+  }, []);
+
   const handleFocusForm = () => {
     inputNameRef.current?.focus();
     inputNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -42,24 +65,63 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
 
   const handleCreateBusiness = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!nombre.trim()) {
-      setError('El nombre del negocio es obligatorio.');
+    setError(null);
+
+    const cleanNombre = nombre.trim();
+    const cleanNombreSede = nombreSede.trim();
+    const cleanPhone = whatsappPhone.trim();
+    const cleanUsername = whatsappUsername.trim().replace(/^@/, '');
+    const cleanTelContacto = telefonoContacto.trim();
+    const cleanTelSecundario = telefonoSecundario.trim();
+
+    if (!cleanNombre) {
+      setError('El nombre de la empresa matriz es obligatorio.');
       inputNameRef.current?.focus();
       return;
     }
 
+    if (!cleanNombreSede) {
+      setError('El nombre de la sede/sucursal es obligatorio (ej. Sede Principal).');
+      return;
+    }
+
+    if (!cleanPhone && !cleanUsername) {
+      setError('Debes ingresar al menos un identificador de WhatsApp (número o usuario) para vincular a Luka.');
+      return;
+    }
+
+    if (cleanPhone && !PHONE_REGEX.test(cleanPhone)) {
+      setError('El número de WhatsApp de la sede debe tener formato internacional válido (ej. +573001234567 o 573001234567).');
+      return;
+    }
+
+    if (cleanTelContacto && !PHONE_REGEX.test(cleanTelContacto)) {
+      setError('El teléfono administrativo principal debe tener formato internacional válido.');
+      return;
+    }
+
+    if (cleanTelSecundario && !PHONE_REGEX.test(cleanTelSecundario)) {
+      setError('El teléfono administrativo secundario debe tener formato internacional válido.');
+      return;
+    }
+
+    if (cleanUsername && !USERNAME_REGEX.test(cleanUsername)) {
+      setError('El usuario de WhatsApp debe tener entre 3 y 30 caracteres (solo letras, números, punto, guion o guion bajo).');
+      return;
+    }
+
     setIsSubmitting(true);
-    setError(null);
 
     try {
-      const payload: { nombre: string; telefonoContacto?: string } = {
-        nombre: nombre.trim(),
-      };
-      if (telefonoContacto.trim()) {
-        payload.telefonoContacto = telefonoContacto.trim();
-      }
-
-      const newNegocio = await profileApi.createNegocio(payload as any);
+      const { negocio, sede } = await profileApi.createNegocioConSede({
+        nombre: cleanNombre,
+        telefonoContacto: cleanTelContacto || undefined,
+        telefonoSecundario: cleanTelSecundario || undefined,
+        nombreSede: cleanNombreSede,
+        direccionSede: direccionSede.trim() || undefined,
+        whatsappPhone: cleanPhone || undefined,
+        whatsappUsername: cleanUsername || undefined,
+      });
 
       // 🎉 Celebración con micro-confeti elegante
       try {
@@ -77,22 +139,28 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
       setIsSuccess(true);
 
       // Persistir en sesión activa
-      localStorage.setItem('active_business_id', newNegocio.id);
-      // Al cambiar de negocio, la sede cacheada para /ai deja de valer.
-      localStorage.removeItem('active_sede_id');
-      localStorage.setItem('active_business_name', newNegocio.nombre);
+      localStorage.setItem('active_business_id', negocio.id);
+      if (sede?.id) {
+        localStorage.setItem('active_sede_id', sede.id);
+        localStorage.setItem('active_sede_name', sede.nombre || cleanNombreSede);
+      } else {
+        localStorage.removeItem('active_sede_id');
+        localStorage.removeItem('active_sede_name');
+      }
+      localStorage.setItem('active_business_name', negocio.nombre);
 
-      // Notificar al Navbar
+      // Notificar al Navbar y resto de la app
       window.dispatchEvent(new Event('business_changed'));
+      window.dispatchEvent(new Event('sede_changed'));
 
       // Breve pausa para apreciar el feedback de éxito y transicionar suavemente
       setTimeout(() => {
         if (onBusinessCreated) {
-          onBusinessCreated(newNegocio.id, newNegocio.nombre);
+          onBusinessCreated(negocio.id, negocio.nombre);
         }
       }, 950);
     } catch (err: any) {
-      console.error('Error al registrar negocio:', err);
+      console.error('Error al registrar negocio y sede:', err);
       const msg = err instanceof ApiError ? err.message : 'No se pudo crear el negocio. Por favor intenta de nuevo.';
       setError(msg);
       setIsSubmitting(false);
@@ -212,7 +280,7 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
                     Registra tu Comercio en 1 minuto
                   </h2>
                   <p className="text-xs sm:text-sm text-muted-foreground leading-relaxed mb-5 max-w-md">
-                    Ingresa los datos básicos de tu empresa para habilitar el registro por WhatsApp y el panel contable.
+                    Ingresa los datos de tu empresa matriz y su primera sucursal para habilitar el registro por WhatsApp.
                   </p>
 
                   {/* Error inline */}
@@ -225,54 +293,172 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
 
                   {/* Formulario Embebido */}
                   <form onSubmit={handleCreateBusiness} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-foreground">
-                        Nombre del Comercio / Empresa <span className="text-emerald-500">*</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          ref={inputNameRef}
-                          type="text"
-                          required
-                          value={nombre}
-                          onChange={(e) => setNombre(e.target.value)}
-                          placeholder="Ej. Restaurante El Fogón, Tienda La 80..."
-                          className="w-full pl-10 pr-4 py-2.5 bg-muted/40 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                        />
-                        <Building2 className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    {/* 1. Empresa Matriz */}
+                    <div className="p-3.5 rounded-2xl bg-muted/20 border border-border/80 space-y-3">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                        <Building2 className="w-3.5 h-3.5 text-emerald-500" />
+                        1. Empresa Matriz
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="block text-xs font-bold text-foreground">
+                          Nombre de la Empresa o Marca <span className="text-emerald-500">*</span>
+                        </label>
+                        <div className="relative">
+                          <input
+                            ref={inputNameRef}
+                            type="text"
+                            required
+                            value={nombre}
+                            onChange={(e) => setNombre(e.target.value)}
+                            placeholder="Ej. Grupo Gastronómico El Virrey S.A.S."
+                            className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                          />
+                          <Building2 className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-foreground mb-1">
+                            Teléfono Administrativo <span className="text-muted-foreground font-normal">(Opcional)</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              value={telefonoContacto}
+                              onChange={(e) => setTelefonoContacto(e.target.value)}
+                              placeholder="Ej. +573001112233"
+                              className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                            />
+                            <Phone className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-foreground mb-1">
+                            Teléfono Secundario <span className="text-muted-foreground font-normal">(Opcional)</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="tel"
+                              value={telefonoSecundario}
+                              onChange={(e) => setTelefonoSecundario(e.target.value)}
+                              placeholder="Ej. +573109998877"
+                              className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                            />
+                            <Phone className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-foreground">
-                        Teléfono de Contacto Administrativo <span className="text-muted-foreground font-normal">(Opcional)</span>
-                      </label>
-                      <div className="relative">
-                        <input
-                          type="tel"
-                          value={telefonoContacto}
-                          onChange={(e) => setTelefonoContacto(e.target.value)}
-                          placeholder="Ej. +573001234567"
-                          className="w-full pl-10 pr-4 py-2.5 bg-muted/40 border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                        />
-                        <Phone className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    {/* 2. Sede Inicial */}
+                    <div className="p-3.5 rounded-2xl bg-muted/20 border border-border/80 space-y-3">
+                      <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                        <MapPin className="w-3.5 h-3.5 text-emerald-500" />
+                        2. Primera Sede / Sucursal
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block text-[11px] font-bold text-foreground mb-1">
+                            Nombre de la Sede <span className="text-emerald-500">*</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              required
+                              value={nombreSede}
+                              onChange={(e) => setNombreSede(e.target.value)}
+                              placeholder="Ej. Sede Principal"
+                              className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                            />
+                            <MapPin className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-[11px] font-semibold text-foreground mb-1">
+                            Dirección <span className="text-muted-foreground font-normal">(Opcional)</span>
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="text"
+                              value={direccionSede}
+                              onChange={(e) => setDireccionSede(e.target.value)}
+                              placeholder="Ej. Cra 15 # 85-20"
+                              className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                            />
+                            <MapPin className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Bloque Canal WhatsApp */}
+                      <div className="pt-2 border-t border-border/60 space-y-2.5">
+                        <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
+                          <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
+                          Canal de WhatsApp de esta Sede
+                          <span className="text-[10px] font-normal text-muted-foreground">(Al menos uno)</span>
+                        </div>
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-semibold text-foreground">
+                              Número de WhatsApp
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="tel"
+                                value={whatsappPhone}
+                                onChange={(e) => setWhatsappPhone(e.target.value)}
+                                placeholder="Ej. +573001234567"
+                                className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                              />
+                              <Phone className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              El número desde el que le escribirás a Luka.
+                            </p>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="block text-[11px] font-semibold text-foreground">
+                              Usuario de WhatsApp <span className="text-muted-foreground font-normal">(Alternativo)</span>
+                            </label>
+                            <div className="relative">
+                              <input
+                                type="text"
+                                value={whatsappUsername}
+                                onChange={(e) => setWhatsappUsername(e.target.value)}
+                                placeholder={`Ej. ${usernamePlaceholder} (sin @)`}
+                                className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                              />
+                              <AtSign className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />
+                            </div>
+                            <p className="text-[10px] text-muted-foreground">
+                              Solo si tienes usuario en WhatsApp y tu número está oculto.
+                            </p>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
                     <div className="pt-2 flex items-center gap-3">
                       <button
                         type="submit"
-                        disabled={isSubmitting || !nombre.trim()}
+                        disabled={isSubmitting || !nombre.trim() || !nombreSede.trim()}
                         className="flex items-center justify-center gap-2 px-6 py-3 bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-slate-950 text-xs sm:text-sm font-black rounded-xl shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                       >
                         {isSubmitting ? (
                           <>
                             <Loader2 className="w-4 h-4 animate-spin" />
-                            Creando Comercio...
+                            Registrando Empresa & Sede...
                           </>
                         ) : (
                           <>
-                            Registrar Comercio y Comenzar
+                            Registrar Empresa & Sede y Comenzar
                             <ArrowRight className="w-4 h-4" />
                           </>
                         )}
