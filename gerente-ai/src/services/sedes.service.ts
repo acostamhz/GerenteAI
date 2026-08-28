@@ -113,11 +113,24 @@ export class SedesService {
 
   // Sede.telefono es @unique en todo el sistema: dos sedes no pueden compartir la
   // línea de WhatsApp porque entonces no se sabría a cuál pertenece un mensaje.
+  /**
+   * La sede tiene dos identificadores unicos de WhatsApp: el telefono y el
+   * nombre de usuario. Decir siempre "ese numero ya esta asignado" mandaba a
+   * revisar el campo equivocado cuando el repetido era el usuario.
+   */
   private traducirTelefonoDuplicado(error: unknown) {
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === 'P2002'
     ) {
+      const campos = (error.meta?.target as string[] | undefined) ?? [];
+
+      if (campos.includes('whatsappUsername')) {
+        return new ConflictException(
+          'Ese usuario de WhatsApp ya está asignado a otra sede',
+        );
+      }
+
       return new ConflictException(
         'Ese número de WhatsApp ya está asignado a otra sede',
       );
