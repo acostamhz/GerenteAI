@@ -23,6 +23,7 @@ export interface RegisterCredentials {
   email: string;
   password: string;
   telefono?: string;
+  whatsappUsername?: string;
 }
 
 export interface BackendAuthResponse {
