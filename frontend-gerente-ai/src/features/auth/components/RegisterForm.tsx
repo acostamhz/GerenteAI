@@ -1,23 +1,35 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router";
-import { Eye, EyeOff, Loader2, Building2, User, Mail, Phone, Lock, AlertCircle, CheckCircle2, MessageCircle } from "lucide-react";
+import {
+  Eye,
+  EyeOff,
+  Loader2,
+  Building2,
+  User,
+  Mail,
+  Phone,
+  Lock,
+  AlertCircle,
+  CheckCircle2,
+  MessageCircle,
+} from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/app/components/ui/button";
 import { lukaWhatsappUrl } from "@/lib/whatsapp";
 import { useAuth } from "../hooks/useAuth";
 
-/** Segundos antes de mandar al usuario a WhatsApp. Da tiempo a leer la pantalla. */
 const SEGUNDOS_PARA_WHATSAPP = 4;
 
 export function RegisterForm() {
   const navigate = useNavigate();
-  const { register, login, isLoading, error: authError, clearError } = useAuth();
+  const { register, isLoading, error: authError, clearError } = useAuth();
 
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
     businessName: "",
     phone: "",
+    whatsappUsername: "",
     password: "",
     confirmPassword: "",
     termsAccepted: false,
@@ -27,42 +39,37 @@ export function RegisterForm() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  /** Si el login automático funcionó, el usuario ya tiene sesión abierta. */
-  const [sesionIniciada, setSesionIniciada] = useState(false);
   const [cuenta, setCuenta] = useState(SEGUNDOS_PARA_WHATSAPP);
 
-  // Limpiar errores residuales al montar o desmontar la vista
   useEffect(() => {
     clearError();
     setLocalError(null);
+
     return () => {
       clearError();
     };
   }, [clearError]);
 
-  /**
-   * Tras registrarse, el usuario termina en WhatsApp con Luka.
-   *
-   * Se usa una redirección de la pestaña actual y no `window.open`: un popup
-   * lanzado después de un `await` lo bloquea el navegador, y el usuario se
-   * quedaría mirando una pantalla sin entender que debía seguir en WhatsApp.
-   * La cuenta regresiva deja leer el mensaje y da salida a quien prefiera el panel.
-   */
   useEffect(() => {
     if (!success) return;
 
     if (cuenta <= 0) {
-      window.location.href = lukaWhatsappUrl('Hola Luka, acabo de registrarme');
+      window.location.href = lukaWhatsappUrl(
+        "Hola Luka, acabo de registrarme",
+      );
       return;
     }
 
     const t = setTimeout(() => setCuenta((s) => s - 1), 1000);
+
     return () => clearTimeout(t);
   }, [success, cuenta]);
 
   const calculatePasswordStrength = (pass: string) => {
     if (!pass) return { score: 0, label: "", color: "bg-border" };
+
     let score = 0;
+
     if (pass.length >= 8) score += 1;
     if (/[a-z]/.test(pass) && /[A-Z]/.test(pass)) score += 1;
     if (/[0-9]/.test(pass)) score += 1;
@@ -70,15 +77,35 @@ export function RegisterForm() {
 
     switch (score) {
       case 1:
-        return { score: 25, label: "Débil", color: "bg-red-500" };
+        return {
+          score: 25,
+          label: "Débil",
+          color: "bg-red-500",
+        };
       case 2:
-        return { score: 50, label: "Aceptable", color: "bg-amber-500" };
+        return {
+          score: 50,
+          label: "Aceptable",
+          color: "bg-amber-500",
+        };
       case 3:
-        return { score: 75, label: "Buena", color: "bg-blue-500" };
+        return {
+          score: 75,
+          label: "Buena",
+          color: "bg-blue-500",
+        };
       case 4:
-        return { score: 100, label: "Excelente", color: "bg-emerald-500" };
+        return {
+          score: 100,
+          label: "Excelente",
+          color: "bg-emerald-500",
+        };
       default:
-        return { score: 15, label: "Muy débil", color: "bg-red-500" };
+        return {
+          score: 15,
+          label: "Muy débil",
+          color: "bg-red-500",
+        };
     }
   };
 
@@ -86,10 +113,12 @@ export function RegisterForm() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value, type, checked } = e.target;
+
     setFormData((prev) => ({
       ...prev,
       [name]: type === "checkbox" ? checked : value,
     }));
+
     if (localError || authError) {
       setLocalError(null);
       clearError();
@@ -98,55 +127,68 @@ export function RegisterForm() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log("👉 [RegisterForm] Enviando registro con:", { email: formData.email, fullName: formData.fullName });
+
+    console.log("👉 [RegisterForm] Enviando registro con:", {
+      email: formData.email,
+      fullName: formData.fullName,
+      whatsappUsername: formData.whatsappUsername,
+    });
+
     setLocalError(null);
     clearError();
 
     const cleanPhone = formData.phone.replace(/\D/g, "");
+
     if (cleanPhone.length < 10) {
-      setLocalError("El número de celular debe tener al menos 10 dígitos.");
+      setLocalError(
+        "El número de celular debe tener al menos 10 dígitos.",
+      );
       return;
     }
+
     if (formData.password !== formData.confirmPassword) {
       setLocalError("Las contraseñas no coinciden.");
       return;
     }
+
     if (formData.password.length < 8) {
-      setLocalError("La contraseña debe tener al menos 8 caracteres.");
+      setLocalError(
+        "La contraseña debe tener al menos 8 caracteres.",
+      );
       return;
     }
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/.test(formData.password)) {
-      setLocalError("La contraseña debe incluir al menos una mayúscula, una minúscula, un número y un carácter especial.");
+
+    if (
+      !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/.test(
+        formData.password,
+      )
+    ) {
+      setLocalError(
+        "La contraseña debe incluir al menos una mayúscula, una minúscula, un número y un carácter especial.",
+      );
       return;
     }
+
     if (!formData.termsAccepted) {
-      setLocalError("Debes aceptar los términos y condiciones para continuar.");
+      setLocalError(
+        "Debes aceptar los términos y condiciones para continuar.",
+      );
       return;
     }
 
     try {
-      // 1. Registro en el Backend NestJS
+      const whatsappUsername = formData.whatsappUsername
+        .trim()
+        .replace(/^@+/, "");
+
       await register({
         nombre: formData.fullName,
         email: formData.email,
         password: formData.password,
         telefono: formData.phone,
+        whatsappUsername,
       });
 
-      // 2. Iniciar sesión automáticamente tras el registro
-      try {
-        await login({
-          email: formData.email,
-          password: formData.password,
-        });
-        setSesionIniciada(true);
-      } catch {
-        // La cuenta quedó creada; solo falta que verifique el correo.
-        setSesionIniciada(false);
-      }
-
-      // 3. Luka vive en WhatsApp: el registro termina llevando al usuario allá.
-      //    No se navega al dashboard de inmediato para no perder ese hilo.
       setSuccess(true);
     } catch (err) {
       // Error manejado por AuthContext
@@ -161,22 +203,37 @@ export function RegisterForm() {
         <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
           <CheckCircle2 className="w-8 h-8" />
         </div>
+
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-foreground">¡Cuenta creada con éxito!</h2>
+          <h2 className="text-2xl font-bold text-foreground">
+            ¡Cuenta creada con éxito!
+          </h2>
+
           <p className="text-muted-foreground text-sm">
-            Hemos enviado un correo de confirmación a <span className="font-semibold text-foreground">{formData.email}</span>.
+            Hemos enviado un correo de confirmación a{" "}
+            <span className="font-semibold text-foreground">
+              {formData.email}
+            </span>
+            .
           </p>
         </div>
 
         <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-3">
-          <p className="text-sm font-bold text-foreground">Ahora conocé a Luka en WhatsApp</p>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Luka es tu asistente financiero: le escribís “compré mercancía por 8.000” y lo registra
-            al instante. Te llevamos al chat en {cuenta}…
+          <p className="text-sm font-bold text-foreground">
+            Ahora conocé a Luka en WhatsApp
           </p>
+
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Luka es tu asistente financiero: le escribís “compré
+            mercancía por 8.000” y lo registra al instante. Te
+            llevamos al chat en {cuenta}…
+          </p>
+
           <Button
             onClick={() => {
-              window.location.href = lukaWhatsappUrl('Hola Luka, acabo de registrarme');
+              window.location.href = lukaWhatsappUrl(
+                "Hola Luka, acabo de registrarme",
+              );
             }}
             className="w-full py-5 text-base font-bold rounded-xl gap-2"
           >
@@ -186,10 +243,10 @@ export function RegisterForm() {
         </div>
 
         <button
-          onClick={() => navigate(sesionIniciada ? '/' : '/login', { replace: true })}
+          onClick={() => navigate("/login", { replace: true })}
           className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
         >
-          {sesionIniciada ? 'Prefiero ir al panel' : 'Prefiero iniciar sesión'}
+          Prefiero iniciar sesión
         </button>
       </div>
     );
@@ -198,11 +255,15 @@ export function RegisterForm() {
   return (
     <div className="w-full max-w-md mx-auto px-8 sm:px-0 py-6">
       <div className="mb-8 text-center sm:text-left">
-        <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">Crea tu cuenta gratis</h1>
-        <p className="text-muted-foreground font-medium text-sm">Empieza a gestionar tu negocio con Inteligencia Artificial hoy.</p>
+        <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">
+          Crea tu cuenta gratis
+        </h1>
+
+        <p className="text-muted-foreground font-medium text-sm">
+          Empieza a gestionar tu negocio con Inteligencia Artificial hoy.
+        </p>
       </div>
 
-      {/* Alerta de Error con Animación Suave */}
       <AnimatePresence mode="wait">
         {displayError && (
           <motion.div
@@ -210,7 +271,10 @@ export function RegisterForm() {
             initial={{ opacity: 0, y: -10, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            transition={{
+              duration: 0.25,
+              ease: [0.22, 1, 0.36, 1],
+            }}
             className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium flex items-center gap-3 shadow-sm"
           >
             <AlertCircle className="w-5 h-5 flex-shrink-0" />
@@ -222,9 +286,13 @@ export function RegisterForm() {
       <form onSubmit={handleSubmit} className="space-y-4">
         {/* Nombre Completo */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">Nombre completo</label>
+          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+            Nombre completo
+          </label>
+
           <div className="relative">
             <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
             <input
               type="text"
               name="fullName"
@@ -239,9 +307,13 @@ export function RegisterForm() {
 
         {/* Correo Electrónico */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">Correo electrónico</label>
+          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+            Correo electrónico
+          </label>
+
           <div className="relative">
             <Mail className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
             <input
               type="email"
               name="email"
@@ -257,9 +329,13 @@ export function RegisterForm() {
         {/* Nombre del Negocio y Celular */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Nombre del Negocio</label>
+            <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+              Nombre del Negocio
+            </label>
+
             <div className="relative">
               <Building2 className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
               <input
                 type="text"
                 name="businessName"
@@ -273,9 +349,13 @@ export function RegisterForm() {
           </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Celular</label>
+            <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+              Celular
+            </label>
+
             <div className="relative">
               <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
               <input
                 type="tel"
                 name="phone"
@@ -290,11 +370,40 @@ export function RegisterForm() {
           </div>
         </div>
 
+        {/* Usuario de WhatsApp */}
+        <div className="space-y-2">
+          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+            Usuario de WhatsApp
+          </label>
+
+          <div className="relative">
+            <MessageCircle className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
+            <input
+              type="text"
+              name="whatsappUsername"
+              placeholder="@tu_usuario"
+              required
+              value={formData.whatsappUsername}
+              onChange={handleChange}
+              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
+            />
+          </div>
+
+          <p className="text-xs text-muted-foreground">
+            Escribe tu nombre de usuario de WhatsApp. Puedes incluir el @.
+          </p>
+        </div>
+
         {/* Contraseña */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">Contraseña</label>
+          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+            Contraseña
+          </label>
+
           <div className="relative">
             <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
             <input
               type={showPassword ? "text" : "password"}
               name="password"
@@ -305,22 +414,32 @@ export function RegisterForm() {
               onChange={handleChange}
               className="w-full pl-11 pr-11 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
             />
+
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
             >
-              {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
             </button>
           </div>
+
           {formData.password && (
             <div className="space-y-1 pt-1">
               <div className="flex justify-between items-center text-xs text-muted-foreground">
                 <span>Fortaleza:</span>
                 <span className="font-bold">{strength.label}</span>
               </div>
+
               <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                <div className={`h-full transition-all duration-300 ${strength.color}`} style={{ width: `${strength.score}%` }} />
+                <div
+                  className={`h-full transition-all duration-300 ${strength.color}`}
+                  style={{ width: `${strength.score}%` }}
+                />
               </div>
             </div>
           )}
@@ -328,9 +447,13 @@ export function RegisterForm() {
 
         {/* Confirmar Contraseña */}
         <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">Confirmar contraseña</label>
+          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+            Confirmar contraseña
+          </label>
+
           <div className="relative">
             <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
+
             <input
               type={showConfirmPassword ? "text" : "password"}
               name="confirmPassword"
@@ -340,12 +463,19 @@ export function RegisterForm() {
               onChange={handleChange}
               className="w-full pl-11 pr-11 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
             />
+
             <button
               type="button"
-              onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+              onClick={() =>
+                setShowConfirmPassword(!showConfirmPassword)
+              }
               className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
             >
-              {showConfirmPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              {showConfirmPassword ? (
+                <EyeOff className="w-4 h-4" />
+              ) : (
+                <Eye className="w-4 h-4" />
+              )}
             </button>
           </div>
         </div>
@@ -360,13 +490,20 @@ export function RegisterForm() {
               onChange={handleChange}
               className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
             />
+
             <span className="text-xs text-muted-foreground font-medium leading-relaxed">
               Acepto los{" "}
-              <a href="#" className="font-bold text-primary hover:underline">
+              <a
+                href="#"
+                className="font-bold text-primary hover:underline"
+              >
                 Términos de Servicio
               </a>{" "}
               y la{" "}
-              <a href="#" className="font-bold text-primary hover:underline">
+              <a
+                href="#"
+                className="font-bold text-primary hover:underline"
+              >
                 Política de Privacidad
               </a>{" "}
               de Luka AI.
@@ -394,8 +531,8 @@ export function RegisterForm() {
       {/* Redirect Login */}
       <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
         ¿Ya tienes una cuenta?{" "}
-        <Link 
-          to="/login" 
+        <Link
+          to="/login"
           onClick={() => clearError()}
           className="font-bold text-primary hover:text-primary/80 transition-colors"
         >
