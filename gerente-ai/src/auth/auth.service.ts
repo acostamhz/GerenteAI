@@ -54,13 +54,18 @@ export class AuthService {
         verificationToken,
       );
 
-      return this.buildAuthResponse(
-        usuario.id,
-        usuario.nombre,
-        null,
-        null,
-        usuario.rolGlobal,
-      );
+      // No se devuelve accessToken a propósito: si no se puede iniciar sesión sin
+      // verificar el correo, tampoco debe entregarse una credencial válida aquí.
+      // Antes sí lo devolvía, y con ese token se podía operar sin verificar nada.
+      return {
+        mensaje:
+          'Cuenta creada. Revisa tu correo para activarla antes de iniciar sesión.',
+        usuario: {
+          id: usuario.id,
+          nombre: usuario.nombre,
+          email: usuario.email,
+        },
+      };
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -218,7 +223,15 @@ export class AuthService {
     role: string | null,
     rolGlobal: string,
   ) {
-    const payload = { sub: usuarioId, negocioId, role, rolGlobal };
+    // `type` distingue este token de los de verificación y reset, que se firman
+    // con el mismo secreto. JwtStrategy solo acepta los de tipo 'session'.
+    const payload = {
+      sub: usuarioId,
+      type: 'session',
+      negocioId,
+      role,
+      rolGlobal,
+    };
     return {
       accessToken: this.jwtService.sign(payload),
       usuario: { id: usuarioId, nombre, negocioId, role, rolGlobal },
