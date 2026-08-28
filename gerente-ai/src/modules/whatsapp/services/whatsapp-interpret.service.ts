@@ -157,6 +157,19 @@ export class WhatsappInterpretService {
 
     // ---- 1. Duplicados ----------------------------------------------------
     if (!this.dedupe.isFirstTime(dto.messageId)) {
+      const previa = this.dedupe.recall<InterpretResponse>(dto.messageId);
+
+      if (previa) {
+        // Se repite la respuesta ya calculada en vez de devolver vacio: el
+        // movimiento NO se registra dos veces, pero el usuario recibe su
+        // confirmacion aunque n8n haya reintentado por timeout.
+        this.logger.log(
+          `Mensaje repetido (${dto.messageId}): se reenvia la respuesta anterior.`,
+        );
+        return { ...previa, meta: { ...previa.meta, duplicate: true } };
+      }
+
+      // Sin respuesta guardada, el original sigue en curso: contestara el.
       return this.emptyResponse({
         type: 'no_claro',
         reply: '',
@@ -166,7 +179,9 @@ export class WhatsappInterpretService {
     }
 
     try {
-      return await this.process(dto, sender, startedAt);
+      const respuesta = await this.process(dto, sender, startedAt);
+      this.dedupe.remember(dto.messageId, respuesta);
+      return respuesta;
     } catch (error) {
       // El mensaje no llego a atenderse: se libera el id para que el reintento
       // de n8n vuelva a intentarlo en vez de recibir "duplicado".
