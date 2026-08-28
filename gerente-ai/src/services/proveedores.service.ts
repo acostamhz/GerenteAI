@@ -18,7 +18,9 @@ export class ProveedoresService {
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     return this.prisma.proveedor.create({ data: dto });
   }
@@ -65,6 +67,8 @@ export class ProveedoresService {
         'La sede asociada a este proveedor ya no existe',
       );
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
   }
 }

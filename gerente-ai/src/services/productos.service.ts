@@ -18,7 +18,9 @@ export class ProductosService {
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     return this.prisma.producto.create({ data: dto });
   }
@@ -65,6 +67,8 @@ export class ProductosService {
         'La sede asociada a este producto ya no existe',
       );
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
   }
 }

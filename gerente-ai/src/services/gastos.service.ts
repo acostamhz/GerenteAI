@@ -18,7 +18,9 @@ export class GastosService {
     if (!sede) {
       throw new NotFoundException('La sede indicada no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
 
     return this.prisma.gasto.create({ data: dto });
   }
@@ -63,6 +65,8 @@ export class GastosService {
     if (!sede) {
       throw new NotFoundException('La sede asociada a este gasto ya no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+      escritura: true,
+    });
   }
 }

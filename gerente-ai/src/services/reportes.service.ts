@@ -1,7 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { NegociosService } from './negocios.service';
+import { PlanesService, type Funcionalidad } from './planes.service';
 import { Periodo } from '../dto/reportes/reporte-query.dto';
 
 // América/Bogotá. Se usa un offset fijo y no una librería de zonas horarias porque
@@ -15,12 +20,283 @@ interface Rango {
   hasta: Date;
 }
 
+/** Una venta fiada tal como la ve el reporte, con la antigüedad ya calculada. */
+export interface VentaFiadaDescrita {
+  id: string;
+  fecha: string;
+  total: number;
+  saldoPendiente: number;
+  abonado: number;
+  fechaVencimiento: string | null;
+  vencida: boolean;
+  diasDesdeLaVenta: number;
+  diasDeAtraso: number;
+  abonos: { id: string; monto: number; fecha: string }[];
+}
+
 @Injectable()
 export class ReportesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly negociosService: NegociosService,
+    private readonly planes: PlanesService,
   ) {}
+
+  /**
+   * Reporte por producto: qué se vendió, cuánto y con qué margen. Exclusivo de
+   * los planes Gerente y Administrador.
+   */
+  async porProducto(
+    sedeId: string,
+    userId: string,
+    rolGlobal: string,
+    periodo: Periodo,
+    fecha?: string,
+  ) {
+    const sede = await this.buscarSedeConAcceso(sedeId, userId, rolGlobal);
+    await this.exigirFuncionalidad(
+      sede.negocioId,
+      'reportes_por_producto',
+      rolGlobal,
+    );
+
+    const rango = this.calcularRango(periodo, fecha);
+    const detalles = await this.prisma.detalleVenta.findMany({
+      where: {
+        venta: { sedeId, fecha: { gte: rango.desde, lt: rango.hasta } },
+      },
+      include: {
+        producto: { select: { id: true, nombre: true, precioCompra: true } },
+      },
+    });
+
+    const acumulado = new Map<
+      string,
+      {
+        nombre: string;
+        unidades: number;
+        ingresos: Prisma.Decimal;
+        costo: Prisma.Decimal;
+        lineas: number;
+      }
+    >();
+
+    for (const detalle of detalles) {
+      const previo = acumulado.get(detalle.productoId) ?? {
+        nombre: detalle.producto.nombre,
+        unidades: 0,
+        ingresos: new Prisma.Decimal(0),
+        costo: new Prisma.Decimal(0),
+        lineas: 0,
+      };
+
+      acumulado.set(detalle.productoId, {
+        nombre: previo.nombre,
+        unidades: previo.unidades + detalle.cantidad,
+        ingresos: previo.ingresos.add(detalle.precio.mul(detalle.cantidad)),
+        costo: previo.costo.add(
+          detalle.producto.precioCompra.mul(detalle.cantidad),
+        ),
+        lineas: previo.lineas + 1,
+      });
+    }
+
+    const totalIngresos = [...acumulado.values()].reduce(
+      (suma, p) => suma.add(p.ingresos),
+      new Prisma.Decimal(0),
+    );
+
+    const productos = [...acumulado.entries()]
+      .map(([id, p]) => ({
+        id,
+        nombre: p.nombre,
+        unidades: p.unidades,
+        ingresos: p.ingresos.toNumber(),
+        // Margen APROXIMADO: usa el precioCompra actual del producto, no el que
+        // tenía al momento de la venta. El costo histórico solo existe en
+        // DetalleCompra, y atarlo a cada venta exigiría inventario por lotes.
+        margenEstimado: p.ingresos.sub(p.costo).toNumber(),
+        vecesVendido: p.lineas,
+        participacion: totalIngresos.isZero()
+          ? 0
+          : Number(p.ingresos.div(totalIngresos).mul(100).toFixed(2)),
+      }))
+      .sort((a, b) => b.ingresos - a.ingresos);
+
+    return {
+      periodo: this.describirPeriodo(periodo, rango),
+      sede: { id: sede.id, nombre: sede.nombre },
+      totalIngresos: totalIngresos.toNumber(),
+      productos,
+      // Las ventas registradas por WhatsApp no crean DetalleVenta, así que no
+      // aparecen aquí. Se avisa para que el número no se lea como el total real.
+      advertencia:
+        'Solo incluye ventas con detalle de productos. Las registradas por WhatsApp sin desglose no aparecen.',
+    };
+  }
+
+  /**
+   * Reporte de fiados: quién debe, cuánto, desde cuándo y qué está vencido.
+   * Exclusivo de los planes Gerente y Administrador.
+   */
+  async fiados(sedeId: string, userId: string, rolGlobal: string) {
+    const sede = await this.buscarSedeConAcceso(sedeId, userId, rolGlobal);
+    await this.exigirFuncionalidad(sede.negocioId, 'reporte_fiados', rolGlobal);
+
+    const ventas = await this.prisma.venta.findMany({
+      where: { sedeId, saldoPendiente: { gt: 0 } },
+      include: {
+        cliente: { select: { id: true, nombre: true, telefono: true } },
+        abonos: { orderBy: { fecha: 'desc' } },
+      },
+      orderBy: { fecha: 'asc' },
+    });
+
+    const ahora = Date.now();
+    const porCliente = new Map<
+      string,
+      {
+        cliente: { id: string; nombre: string; telefono: string | null };
+        saldo: Prisma.Decimal;
+        vencido: Prisma.Decimal;
+        ventas: VentaFiadaDescrita[];
+      }
+    >();
+
+    for (const venta of ventas) {
+      // Una venta con saldo pero sin cliente sería un dato inconsistente; se
+      // omite en vez de inventarle un deudor.
+      if (!venta.cliente) continue;
+
+      const detalle = this.describirVentaFiada(venta, ahora);
+      const previo = porCliente.get(venta.cliente.id) ?? {
+        cliente: venta.cliente,
+        saldo: new Prisma.Decimal(0),
+        vencido: new Prisma.Decimal(0),
+        ventas: [],
+      };
+
+      previo.saldo = previo.saldo.add(venta.saldoPendiente);
+      if (detalle.vencida) {
+        previo.vencido = previo.vencido.add(venta.saldoPendiente);
+      }
+      previo.ventas.push(detalle);
+      porCliente.set(venta.cliente.id, previo);
+    }
+
+    const clientes = [...porCliente.values()]
+      .map((c) => ({
+        ...c.cliente,
+        saldoPendiente: c.saldo.toNumber(),
+        vencido: c.vencido.toNumber(),
+        // La deuda más antigua es la primera, porque las ventas vienen ordenadas.
+        diasDeLaDeudaMasAntigua: c.ventas[0]?.diasDesdeLaVenta ?? 0,
+        ventas: c.ventas,
+      }))
+      .sort(
+        (a, b) => b.vencido - a.vencido || b.saldoPendiente - a.saldoPendiente,
+      );
+
+    return {
+      sede: { id: sede.id, nombre: sede.nombre },
+      generadoEl: new Date().toISOString(),
+      totales: {
+        porCobrar: clientes.reduce((s, c) => s + c.saldoPendiente, 0),
+        vencido: clientes.reduce((s, c) => s + c.vencido, 0),
+        clientesConDeuda: clientes.length,
+        ventasPendientes: ventas.length,
+      },
+      clientes,
+    };
+  }
+
+  private describirVentaFiada(
+    venta: {
+      id: string;
+      fecha: Date;
+      total: Prisma.Decimal;
+      saldoPendiente: Prisma.Decimal;
+      fechaVencimiento: Date | null;
+      abonos: { id: string; monto: Prisma.Decimal; fecha: Date }[];
+    },
+    ahora: number,
+  ): VentaFiadaDescrita {
+    // "Vencida" se deriva y no se guarda: un campo booleano exigiría un proceso
+    // que lo actualice cada noche, y quedaría desfasado entre corrida y corrida.
+    const vencida =
+      venta.fechaVencimiento !== null &&
+      venta.fechaVencimiento.getTime() < ahora;
+
+    return {
+      id: venta.id,
+      fecha: venta.fecha.toISOString(),
+      total: venta.total.toNumber(),
+      saldoPendiente: venta.saldoPendiente.toNumber(),
+      abonado: venta.total.sub(venta.saldoPendiente).toNumber(),
+      fechaVencimiento: venta.fechaVencimiento?.toISOString() ?? null,
+      vencida,
+      diasDesdeLaVenta: Math.floor(
+        (ahora - venta.fecha.getTime()) / 86_400_000,
+      ),
+      diasDeAtraso:
+        vencida && venta.fechaVencimiento
+          ? Math.floor((ahora - venta.fechaVencimiento.getTime()) / 86_400_000)
+          : 0,
+      abonos: venta.abonos.map((a) => ({
+        id: a.id,
+        monto: a.monto.toNumber(),
+        fecha: a.fecha.toISOString(),
+      })),
+    };
+  }
+
+  private async buscarSedeConAcceso(
+    sedeId: string,
+    userId: string,
+    rolGlobal: string,
+  ) {
+    const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
+    if (!sede) {
+      throw new NotFoundException(`Sede con id ${sedeId} no encontrada`);
+    }
+    // Sin `escritura`: consultar reportes es lectura, y una sede bloqueada por
+    // plan conserva su histórico.
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    return sede;
+  }
+
+  /** El backend autoriza según el plan; el cálculo estadístico es de la capa de IA. */
+  private async exigirFuncionalidad(
+    negocioId: string,
+    funcionalidad: Funcionalidad,
+    rolGlobal: string,
+  ) {
+    if (rolGlobal === 'MASTER') return;
+
+    const negocio = await this.prisma.negocio.findUnique({
+      where: { id: negocioId },
+    });
+    if (!negocio) {
+      throw new NotFoundException('El negocio de esta sede ya no existe');
+    }
+
+    if (
+      !this.planes.tieneFuncionalidad(
+        negocio.plan,
+        negocio.planVenceEl,
+        funcionalidad,
+      )
+    ) {
+      const estado = this.planes.estado(negocio.plan, negocio.planVenceEl);
+      const motivo = estado.vencido
+        ? `El plan ${estado.contratado.nombre} está vencido`
+        : `El plan ${estado.vigente.nombre} no incluye esta función`;
+
+      throw new ForbiddenException(
+        `${motivo}. Necesitas el plan Gerente o Administrador para consultar este reporte.`,
+      );
+    }
+  }
 
   async deSede(
     sedeId: string,
