@@ -447,6 +447,31 @@ WHERE telefono = '573014132284';
 
 El campo es único: una identidad no puede estar en dos sedes.
 
-**Pendiente de verificar en producción:** que la Graph API acepte el `user_id`
-en el campo `to` al responder. Si no lo aceptara, se puede identificar a esas
-personas pero no contestarles, y habría que pedirles el número por otra vía.
+**Cómo responderles: con `recipient`, no con `to`.**
+
+Meta llama a esa identidad **BSUID** (*business-scoped user ID*) y la Cloud API
+usa un campo distinto según a quién se le escriba:
+
+| Destinatario | Campo | Ejemplo |
+|---|---|---|
+| Teléfono | `to` | `573014132284` |
+| Cuenta que oculta su número | `recipient` | `CO.1710763673557397` |
+
+No son intercambiables. Mandar un BSUID en `to` devuelve **200 y un `wamid`**, así
+que parece que funcionó, pero el acuse posterior llega así:
+
+```json
+"statuses": [{ "status": "failed", "recipient_id": "1710763673557397" }]
+```
+
+Meta le quitó el prefijo `CO.` y lo trató como si fuera un teléfono. Verificado en
+producción el 28/08/2026, respondiendo dentro de la ventana de 24 h (o sea, no era
+un problema de ventana).
+
+El BSUID va **completo**: prefijo de país, punto y todos los caracteres. Quitar o
+cambiar cualquier parte hace fallar la petición.
+
+**Limitación que queda:** los BSUID no sirven para plantillas de autenticación
+(one-tap, zero-tap, copy code), que exigen teléfono. No afecta a este proyecto.
+
+Documentación: https://developers.facebook.com/documentation/business-messaging/whatsapp/business-scoped-user-ids/

@@ -186,7 +186,7 @@
             {
               "id": "c1-username",
               "name": "username",
-              "value": "={{ $json.body.entry[0].changes[0].value.contacts?.[0]?.username || '' }}",
+              "value": "={{ $json.body.entry[0].changes[0].value.contacts?.[0]?.profile?.username || $json.body.entry[0].changes[0].value.contacts?.[0]?.username || '' }}",
               "type": "string"
             },
             {
@@ -397,7 +397,7 @@
         "genericAuthType": "httpBearerAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to: $json.destinatario, type: 'text', text: { preview_url: false, body: $json.reply } }) }}",
+        "jsonBody": "={{ JSON.stringify(Object.assign({ messaging_product: 'whatsapp', recipient_type: 'individual' }, $json.destinatario.includes('.') ? { recipient: $json.destinatario } : { to: $json.destinatario }, { type: 'text', text: { preview_url: false, body: $json.reply } })) }}",
         "options": {
           "timeout": 15000
         }
@@ -420,7 +420,7 @@
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 2000,
-      "notes": "El destinatario puede ser un telefono o una identidad de WhatsApp (user_id) para las cuentas que ocultan su numero. La Graph API acepta ambos en el campo \"to\".\nEl cuerpo se construye con JSON.stringify: los resumenes traen saltos de linea y emojis, y escribir el JSON a mano los rompe."
+      "notes": "Segun el destinatario se usa un campo distinto, y no son intercambiables:\n  to        -> numero de telefono (573014132284)\n  recipient -> BSUID completo, con prefijo de pais y punto (CO.1710763673557397), para las cuentas que ocultan su numero\nVerificado: mandar un BSUID en \"to\" devuelve 200 y un wamid, pero el acuse posterior llega como failed porque Meta le quita el prefijo y lo interpreta como telefono.\nEl cuerpo se arma con JSON.stringify: los resumenes traen saltos de linea y emojis, y escribir el JSON a mano los rompe."
     },
     {
       "parameters": {
