@@ -70,6 +70,11 @@ model Sede {
   id        String   @id @default(uuid())
   nombre    String
   telefono  String?  @unique // Línea de WhatsApp independiente para el bot de esta sede
+
+  // Identidad de WhatsApp del usuario, para quienes activaron nombre de usuario.
+  // Meta oculta el teléfono de esas cuentas y las identifica con un id propio
+  // (ej. "CO.1710763673557397"): sin esto el bot no puede saber quién escribe.
+  whatsappUserId String? @unique
   direccion String?
   contexto  String?  @db.Text // Contexto de IA individual para la sede
   createdAt DateTime @default(now())

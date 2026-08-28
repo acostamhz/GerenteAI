@@ -13,16 +13,32 @@ import {
  */
 function fakePrisma(sedes: unknown[]) {
   const sede = {
-    findFirst: jest.fn(({ where }: { where: { telefono: unknown } }) => {
-      const criterio = where.telefono;
-      const match = sedes.find((fila) => {
-        const telefono = (fila as { telefono: string }).telefono;
-        return typeof criterio === 'string'
-          ? telefono === criterio
-          : telefono.endsWith((criterio as { endsWith: string }).endsWith);
-      });
-      return Promise.resolve(match ?? null);
-    }),
+    findFirst: jest.fn(
+      ({
+        where,
+      }: {
+        where: { telefono?: unknown; whatsappUserId?: string };
+      }) => {
+        if (where.whatsappUserId !== undefined) {
+          const match = sedes.find(
+            (fila) =>
+              (fila as { whatsappUserId?: string }).whatsappUserId ===
+              where.whatsappUserId,
+          );
+          return Promise.resolve(match ?? null);
+        }
+
+        const criterio = where.telefono;
+        const match = sedes.find((fila) => {
+          const telefono = (fila as { telefono: string | null }).telefono;
+          if (!telefono) return false;
+          return typeof criterio === 'string'
+            ? telefono === criterio
+            : telefono.endsWith((criterio as { endsWith: string }).endsWith);
+        });
+        return Promise.resolve(match ?? null);
+      },
+    ),
   };
 
   const usuario = { findFirst: jest.fn(() => Promise.resolve(null)) };
@@ -35,6 +51,7 @@ function sedeCon(plan: number, planVenceEl: Date | null = null) {
     id: 'sede-1',
     nombre: 'Sede principal',
     telefono: '573001234567',
+    whatsappUserId: null as string | null,
     contexto: null,
     negocio: {
       id: 'negocio-1',
@@ -124,6 +141,41 @@ describe('WhatsappRoutingService', () => {
     );
 
     expect(contexto?.plan).toBe('director');
+  });
+
+  // ------------------------------------------------- identidad de WhatsApp
+
+  it('resuelve por identidad cuando Meta oculta el teléfono', () => {
+    // Las cuentas con nombre de usuario llegan sin "from": solo con user_id.
+    // Antes caian en "no registrado" aunque su sede existiera.
+    const sede = {
+      ...sedeCon(2),
+      telefono: null,
+      whatsappUserId: 'CO.1710763673557397',
+    };
+
+    return expect(
+      servicio([sede]).resolve({ userId: 'CO.1710763673557397' }),
+    ).resolves.toMatchObject({ sedeId: 'sede-1', plan: 'gerente' });
+  });
+
+  it('devuelve null si la identidad no está vinculada a ninguna sede', async () => {
+    const contexto = await servicio([sedeCon(1)]).resolve({
+      userId: 'CO.0000000000000000',
+    });
+
+    expect(contexto).toBeNull();
+  });
+
+  it('prefiere la identidad y cae al teléfono si no hay coincidencia', async () => {
+    // Un mensaje puede traer los dos datos: la identidad manda, pero si no
+    // esta vinculada todavia, el telefono sigue sirviendo.
+    const contexto = await servicio([sedeCon(2)]).resolve({
+      userId: 'CO.9999999999999999',
+      phone: '573001234567',
+    });
+
+    expect(contexto?.sedeId).toBe('sede-1');
   });
 
   it('normaliza el teléfono a solo dígitos', () => {
