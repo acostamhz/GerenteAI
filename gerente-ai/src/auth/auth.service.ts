@@ -31,45 +31,99 @@ export class AuthService {
     private readonly negociosService: NegociosService,
   ) {}
 
-  async register(dto: RegisterDto) {
+    async register(dto: RegisterDto) {
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
     try {
-      const usuario = await this.prisma.usuario.create({
-        data: {
-          nombre: dto.nombre,
-          telefono: dto.telefono,
-          email: dto.email,
-          password: hashedPassword,
-        },
+      const resultado = await this.prisma.$transaction(async (tx) => {
+        const usuario = await tx.usuario.create({
+          data: {
+            nombre: dto.nombre,
+            telefono: dto.telefono,
+            email: dto.email,
+            password: hashedPassword,
+          },
+        });
+
+        const negocio = await tx.negocio.create({
+          data: {
+            nombre: dto.nombreNegocio,
+          },
+        });
+
+        await tx.usuarioNegocio.create({
+          data: {
+            usuarioId: usuario.id,
+            negocioId: negocio.id,
+          },
+        });
+
+        await tx.sede.create({
+          data: {
+            nombre: 'Principal',
+            telefono: dto.telefono,
+            whatsappUsername: dto.whatsappUsername,
+            negocioId: negocio.id,
+          },
+        });
+
+        return {
+          usuario,
+          negocio,
+        };
       });
 
       const verificationToken = this.jwtService.sign(
-        { sub: usuario.id, type: 'email-verification' },
-        { expiresIn: '24h' },
+        {
+          sub: resultado.usuario.id,
+          type: 'email-verification',
+        },
+        {
+          expiresIn: '24h',
+        },
       );
+
       await this.mailService.sendVerificationEmail(
-        usuario.email,
-        usuario.nombre,
+        resultado.usuario.email,
+        resultado.usuario.nombre,
         verificationToken,
       );
 
-      return this.buildAuthResponse(
-        usuario.id,
-        usuario.nombre,
-        null,
-        null,
-        usuario.rolGlobal,
-      );
+      return {
+        mensaje:
+          'Cuenta creada. Revisa tu correo para activarla antes de iniciar sesión.',
+        usuario: {
+          id: resultado.usuario.id,
+          nombre: resultado.usuario.nombre,
+          email: resultado.usuario.email,
+        },
+      };
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
-        throw new ConflictException(
-          'Ya existe una cuenta registrada con ese correo. Intenta iniciar sesión.',
-        );
+        const target = (error.meta?.target as string[] | undefined) ?? [];
+
+        if (target.includes('email')) {
+          throw new ConflictException(
+            'Ya existe una cuenta registrada con ese correo. Intenta iniciar sesión.',
+          );
+        }
+
+        if (target.includes('whatsappUsername')) {
+          throw new ConflictException(
+            'Ese usuario de WhatsApp ya está asignado a otra sede.',
+          );
+        }
+
+        if (target.includes('telefono')) {
+          throw new ConflictException(
+            'Ese número de WhatsApp ya está asignado a otra sede.',
+          );
+        }
       }
+
       throw error;
     }
   }

@@ -186,6 +186,7 @@ export function RegisterForm() {
         email: formData.email,
         password: formData.password,
         telefono: formData.phone,
+        nombreNegocio: formData.businessName,
         whatsappUsername,
       });
 
