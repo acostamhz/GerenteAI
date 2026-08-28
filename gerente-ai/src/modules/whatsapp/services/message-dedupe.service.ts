@@ -12,10 +12,16 @@ import { Injectable, Logger } from '@nestjs/common';
  * Railway reinicia el contenedor) hay que mover esto a Redis o a una tabla con
  * indice unico sobre el `wamid`.
  */
+interface Atendido {
+  at: number;
+  /** La respuesta que ya se le dio a ese mensaje, si alcanzo a calcularse. */
+  respuesta?: unknown;
+}
+
 @Injectable()
 export class MessageDedupeService {
   private readonly logger = new Logger(MessageDedupeService.name);
-  private readonly seen = new Map<string, number>();
+  private readonly seen = new Map<string, Atendido>();
 
   /** Ventana de deduplicacion: mas larga que cualquier reintento de Meta. */
   private readonly ttlMs = 15 * 60 * 1_000;
@@ -36,8 +42,28 @@ export class MessageDedupeService {
       return false;
     }
 
-    this.seen.set(messageId, Date.now());
+    this.seen.set(messageId, { at: Date.now() });
     return true;
+  }
+
+  /**
+   * Guarda la respuesta que se dio, para poder repetirla tal cual si el mismo
+   * mensaje vuelve a entrar.
+   *
+   * Es lo que evita el peor caso: Render despierta lento, n8n corta por timeout
+   * y reintenta, el backend ya habia registrado el movimiento y respondia
+   * "duplicado" con texto vacio. El gasto quedaba guardado y el usuario sin
+   * ninguna confirmacion, que es justo lo que lo hace desconfiar del bot.
+   */
+  remember(messageId: string | undefined, respuesta: unknown): void {
+    if (!messageId) return;
+    this.seen.set(messageId, { at: Date.now(), respuesta });
+  }
+
+  /** La respuesta que ya se dio a ese mensaje, si se alcanzo a calcular. */
+  recall<T>(messageId: string | undefined): T | undefined {
+    if (!messageId) return undefined;
+    return this.seen.get(messageId)?.respuesta as T | undefined;
   }
 
   /**
@@ -55,8 +81,8 @@ export class MessageDedupeService {
   private prune(): void {
     const limit = Date.now() - this.ttlMs;
 
-    for (const [id, at] of this.seen) {
-      if (at < limit) this.seen.delete(id);
+    for (const [id, entrada] of this.seen) {
+      if (entrada.at < limit) this.seen.delete(id);
     }
 
     // Cinturon y tirantes: si un pico de trafico llena el mapa antes de que el
