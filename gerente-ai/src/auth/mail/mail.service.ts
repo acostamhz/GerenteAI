@@ -11,6 +11,13 @@ interface CorreoAEnviar {
   descripcion: string;
 }
 
+interface Remitente {
+  email: string;
+  nombre?: string;
+}
+
+const BREVO_URL = 'https://api.brevo.com/v3/smtp/email';
+
 @Injectable()
 export class MailService {
   private readonly logger = new Logger(MailService.name);
@@ -92,27 +99,95 @@ export class MailService {
   }
 
   /**
+   * `SMTP_FROM` viene como `GerenteAI <lukaai.wpp@gmail.com>`. Brevo necesita el
+   * nombre y el correo por separado, así que se parte aquí en vez de pedir dos
+   * variables de entorno nuevas para un dato que ya existe.
+   */
+  private remitente(): Remitente {
+    const bruto = (process.env.SMTP_FROM ?? '').trim();
+    const conNombre = /^(.*?)\s*<([^>]+)>$/.exec(bruto);
+
+    if (!conNombre) {
+      return { email: bruto };
+    }
+    return {
+      email: conNombre[2].trim(),
+      nombre: conNombre[1].trim() || undefined,
+    };
+  }
+
+  /**
+   * Envío por la API HTTP de Brevo.
+   *
+   * Es la vía de producción: Render tiene cerrada la salida por los puertos de
+   * SMTP (el log mostraba ETIMEDOUT en el paso CONN, tanto contra Gmail como
+   * contra cualquier otro relay), y esta petición va por HTTPS al 443, que es el
+   * mismo puerto del tráfico web normal y está abierto.
+   */
+  private async enviarPorBrevo(
+    apiKey: string,
+    { destinatario, asunto, html }: CorreoAEnviar,
+  ) {
+    const de = this.remitente();
+
+    const respuesta = await fetch(BREVO_URL, {
+      method: 'POST',
+      headers: {
+        'api-key': apiKey,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: { email: de.email, name: de.nombre },
+        to: [{ email: destinatario }],
+        subject: asunto,
+        htmlContent: html,
+      }),
+      // Sin esto la petición podría quedarse colgada indefinidamente.
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!respuesta.ok) {
+      // El cuerpo se lee como texto y no como JSON: cuando Brevo responde con
+      // un error de infraestructura devuelve HTML, y ahí un `.json()` fallaría
+      // tapando el error real con uno de parseo.
+      const detalle = await respuesta.text();
+      throw new Error(`Brevo respondió ${respuesta.status}: ${detalle}`);
+    }
+  }
+
+  /** Envío por SMTP. Sirve en local, donde el puerto 587 no está bloqueado. */
+  private async enviarPorSmtp({ destinatario, asunto, html }: CorreoAEnviar) {
+    const transporte = await this.crearTransporte();
+    await transporte.sendMail({
+      from: process.env.SMTP_FROM,
+      to: destinatario,
+      subject: asunto,
+      html,
+    });
+  }
+
+  /**
    * Un fallo de envío no tumba la operación que lo originó: la cuenta ya quedó
    * creada y el usuario puede pedir el reenvío. Queda en el log, que es donde
    * hay que mirar cuando alguien reporta que no le llegó el correo.
+   *
+   * La vía la decide `BREVO_API_KEY`: si está definida se usa la API, y si no,
+   * SMTP. Así producción sale por Brevo sin que haya que tocar el entorno local,
+   * donde SMTP funciona y no gasta cuota.
    */
-  private async enviar({
-    destinatario,
-    asunto,
-    html,
-    descripcion,
-  }: CorreoAEnviar) {
+  private async enviar(correo: CorreoAEnviar) {
+    const apiKey = process.env.BREVO_API_KEY?.trim();
+
     try {
-      const transporte = await this.crearTransporte();
-      await transporte.sendMail({
-        from: process.env.SMTP_FROM,
-        to: destinatario,
-        subject: asunto,
-        html,
-      });
+      if (apiKey) {
+        await this.enviarPorBrevo(apiKey, correo);
+      } else {
+        await this.enviarPorSmtp(correo);
+      }
     } catch (error) {
       this.logger.error(
-        `No se pudo enviar ${descripcion} a ${destinatario}`,
+        `No se pudo enviar ${correo.descripcion} a ${correo.destinatario}`,
         error,
       );
     }
