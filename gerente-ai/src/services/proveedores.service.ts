@@ -25,13 +25,23 @@ export class ProveedoresService {
     return this.prisma.proveedor.create({ data: dto });
   }
 
-  findAll(sedeId?: string) {
-    return this.prisma.proveedor.findMany({
-      where: sedeId ? { sedeId } : undefined,
-    });
+  async findAll(userId: string, rolGlobal: string, sedeId?: string) {
+    const visibles = await this.negociosService.filtroDeSedes(
+      userId,
+      rolGlobal,
+      sedeId,
+    );
+    return this.prisma.proveedor.findMany({ where: { sedeId: visibles } });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string, rolGlobal: string) {
+    const proveedor = await this.cargar(id);
+    await this.verificarAccesoAlProveedor(proveedor.sedeId, userId, rolGlobal);
+    return proveedor;
+  }
+
+  /** Carga cruda: cada llamador decide qué permiso exige sobre la sede. */
+  private async cargar(id: string) {
     const proveedor = await this.prisma.proveedor.findUnique({ where: { id } });
     if (!proveedor) {
       throw new NotFoundException(`Proveedor con id ${id} no encontrado`);
@@ -45,14 +55,18 @@ export class ProveedoresService {
     rolGlobal: string,
     dto: UpdateProveedorDto,
   ) {
-    const proveedor = await this.findOne(id);
-    await this.verificarAccesoAlProveedor(proveedor.sedeId, userId, rolGlobal);
+    const proveedor = await this.cargar(id);
+    await this.verificarAccesoAlProveedor(proveedor.sedeId, userId, rolGlobal, {
+      escritura: true,
+    });
     return this.prisma.proveedor.update({ where: { id }, data: dto });
   }
 
   async remove(id: string, userId: string, rolGlobal: string) {
-    const proveedor = await this.findOne(id);
-    await this.verificarAccesoAlProveedor(proveedor.sedeId, userId, rolGlobal);
+    const proveedor = await this.cargar(id);
+    await this.verificarAccesoAlProveedor(proveedor.sedeId, userId, rolGlobal, {
+      escritura: true,
+    });
     return this.prisma.proveedor.delete({ where: { id } });
   }
 
@@ -60,6 +74,7 @@ export class ProveedoresService {
     sedeId: string,
     userId: string,
     rolGlobal: string,
+    opciones: { escritura?: boolean } = {},
   ) {
     const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
     if (!sede) {
@@ -67,8 +82,11 @@ export class ProveedoresService {
         'La sede asociada a este proveedor ya no existe',
       );
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
-      escritura: true,
-    });
+    await this.negociosService.verificarAccesoSede(
+      userId,
+      sede,
+      rolGlobal,
+      opciones,
+    );
   }
 }

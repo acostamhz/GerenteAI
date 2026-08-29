@@ -25,13 +25,23 @@ export class ProductosService {
     return this.prisma.producto.create({ data: dto });
   }
 
-  findAll(sedeId?: string) {
-    return this.prisma.producto.findMany({
-      where: sedeId ? { sedeId } : undefined,
-    });
+  async findAll(userId: string, rolGlobal: string, sedeId?: string) {
+    const visibles = await this.negociosService.filtroDeSedes(
+      userId,
+      rolGlobal,
+      sedeId,
+    );
+    return this.prisma.producto.findMany({ where: { sedeId: visibles } });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string, rolGlobal: string) {
+    const producto = await this.cargar(id);
+    await this.verificarAccesoAlProducto(producto.sedeId, userId, rolGlobal);
+    return producto;
+  }
+
+  /** Carga cruda: cada llamador decide qué permiso exige sobre la sede. */
+  private async cargar(id: string) {
     const producto = await this.prisma.producto.findUnique({ where: { id } });
     if (!producto) {
       throw new NotFoundException(`Producto con id ${id} no encontrado`);
@@ -45,14 +55,18 @@ export class ProductosService {
     rolGlobal: string,
     dto: UpdateProductoDto,
   ) {
-    const producto = await this.findOne(id);
-    await this.verificarAccesoAlProducto(producto.sedeId, userId, rolGlobal);
+    const producto = await this.cargar(id);
+    await this.verificarAccesoAlProducto(producto.sedeId, userId, rolGlobal, {
+      escritura: true,
+    });
     return this.prisma.producto.update({ where: { id }, data: dto });
   }
 
   async remove(id: string, userId: string, rolGlobal: string) {
-    const producto = await this.findOne(id);
-    await this.verificarAccesoAlProducto(producto.sedeId, userId, rolGlobal);
+    const producto = await this.cargar(id);
+    await this.verificarAccesoAlProducto(producto.sedeId, userId, rolGlobal, {
+      escritura: true,
+    });
     return this.prisma.producto.delete({ where: { id } });
   }
 
@@ -60,6 +74,7 @@ export class ProductosService {
     sedeId: string,
     userId: string,
     rolGlobal: string,
+    opciones: { escritura?: boolean } = {},
   ) {
     const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
     if (!sede) {
@@ -67,8 +82,11 @@ export class ProductosService {
         'La sede asociada a este producto ya no existe',
       );
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
-      escritura: true,
-    });
+    await this.negociosService.verificarAccesoSede(
+      userId,
+      sede,
+      rolGlobal,
+      opciones,
+    );
   }
 }

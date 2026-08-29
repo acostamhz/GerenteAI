@@ -117,10 +117,20 @@ export class ComprasService {
     });
   }
 
-  findAll(sedeId?: string, proveedorId?: string) {
+  async findAll(
+    userId: string,
+    rolGlobal: string,
+    sedeId?: string,
+    proveedorId?: string,
+  ) {
+    const visibles = await this.negociosService.filtroDeSedes(
+      userId,
+      rolGlobal,
+      sedeId,
+    );
     return this.prisma.compra.findMany({
       where: {
-        ...(sedeId ? { sedeId } : {}),
+        sedeId: visibles,
         ...(proveedorId ? { proveedorId } : {}),
       },
       include: { detalles: true },
@@ -128,7 +138,14 @@ export class ComprasService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string, rolGlobal: string) {
+    const compra = await this.cargar(id);
+    await this.verificarAccesoALaCompra(compra.sedeId, userId, rolGlobal);
+    return compra;
+  }
+
+  /** Carga cruda: cada llamador decide qué permiso exige sobre la sede. */
+  private async cargar(id: string) {
     const compra = await this.prisma.compra.findUnique({
       where: { id },
       include: { detalles: true },
@@ -139,18 +156,30 @@ export class ComprasService {
     return compra;
   }
 
-  // Sin update, igual que en Ventas: se anula y se rehace.
-  async remove(id: string, userId: string, rolGlobal: string) {
-    const compra = await this.findOne(id);
-    const sede = await this.prisma.sede.findUnique({
-      where: { id: compra.sedeId },
-    });
+  private async verificarAccesoALaCompra(
+    sedeId: string,
+    userId: string,
+    rolGlobal: string,
+    opciones: { escritura?: boolean } = {},
+  ) {
+    const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
     if (!sede) {
       throw new NotFoundException(
         'La sede asociada a esta compra ya no existe',
       );
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+    await this.negociosService.verificarAccesoSede(
+      userId,
+      sede,
+      rolGlobal,
+      opciones,
+    );
+  }
+
+  // Sin update, igual que en Ventas: se anula y se rehace.
+  async remove(id: string, userId: string, rolGlobal: string) {
+    const compra = await this.cargar(id);
+    await this.verificarAccesoALaCompra(compra.sedeId, userId, rolGlobal, {
       escritura: true,
     });
 

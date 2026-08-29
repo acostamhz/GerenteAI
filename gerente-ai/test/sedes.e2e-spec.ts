@@ -37,14 +37,28 @@ describe('Sedes y enrutamiento por teléfono (contra Postgres real)', () => {
   });
 
   it('resuelve la sede a partir del número de WhatsApp', async () => {
-    const encontradas = await sedes.findAll(undefined, '+573001110002');
+    const encontradas = await sedes.findAll(
+      s.duenoId,
+      'CLIENTE',
+      undefined,
+      '+573001110002',
+    );
 
     expect(encontradas).toHaveLength(1);
     expect(encontradas[0].id).toBe(s.sedeBId);
   });
 
   it('devuelve vacío si el número no está asignado a ninguna sede', async () => {
-    expect(await sedes.findAll(undefined, '+573009999999')).toHaveLength(0);
+    expect(
+      await sedes.findAll(s.duenoId, 'CLIENTE', undefined, '+573009999999'),
+    ).toHaveLength(0);
+  });
+
+  // Buscar por número no puede ser una puerta trasera para leer sedes ajenas.
+  it('no encuentra por número una sede de otro negocio', async () => {
+    expect(
+      await sedes.findAll(s.ajenoId, 'CLIENTE', undefined, '+573001110002'),
+    ).toHaveLength(0);
   });
 
   // Si dos sedes compartieran número, un mensaje entrante sería ambiguo.

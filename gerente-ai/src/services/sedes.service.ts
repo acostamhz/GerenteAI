@@ -63,17 +63,40 @@ export class SedesService {
     );
   }
 
-  // El filtro por telefono es cómo se resuelve de qué sede viene un mensaje de WhatsApp.
-  findAll(negocioId?: string, telefono?: string) {
+  /**
+   * Solo las sedes del usuario. El filtro por `telefono` sigue disponible para
+   * buscar dentro de las propias; el enrutamiento del bot NO pasa por aquí
+   * (resuelve contra la base directamente), así que acotar este listado no lo
+   * afecta y sí evita que cualquiera enumere las líneas de WhatsApp del sistema.
+   */
+  async findAll(
+    userId: string,
+    rolGlobal: string,
+    negocioId?: string,
+    telefono?: string,
+  ) {
+    const visibles = await this.negociosService.sedesVisibles(
+      userId,
+      rolGlobal,
+    );
+
     return this.prisma.sede.findMany({
       where: {
+        ...(visibles === null ? {} : { id: { in: visibles } }),
         ...(negocioId ? { negocioId } : {}),
         ...(telefono ? { telefono } : {}),
       },
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string, rolGlobal: string) {
+    const sede = await this.cargar(id);
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    return sede;
+  }
+
+  /** Carga cruda: cada llamador decide qué permiso exige sobre la sede. */
+  private async cargar(id: string) {
     const sede = await this.prisma.sede.findUnique({ where: { id } });
     if (!sede) {
       throw new NotFoundException(`Sede con id ${id} no encontrada`);
@@ -87,7 +110,7 @@ export class SedesService {
     rolGlobal: string,
     dto: UpdateSedeDto,
   ) {
-    const sede = await this.findOne(id);
+    const sede = await this.cargar(id);
     await this.negociosService.verificarPropietario(
       userId,
       sede.negocioId,
@@ -102,7 +125,7 @@ export class SedesService {
   }
 
   async remove(id: string, userId: string, rolGlobal: string) {
-    const sede = await this.findOne(id);
+    const sede = await this.cargar(id);
     await this.negociosService.verificarPropietario(
       userId,
       sede.negocioId,

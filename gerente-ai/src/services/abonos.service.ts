@@ -86,17 +86,35 @@ export class AbonosService {
     });
   }
 
-  findAll(sedeId?: string, clienteId?: string) {
+  async findAll(
+    userId: string,
+    rolGlobal: string,
+    sedeId?: string,
+    clienteId?: string,
+  ) {
+    const visibles = await this.negociosService.filtroDeSedes(
+      userId,
+      rolGlobal,
+      sedeId,
+    );
     return this.prisma.abono.findMany({
       where: {
-        ...(sedeId ? { sedeId } : {}),
+        sedeId: visibles,
         ...(clienteId ? { clienteId } : {}),
       },
       orderBy: { fecha: 'desc' },
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string, rolGlobal: string) {
+    const abono = await this.cargar(id);
+    const sede = await this.buscarSede(abono.sedeId, 'este abono');
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
+    return abono;
+  }
+
+  /** Carga cruda: cada llamador decide qué permiso exige sobre la sede. */
+  private async cargar(id: string) {
     const abono = await this.prisma.abono.findUnique({ where: { id } });
     if (!abono) {
       throw new NotFoundException(`Abono con id ${id} no encontrado`);
@@ -107,7 +125,7 @@ export class AbonosService {
   // Sin update, por lo mismo que en Ventas: corregir un monto ya aplicado al saldo
   // se hace anulando y volviendo a registrar.
   async remove(id: string, userId: string, rolGlobal: string) {
-    const abono = await this.findOne(id);
+    const abono = await this.cargar(id);
     const sede = await this.buscarSede(abono.sedeId, 'este abono');
     await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
       escritura: true,
