@@ -23,12 +23,14 @@ export interface RegisterCredentials {
   email: string;
   password: string;
   telefono?: string;
+  nombreNegocio: string;
   whatsappUsername?: string;
 }
 
 export interface BackendAuthResponse {
   accessToken?: string;
   access_token?: string;
+  mensaje?: string;
   usuario?: AuthUser;
   user?: AuthUser;
 }
