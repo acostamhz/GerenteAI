@@ -32,10 +32,10 @@ export const authApi = {
 
     const user = raw.usuario ||
       raw.user || {
-        id: '',
-        nombre: '',
-        rolGlobal: 'CLIENTE',
-      };
+      id: '',
+      nombre: '',
+      rolGlobal: 'CLIENTE',
+    };
 
     return {
       access_token: token,
@@ -46,17 +46,24 @@ export const authApi = {
   /**
    * Registrar un nuevo usuario.
    *
-   * El backend NO devuelve accessToken en el registro.
-   *
-   * Flujo:
-   * registro → correo de verificación → verificar email → login
+   * El backend NO devuelve accessToken en el registro porque requiere
+   * activación previa mediante el correo de verificación.
    */
   async register(credentials: RegisterCredentials): Promise<AuthUser> {
+    const payload = {
+      nombre: credentials.nombre.trim(),
+      email: credentials.email.trim().toLowerCase(),
+      password: credentials.password,
+      ...(credentials.telefono ? { telefono: credentials.telefono.trim() } : {}),
+      nombreNegocio: credentials.nombreNegocio?.trim() || `Negocio de ${credentials.nombre.trim()}`,
+      ...(credentials.whatsappUsername ? { whatsappUsername: credentials.whatsappUsername.trim() } : {}),
+    };
+
     const raw = await apiClient<BackendAuthResponse | AuthUser>(
       '/auth/register',
       {
         method: 'POST',
-        body: JSON.stringify(credentials),
+        body: JSON.stringify(payload),
       },
     );
 
