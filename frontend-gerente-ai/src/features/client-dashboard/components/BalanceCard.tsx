@@ -1,4 +1,5 @@
 import { ArrowUpRight, ArrowDownLeft, MoreHorizontal, Plus } from "lucide-react";
+import { Skeleton } from "@/shared/components/ui/Skeleton";
 import { ReporteFinanciero } from "../types";
 import { formatNumber } from "../utils/formatters";
 
@@ -22,23 +23,34 @@ export function BalanceCard({
 
   if (isLoading) {
     return (
-      <div className="bg-card rounded-2xl p-6 shadow-sm border border-border flex flex-col h-full animate-pulse">
-        <div className="h-4 bg-muted rounded w-24 mb-2" />
-        <div className="h-8 bg-muted rounded w-48 mb-6" />
-        <div className="flex gap-3 mb-8">
-          <div className="h-12 bg-muted rounded-xl flex-1" />
-          <div className="h-12 bg-muted rounded-xl flex-1" />
+      <div className="bg-card rounded-2xl p-6 shadow-sm border border-border flex flex-col h-full justify-between animate-in fade-in duration-300">
+        <div>
+          <div className="space-y-2 mb-6">
+            <Skeleton width={100} height={16} />
+            <Skeleton width={200} height={36} />
+            <Skeleton width={160} height={14} />
+          </div>
+
+          <div className="flex gap-3 mb-8">
+            <Skeleton className="h-12 flex-1 rounded-xl" />
+            <Skeleton className="h-12 flex-1 rounded-xl" />
+            <Skeleton className="h-12 w-12 rounded-xl" />
+          </div>
         </div>
-        <div className="mt-auto">
-          <div className="h-4 bg-muted rounded w-full mb-2" />
-          <div className="h-2 bg-muted rounded-full w-full" />
+
+        <div className="pt-4 border-t border-border/60 space-y-2">
+          <div className="flex justify-between">
+            <Skeleton width={120} height={14} />
+            <Skeleton width={80} height={14} />
+          </div>
+          <Skeleton height={8} className="w-full rounded-full" />
         </div>
       </div>
     );
   }
 
   return (
-    <div className="bg-card rounded-2xl p-6 shadow-sm border border-border flex flex-col h-full justify-between">
+    <div className="bg-card rounded-2xl p-6 shadow-sm border border-border flex flex-col h-full justify-between animate-in fade-in duration-300">
       <div>
         <div className="flex items-center gap-4 mb-6">
           <div>

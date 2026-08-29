@@ -5,15 +5,12 @@ import React, {
   useEffect,
   useState,
 } from 'react';
-
 import { authApi } from '../api/authApi';
-
 import {
   AuthUser,
   LoginCredentials,
   RegisterCredentials,
 } from '../types';
-
 import { ApiError } from '@/lib/apiClient';
 
 interface AuthContextType {
@@ -32,20 +29,21 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const TOKEN_KEY = 'access_token';
-const USER_KEY = 'user_session';
+export const TOKEN_KEY = 'access_token';
+export const USER_KEY = 'user_session';
+export const SESSION_EXPIRES_AT_KEY = 'session_expires_at';
+export const SESSION_LOGIN_TIME_KEY = 'session_login_time';
+
+/** Tiempo máximo de inactividad / duración de sesión: 1 hora exacta */
+export const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 3.600.000 ms
 
 /**
- * Validador seguro de expiración de JWT en el cliente
- * sin realizar llamadas de red.
+ * Validador seguro de expiración de JWT en el cliente sin llamadas de red.
  */
 function isTokenExpired(jwtToken: string): boolean {
   try {
     const payloadBase64 = jwtToken.split('.')[1];
-
-    if (!payloadBase64) {
-      return true;
-    }
+    if (!payloadBase64) return true;
 
     const normalized = payloadBase64
       .replace(/-/g, '+')
@@ -63,49 +61,50 @@ function isTokenExpired(jwtToken: string): boolean {
     );
 
     const decoded = JSON.parse(jsonPayload);
-
-    if (!decoded.exp) {
-      return false;
-    }
-
-    // Si expira en los próximos 10 segundos,
-    // considerarlo expirado.
+    if (!decoded.exp) return false;
+    // Si expira en los próximos 10 segundos, considerarlo expirado
     return decoded.exp * 1000 < Date.now() + 10000;
   } catch {
     return true;
   }
 }
 
-export function AuthProvider({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const [token, setToken] = useState<string | null>(() => {
-    const savedToken = localStorage.getItem(TOKEN_KEY);
+/**
+ * Verifica si la sesión de 1 hora o el JWT han expirado
+ */
+function isSessionExpired(): boolean {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (!token) return true;
 
-    if (!savedToken || isTokenExpired(savedToken)) {
+  if (isTokenExpired(token)) return true;
+
+  const expiresAt = localStorage.getItem(SESSION_EXPIRES_AT_KEY);
+  if (expiresAt && Date.now() >= Number(expiresAt)) {
+    return true;
+  }
+
+  return false;
+}
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const [token, setToken] = useState<string | null>(() => {
+    if (isSessionExpired()) {
       localStorage.removeItem(TOKEN_KEY);
       localStorage.removeItem(USER_KEY);
-
+      localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
+      localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
       return null;
     }
-
-    return savedToken;
+    return localStorage.getItem(TOKEN_KEY);
   });
 
   const [user, setUser] = useState<AuthUser | null>(() => {
-    const savedToken = localStorage.getItem(TOKEN_KEY);
-
-    if (!savedToken || isTokenExpired(savedToken)) {
+    if (isSessionExpired()) {
       return null;
     }
 
     const savedUser = localStorage.getItem(USER_KEY);
-
-    if (!savedUser) {
-      return null;
-    }
+    if (!savedUser) return null;
 
     try {
       return JSON.parse(savedUser);
@@ -115,7 +114,6 @@ export function AuthProvider({
   });
 
   const [isLoading, setIsLoading] = useState<boolean>(false);
-
   const [error, setError] = useState<string | null>(null);
 
   const clearError = useCallback(() => {
@@ -125,23 +123,41 @@ export function AuthProvider({
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
-
+    localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
+    localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
     setToken(null);
     setUser(null);
     setError(null);
   }, []);
 
-  /**
-   * Rehidratación síncrona / verificación
-   * de expiración al montar.
-   */
+  // Verificación proactiva de expiración de sesión (Temporizador y foco de ventana)
   useEffect(() => {
-    const storedToken = localStorage.getItem(TOKEN_KEY);
+    const checkExpiration = () => {
+      if (token && isSessionExpired()) {
+        logout();
+      }
+    };
 
-    if (!storedToken || isTokenExpired(storedToken)) {
-      logout();
-    }
-  }, [logout]);
+    checkExpiration();
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkExpiration();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', checkExpiration);
+
+    // Revisión periódica cada 30 segundos
+    const interval = setInterval(checkExpiration, 30000);
+
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', checkExpiration);
+      clearInterval(interval);
+    };
+  }, [token, logout]);
 
   /**
    * Sincronización entre pestañas.
@@ -152,8 +168,6 @@ export function AuthProvider({
         if (!e.newValue) {
           setToken(null);
           setUser(null);
-
-          window.location.href = '/login';
         } else {
           setToken(e.newValue);
         }
@@ -172,42 +186,28 @@ export function AuthProvider({
       }
     };
 
-    window.addEventListener(
-      'storage',
-      handleStorageChange,
-    );
-
+    window.addEventListener('storage', handleStorageChange);
     return () => {
-      window.removeEventListener(
-        'storage',
-        handleStorageChange,
-      );
+      window.removeEventListener('storage', handleStorageChange);
     };
   }, []);
 
   /**
    * Login normal.
-   *
-   * Aquí SÍ recibimos y almacenamos el JWT.
+   * Aquí SÍ recibimos y almacenamos el JWT y la sesión.
    */
-  const login = async (
-    credentials: LoginCredentials,
-  ): Promise<AuthUser> => {
+  const login = async (credentials: LoginCredentials): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
 
     try {
       const response = await authApi.login(credentials);
+      const expiresAt = Date.now() + SESSION_MAX_AGE_MS;
 
-      localStorage.setItem(
-        TOKEN_KEY,
-        response.access_token,
-      );
-
-      localStorage.setItem(
-        USER_KEY,
-        JSON.stringify(response.user),
-      );
+      localStorage.setItem(TOKEN_KEY, response.access_token);
+      localStorage.setItem(USER_KEY, JSON.stringify(response.user));
+      localStorage.setItem(SESSION_EXPIRES_AT_KEY, expiresAt.toString());
+      localStorage.setItem(SESSION_LOGIN_TIME_KEY, Date.now().toString());
 
       setToken(response.access_token);
       setUser(response.user);
@@ -220,7 +220,6 @@ export function AuthProvider({
           : 'Error al iniciar sesión';
 
       setError(message);
-
       throw err;
     } finally {
       setIsLoading(false);
@@ -229,28 +228,14 @@ export function AuthProvider({
 
   /**
    * Registro.
-   *
-   * IMPORTANTE:
-   * No almacena token porque /auth/register
-   * ya no devuelve accessToken.
-   *
-   * El usuario debe:
-   *
-   * 1. Registrarse.
-   * 2. Revisar su correo.
-   * 3. Verificar su cuenta.
-   * 4. Iniciar sesión.
+   * IMPORTANTE: No almacena token porque /auth/register requiere verificación por correo.
    */
-  const register = async (
-    credentials: RegisterCredentials,
-  ): Promise<AuthUser> => {
+  const register = async (credentials: RegisterCredentials): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const newUser =
-        await authApi.register(credentials);
-
+      const newUser = await authApi.register(credentials);
       return newUser;
     } catch (err) {
       const message =
@@ -259,7 +244,6 @@ export function AuthProvider({
           : 'Error al registrar usuario';
 
       setError(message);
-
       throw err;
     } finally {
       setIsLoading(false);
@@ -269,16 +253,11 @@ export function AuthProvider({
   const value: AuthContextType = {
     user,
     token,
-
-    isAuthenticated:
-      !!token && !!user,
-
+    isAuthenticated: !!token && !!user,
     isLoading,
     error,
-
     login,
     register,
-
     logout,
     clearError,
   };
@@ -292,12 +271,8 @@ export function AuthProvider({
 
 export function useAuth() {
   const context = useContext(AuthContext);
-
   if (!context) {
-    throw new Error(
-      'useAuth debe ser utilizado dentro de un <AuthProvider>',
-    );
+    throw new Error('useAuth debe ser utilizado dentro de un <AuthProvider>');
   }
-
   return context;
 }

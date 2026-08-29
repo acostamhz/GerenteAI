@@ -1,25 +1,25 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import {
-  LayoutDashboard,
-  Bot,
-  TrendingUp,
-  Bell,
-  Settings,
-  Briefcase,
-  Server,
-  User,
-  CreditCard,
-  ShieldCheck,
-  LogOut,
-  ChevronDown,
-  Building2,
-  MapPin,
-  Check,
+import { 
+  Building2, 
+  MapPin, 
+  ChevronDown, 
+  Check, 
+  Bell, 
+  Settings, 
+  User, 
+  CreditCard, 
+  ShieldCheck, 
+  LogOut, 
+  LayoutDashboard, 
+  Bot, 
+  TrendingUp, 
+  Briefcase, 
+  Server, 
   Layers
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
-import { useAuth } from "@/features/auth";
+import { useAuth } from "@/features/auth/hooks/useAuth";
 import { apiClient } from "@/lib/apiClient";
 import { profileApi } from "@/features/shared-profile/api/profileApi";
 
@@ -31,17 +31,12 @@ interface NegocioItem {
 interface SedeItem {
   id: string;
   nombre: string;
-  negocioId: string;
   direccion?: string | null;
   telefono?: string | null;
   whatsappUsername?: string | null;
 }
 
 interface UsuarioMeResponse {
-  id: string;
-  nombre: string;
-  email: string;
-  rolGlobal: string;
   negocios: Array<{
     negocio: {
       id: string;
@@ -192,6 +187,12 @@ export function GlobalNavbar() {
     localStorage.setItem('active_business_name', negocio.nombre);
     setIsBusinessDropdownOpen(false);
 
+    // Resetear la sede seleccionada a 'all' por defecto para el nuevo negocio
+    setActiveSedeId('all');
+    setActiveSedeName('Todas las Sedes');
+    localStorage.setItem('active_sede_id', 'all');
+    localStorage.setItem('active_sede_name', 'Todas las Sedes');
+
     loadSedesForBusiness(negocio.id).then(() => {
       window.dispatchEvent(new Event('business_changed'));
       window.dispatchEvent(new Event('sede_changed'));
@@ -298,7 +299,7 @@ export function GlobalNavbar() {
         <div className="flex items-center gap-2.5 text-sm font-semibold">
           {!isAdmin && (
             <div className="flex items-center gap-1.5">
-              {/* 🏢 1. Selector de Negocio / Empresa */}
+              {/* 🏢 1. Selector de Negocio */}
               <div className="relative" ref={businessDropdownRef}>
                 <button
                   onClick={() => {
@@ -306,7 +307,7 @@ export function GlobalNavbar() {
                     setIsSedeDropdownOpen(false);
                   }}
                   className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 hover:bg-muted/80 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
-                  title="Empresa o Comercio Activo"
+                  title="Negocio Activo"
                 >
                   <Building2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   <span className="max-w-[120px] truncate">{activeBusinessName}</span>
@@ -316,7 +317,7 @@ export function GlobalNavbar() {
                 {isBusinessDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
                     <div className="px-4 py-2 border-b border-border text-[11px] font-bold text-muted-foreground uppercase flex items-center justify-between">
-                      <span>Tus Empresas</span>
+                      <span>Tus Negocios</span>
                       <Building2 className="w-3.5 h-3.5 text-emerald-500" />
                     </div>
                     {negocios.length > 0 ? (
@@ -334,14 +335,26 @@ export function GlobalNavbar() {
                       ))
                     ) : (
                       <div className="px-4 py-3 text-xs text-muted-foreground">
-                        No tienes comercios registrados.
+                        No tienes negocios registrados.
                       </div>
                     )}
+
+                    {/* Botón para Administrar Negocios y Sedes en Perfil */}
+                    <div className="p-2 border-t border-border mt-1">
+                      <Link
+                        to="/profile"
+                        onClick={() => setIsBusinessDropdownOpen(false)}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                      >
+                        <Building2 className="w-3.5 h-3.5" />
+                        <span>Administrar Negocios y Sedes</span>
+                      </Link>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* 📍 2. Selector de Sede / Sucursal */}
+              {/* 📍 2. Selector de Sede */}
               <div className="relative" ref={sedeDropdownRef}>
                 <button
                   onClick={() => {
@@ -349,7 +362,7 @@ export function GlobalNavbar() {
                     setIsBusinessDropdownOpen(false);
                   }}
                   className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 hover:bg-muted/80 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
-                  title="Sede o Sucursal Activa"
+                  title="Sede Activa"
                 >
                   <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   <span className="max-w-[110px] truncate">{activeSedeName}</span>
@@ -398,9 +411,21 @@ export function GlobalNavbar() {
                       ))
                     ) : (
                       <div className="px-4 py-3 text-xs text-muted-foreground">
-                        No hay sucursales registradas para esta empresa.
+                        No hay sedes registradas para este negocio.
                       </div>
                     )}
+
+                    {/* Botón para Gestionar Sedes en Perfil */}
+                    <div className="p-2 border-t border-border mt-1">
+                      <Link
+                        to="/profile"
+                        onClick={() => setIsSedeDropdownOpen(false)}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                      >
+                        <MapPin className="w-3.5 h-3.5" />
+                        <span>Gestionar Sedes en Perfil</span>
+                      </Link>
+                    </div>
                   </div>
                 )}
               </div>

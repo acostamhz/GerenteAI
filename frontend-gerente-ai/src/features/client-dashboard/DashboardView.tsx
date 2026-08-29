@@ -1,16 +1,22 @@
-import { useState } from "react";
 import { Link } from "react-router";
-import { Sparkles, RefreshCw, AlertTriangle, PlusCircle, Building2, MapPin, Layers } from "lucide-react";
+import { Sparkles, RefreshCw, AlertTriangle, Building2, MapPin, Layers } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { BalanceCard } from "./components/BalanceCard";
 import { SpendChartCard } from "./components/SpendChartCard";
 import { TransactionTable } from "./components/TransactionTable";
 import { NoBusinessState } from "./components/NoBusinessState";
-import { CreateBusinessModal } from "./components/CreateBusinessModal";
 import { useDashboardMetrics } from "./hooks/useDashboardMetrics";
+import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
+import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywallModal";
 
 export function DashboardView() {
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const {
+    isPaywallOpen,
+    paywallMotivo,
+    paywallPlanRecomendadoId,
+    catalogo,
+    cerrarPaywall,
+  } = usePlanPermissions();
 
   const {
     metrics,
@@ -27,6 +33,7 @@ export function DashboardView() {
     businessName,
     sedeName,
     sedeId,
+    isConsolidated,
   } = useDashboardMetrics();
 
   return (
@@ -81,14 +88,6 @@ export function DashboardView() {
               </div>
               
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  onClick={() => setIsCreateModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 bg-muted/40 hover:bg-muted/70 border border-border rounded-lg text-xs font-bold text-foreground transition-colors cursor-pointer"
-                >
-                  <PlusCircle className="w-4 h-4 text-emerald-500" />
-                  Nuevo Comercio
-                </button>
-
                 <Link
                   to="/subscription"
                   className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 shadow-sm hover:from-emerald-500/20 hover:to-emerald-500/10 transition-colors"
@@ -173,7 +172,14 @@ export function DashboardView() {
                 <BalanceCard metrics={generalMetrics} isLoading={isLoading} />
               </div>
               <div className="lg:col-span-6 xl:col-span-7">
-                <SpendChartCard metrics={metrics} periodo={periodo} isLoading={isLoading || isChartLoading} />
+                <SpendChartCard 
+                  metrics={metrics} 
+                  transactions={transactions}
+                  periodo={periodo} 
+                  isLoading={isLoading || isChartLoading} 
+                  sedeName={sedeName}
+                  isConsolidated={isConsolidated}
+                />
               </div>
             </motion.div>
 
@@ -195,11 +201,17 @@ export function DashboardView() {
         )}
       </AnimatePresence>
 
-      {/* Modal de Creación para cuando ya hay un negocio pero se desea agregar otro desde la cabecera */}
-      <CreateBusinessModal
-        isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={() => refreshMetrics()}
+      {/* Modal Paywall para cuando se alcanza el límite de comercios del plan */}
+      <PlanLimitPaywallModal
+        isOpen={isPaywallOpen}
+        onClose={cerrarPaywall}
+        motivo={paywallMotivo}
+        planRecomendadoId={paywallPlanRecomendadoId}
+        catalogo={catalogo}
+        negocioNombre={businessName}
+        onUpgradeSuccess={() => {
+          refreshMetrics();
+        }}
       />
     </div>
   );

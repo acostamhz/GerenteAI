@@ -1,3 +1,4 @@
+import { Link } from "react-router";
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import { LoginShowcase } from "@/features/auth/components/LoginShowcase";
 import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
@@ -14,12 +15,14 @@ export function LoginPage() {
         
         {/* Logo */}
         <div className="p-8 sm:p-12">
-          <div className="flex items-center gap-3">
-            <div className="bg-primary text-primary-foreground p-2 rounded-xl shadow-sm">
+          <Link to="/home" className="inline-flex items-center gap-3 group cursor-pointer">
+            <div className="bg-primary text-primary-foreground p-2 rounded-xl shadow-sm group-hover:scale-105 transition-transform">
               <Activity className="w-6 h-6" />
             </div>
-            <span className="font-black text-2xl tracking-tight text-foreground">Luka AI</span>
-          </div>
+            <span className="font-black text-2xl tracking-tight text-foreground group-hover:text-primary transition-colors">
+              Luka AI
+            </span>
+          </Link>
         </div>
 
         {/* Center Form */}
