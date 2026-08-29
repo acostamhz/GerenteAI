@@ -336,3 +336,91 @@ describe('renderSummary', () => {
     expect(text).not.toMatch(/[*_`#]/);
   });
 });
+
+describe('WhatsAppMessageService · contexto de la conversación', () => {
+  /** Captura lo que se le manda al modelo, para verificar prompt e historial. */
+  function espiarLlm(intent: Partial<WhatsAppIntentOutput>) {
+    const visto: { system?: string; messages?: unknown[] } = {};
+
+    const llm = {
+      completeJson: (req: { system?: string; messages?: unknown[] }) => {
+        visto.system = req.system;
+        visto.messages = req.messages;
+        return Promise.resolve({
+          data: {
+            type: 'unclear',
+            amount: null,
+            category: null,
+            concept: null,
+            responseText: 'ok',
+            queryPeriod: null,
+            confidence: 0.9,
+            ...intent,
+          },
+          response: {
+            text: '',
+            toolCalls: [],
+            finishReason: 'stop',
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+            providerId: 'fake',
+            model: 'fake-1',
+            latencyMs: 1,
+            costUsd: 0,
+          },
+        });
+      },
+    } as unknown as LlmService;
+
+    return { llm, visto };
+  }
+
+  it('le pasa al modelo los turnos anteriores', async () => {
+    // Sin esto, Luka preguntaba el monto, el usuario lo respondía suelto y
+    // volvía a preguntar lo mismo: cada mensaje llegaba sin pasado.
+    const { llm, visto } = espiarLlm({ type: 'unclear' });
+    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+
+    await service.handleMessage({
+      ...BASE_REQUEST,
+      message: 'Mejoras en local',
+      history: [
+        { role: 'user', content: 'Invertí 1530000' },
+        { role: 'assistant', content: '¿En qué invertiste los $1.530.000?' },
+      ],
+    });
+
+    expect(visto.messages).toEqual([
+      { role: 'user', content: 'Invertí 1530000' },
+      { role: 'assistant', content: '¿En qué invertiste los $1.530.000?' },
+      { role: 'user', content: 'Mejoras en local' },
+    ]);
+  });
+
+  it('le dice al modelo qué plan tiene el negocio', async () => {
+    const { llm, visto } = espiarLlm({ type: 'unclear' });
+    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+
+    await service.handleMessage({
+      ...BASE_REQUEST,
+      planName: 'Asistente',
+      planIsFree: true,
+    });
+
+    expect(visto.system).toContain('Plan contratado: Asistente');
+    expect(visto.system).toContain('gratuito');
+  });
+
+  it('acepta la intención de función de pago sin degradarla', async () => {
+    const { llm } = espiarLlm({
+      type: 'premium',
+      concept: 'reporte por producto',
+      responseText: 'Eso está en los planes pagos.',
+    });
+    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.intent.type).toBe('premium');
+    expect(result.transaction).toBeNull();
+  });
+});
