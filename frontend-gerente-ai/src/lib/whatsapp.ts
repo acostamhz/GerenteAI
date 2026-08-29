@@ -6,7 +6,7 @@
  * pruebas de Meta, que solo puede escribirle a los destinatarios autorizados en
  * el panel de desarrolladores.
  */
-const NUMERO_POR_DEFECTO = '15551580873';
+const NUMERO_POR_DEFECTO = '573043904488';
 
 export function lukaWhatsappUrl(mensaje = 'Hola'): string {
   // wa.me exige el número en formato internacional y solo dígitos.

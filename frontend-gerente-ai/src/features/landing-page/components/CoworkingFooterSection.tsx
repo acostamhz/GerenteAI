@@ -72,6 +72,17 @@ export function CoworkingFooterSection() {
                 Contacto
               </a>
             </li>
+
+            <li>
+              <a
+                href="https://wa.me/573043904488?text=Hola%20Luka%20AI,%20quisiera%20m%C3%A1s%20informaci%C3%B3n"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="hover:text-emerald-600 dark:hover:text-emerald-400 transition-colors"
+              >
+                WhatsApp (+57 3043904488)
+              </a>
+            </li>
           </ul>
         </div>
 

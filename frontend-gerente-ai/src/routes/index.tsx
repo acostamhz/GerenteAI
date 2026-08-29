@@ -2,6 +2,8 @@ import { Suspense, lazy } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { PageSkeleton } from "@/shared/components/ui/PageSkeleton";
+import { useAuth } from "@/features/auth";
+import { GuestRoute } from "./GuestRoute";
 import { ProtectedRoute } from "./ProtectedRoute";
 
 // ============================================================
@@ -117,52 +119,56 @@ export function AppRoutes() {
   return (
     <Routes>
       {/* ======================================================
-          PUBLIC ROUTES
+          GUEST ONLY ROUTES (Redirects to /dashboard if logged in)
           ====================================================== */}
+      <Route element={<GuestRoute />}>
+        <Route
+          path="/login"
+          element={
+            <Suspense fallback={<PageSkeleton />}>
+              <LoginPage />
+            </Suspense>
+          }
+        />
 
-      <Route
-        path="/login"
-        element={
-          <Suspense fallback={<PageSkeleton />}>
-            <LoginPage />
-          </Suspense>
-        }
-      />
+        <Route
+          path="/register"
+          element={
+            <Suspense fallback={<PageSkeleton />}>
+              <RegisterPage />
+            </Suspense>
+          }
+        />
 
-      <Route
-        path="/register"
-        element={
-          <Suspense fallback={<PageSkeleton />}>
-            <RegisterPage />
-          </Suspense>
-        }
-      />
+        <Route
+          path="/forgot-password"
+          element={
+            <Suspense fallback={<PageSkeleton />}>
+              <ForgotPasswordPage />
+            </Suspense>
+          }
+        />
 
+        <Route
+          path="/recuperar-password"
+          element={
+            <Navigate
+              to="/forgot-password"
+              replace
+            />
+          }
+        />
+      </Route>
+
+      {/* ======================================================
+          TOKEN & EMAIL VERIFICATION ROUTES (Always Accessible)
+          ====================================================== */}
       <Route
         path="/verificar-email"
         element={
           <Suspense fallback={<PageSkeleton />}>
             <VerificarEmailPage />
           </Suspense>
-        }
-      />
-
-      <Route
-        path="/forgot-password"
-        element={
-          <Suspense fallback={<PageSkeleton />}>
-            <ForgotPasswordPage />
-          </Suspense>
-        }
-      />
-
-      <Route
-        path="/recuperar-password"
-        element={
-          <Navigate
-            to="/forgot-password"
-            replace
-          />
         }
       />
 
@@ -184,6 +190,10 @@ export function AppRoutes() {
           />
         }
       />
+
+      {/* ======================================================
+          PUBLIC ROUTES
+          ====================================================== */}
 
       <Route
         path="/home"
@@ -276,6 +286,28 @@ export function AppRoutes() {
             }
           />
 
+          {/* Dashboard alias */}
+          <Route
+            path="dashboard"
+            element={
+              <Navigate
+                to="/"
+                replace
+              />
+            }
+          />
+
+          {/* Settings alias */}
+          <Route
+            path="settings"
+            element={
+              <Navigate
+                to="/profile"
+                replace
+              />
+            }
+          />
+
           {/* ==================================================
               ADMIN ROUTES
               ================================================== */}
@@ -321,6 +353,32 @@ export function AppRoutes() {
           </Route>
         </Route>
       </Route>
+
+      {/* ======================================================
+          CATCH-ALL FALLBACK
+          - No autenticado: Redirige de inmediato a /login
+          - Autenticado: Redirige al Dashboard principal (/)
+          ====================================================== */}
+      <Route path="*" element={<FallbackRoute />} />
     </Routes>
   );
+}
+
+/**
+ * Redirige cualquier ruta no autorizada o inexistente según el estado de sesión:
+ * - Invitado / No autenticado -> /login
+ * - Usuario con sesión -> / (Dashboard)
+ */
+function FallbackRoute() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <PageSkeleton />;
+  }
+
+  if (isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  return <Navigate to="/login" replace />;
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '@/features/auth';
 import { PeriodoTipo, ReporteFinanciero, DashboardTransactionItem } from '../types';
 import { dashboardApi } from '../api/dashboardApi';
+import { profileApi } from '@/features/shared-profile/api/profileApi';
 import { apiClient } from '@/lib/apiClient';
 
 interface UsuarioMeResponse {
@@ -49,11 +50,14 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
   const [generalMetrics, setGeneralMetrics] = useState<ReporteFinanciero | null>(null);
   const [allTransactions, setAllTransactions] = useState<DashboardTransactionItem[]>([]);
   
-  const [resolvedBusinessId, setResolvedBusinessId] = useState<string | null>(null);
+  const [resolvedBusinessId, setResolvedBusinessId] = useState<string | null>(() => {
+    return customBusinessId || localStorage.getItem('active_business_id') || null;
+  });
   const [businessName, setBusinessName] = useState<string>(() => {
     return localStorage.getItem('active_business_name') || 'Mi Negocio';
   });
   const [resolvedSedeId, setResolvedSedeId] = useState<string | null>(() => {
+    if (customSedeId) return customSedeId;
     const s = localStorage.getItem('active_sede_id');
     return s && s !== 'all' ? s : null;
   });
@@ -71,14 +75,19 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
   const resolveActiveBusiness = useCallback(async (): Promise<string | null> => {
     if (customBusinessId) return customBusinessId;
 
+    const savedId = localStorage.getItem('active_business_id');
+    const savedName = localStorage.getItem('active_business_name');
+    if (savedId) {
+      if (savedName) setBusinessName(savedName);
+      return savedId;
+    }
+
     try {
       const me = await apiClient<UsuarioMeResponse>('/auth/usuarios/me');
       const userNegocios = me.negocios?.map((n) => n.negocio) || [];
 
       if (userNegocios.length > 0) {
-        const savedId = localStorage.getItem('active_business_id');
-        const matched = userNegocios.find((n) => n.id === savedId) || userNegocios[0];
-
+        const matched = userNegocios[0];
         localStorage.setItem('active_business_id', matched.id);
         localStorage.setItem('active_business_name', matched.nombre);
         setBusinessName(matched.nombre);
@@ -100,12 +109,13 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
   // Carga inicial completa o refresco manual
   const fetchMetrics = useCallback(
     async (isManualRefresh = false) => {
+      setIsLoading(true);
       if (isManualRefresh) {
         setIsRefreshing(true);
-      } else {
-        setIsLoading(true);
       }
       setError(null);
+
+      const startTime = Date.now();
 
       try {
         if (!token) {
@@ -160,6 +170,9 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
             targetSedeIds = [effectiveSedeId];
           } else if (reportResult?.sedes && reportResult.sedes.length > 0) {
             targetSedeIds = reportResult.sedes.map((s) => s.sede.id);
+          } else if (targetBusinessId) {
+            const sedesList = await profileApi.getSedes(targetBusinessId).catch(() => []);
+            targetSedeIds = sedesList.map((s) => s.id);
           }
 
           if (targetSedeIds.length > 0) {
@@ -179,6 +192,11 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
         setGeneralMetrics(null);
         setAllTransactions([]);
       } finally {
+        // Garantizar al menos 280ms para una suave transición visual del esqueleto
+        const elapsed = Date.now() - startTime;
+        if (elapsed < 280) {
+          await new Promise((resolve) => setTimeout(resolve, 280 - elapsed));
+        }
         setIsLoading(false);
         setIsRefreshing(false);
       }
@@ -220,8 +238,19 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
 
   useEffect(() => {
     const handleSync = () => {
-      fetchMetrics(true);
+      const savedBusinessId = localStorage.getItem('active_business_id');
+      const savedBusinessName = localStorage.getItem('active_business_name');
+      const savedSedeId = localStorage.getItem('active_sede_id');
+      const savedSedeName = localStorage.getItem('active_sede_name');
+
+      if (savedBusinessId) setResolvedBusinessId(savedBusinessId);
+      if (savedBusinessName) setBusinessName(savedBusinessName);
+      setResolvedSedeId(savedSedeId && savedSedeId !== 'all' ? savedSedeId : null);
+      setSedeName(savedSedeId && savedSedeId !== 'all' ? (savedSedeName || 'Sede Seleccionada') : 'Todas las Sedes');
+
+      fetchMetrics(false);
     };
+
     window.addEventListener('business_changed', handleSync);
     window.addEventListener('sede_changed', handleSync);
     return () => {
@@ -269,6 +298,7 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
     metrics: periodMetrics || EMPTY_METRICS(periodo),
     generalMetrics: generalMetrics || EMPTY_METRICS('mensual'),
     transactions: filteredTransactions,
+    allTransactions,
     periodo,
     setPeriodo: handlePeriodChange,
     isLoading,
@@ -281,6 +311,7 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
     businessName,
     sedeId: resolvedSedeId,
     sedeName,
+    isConsolidated: !resolvedSedeId,
     user,
   };
 }
