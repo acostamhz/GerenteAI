@@ -54,7 +54,17 @@ export class AuthService {
         },
       );
 
-      await this.mailService.sendVerificationEmail(
+      /**
+       * El correo se dispara sin esperarlo: la respuesta no depende de que el
+       * SMTP conteste. Antes se esperaba, y cuando el envio fallaba la peticion
+       * quedaba colgada hasta agotar el timeout y aun asi respondia 201, o sea
+       * que el usuario pagaba la espera de un fallo que ni se le informaba.
+       *
+       * Perder el correo no invalida la operacion: el registro ya se completo y
+       * el usuario puede pedir el reenvio. MailService atrapa sus propios
+       * errores y los deja en el log, asi que esto no puede quedar sin manejar.
+       */
+      void this.mailService.sendVerificationEmail(
         usuario.email,
         usuario.nombre,
         verificationToken,
@@ -264,7 +274,8 @@ export class AuthService {
       { expiresIn: '24h' },
     );
 
-    await this.mailService.sendVerificationEmail(
+    // Sin esperar, por lo mismo que en register.
+    void this.mailService.sendVerificationEmail(
       usuario.email,
       usuario.nombre,
       verificationToken,
@@ -355,7 +366,8 @@ export class AuthService {
       { expiresIn: '1h' }, // más corto que el de verificación, por ser una acción sensible
     );
 
-    await this.mailService.sendPasswordResetEmail(
+    // Sin esperar, por lo mismo que en register.
+    void this.mailService.sendPasswordResetEmail(
       usuario.email,
       usuario.nombre,
       resetToken,
@@ -418,7 +430,8 @@ export class AuthService {
       { expiresIn: '1h' },
     );
 
-    await this.mailService.sendEmailChangeConfirmation(
+    // Sin esperar, por lo mismo que en register.
+    void this.mailService.sendEmailChangeConfirmation(
       dto.nuevoEmail,
       usuario.nombre,
       changeToken,
