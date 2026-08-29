@@ -9,6 +9,9 @@ import { AbonosService } from '../../src/services/abonos.service';
 import { UsuarioSedesService } from '../../src/services/usuario-sedes.service';
 import { SedesService } from '../../src/services/sedes.service';
 import { ReportesService } from '../../src/services/reportes.service';
+import { ClientesService } from '../../src/services/clientes.service';
+import { ProveedoresService } from '../../src/services/proveedores.service';
+import { GastosService } from '../../src/services/gastos.service';
 
 export interface Contexto {
   moduleRef: TestingModule;
@@ -21,6 +24,9 @@ export interface Contexto {
   usuarioSedes: UsuarioSedesService;
   sedes: SedesService;
   reportes: ReportesService;
+  clientes: ClientesService;
+  proveedores: ProveedoresService;
+  gastos: GastosService;
 }
 
 // Se instancian los servicios sueltos en vez de levantar AppModule entero:
@@ -39,6 +45,9 @@ export async function crearContexto(): Promise<Contexto> {
       UsuarioSedesService,
       SedesService,
       ReportesService,
+      ClientesService,
+      ProveedoresService,
+      GastosService,
     ],
   }).compile();
 
@@ -56,6 +65,9 @@ export async function crearContexto(): Promise<Contexto> {
     usuarioSedes: moduleRef.get(UsuarioSedesService),
     sedes: moduleRef.get(SedesService),
     reportes: moduleRef.get(ReportesService),
+    clientes: moduleRef.get(ClientesService),
+    proveedores: moduleRef.get(ProveedoresService),
+    gastos: moduleRef.get(GastosService),
   };
 }
 

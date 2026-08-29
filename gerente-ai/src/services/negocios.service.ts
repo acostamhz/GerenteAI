@@ -13,6 +13,12 @@ import { Sede } from '@prisma/client';
 /** Lo mínimo que hace falta de una sede para resolver permisos y plan. */
 export type SedeParaAcceso = Pick<Sede, 'id' | 'negocioId' | 'createdAt'>;
 
+/**
+ * Valor que se le pasa a Prisma como `where.sedeId` en un listado: una sede
+ * concreta, el conjunto de las visibles, o `undefined` para no filtrar (MASTER).
+ */
+export type FiltroDeSede = string | { in: string[] } | undefined;
+
 /** Un ciclo mensual son 30 días y uno anual 365, contados desde el pago. */
 function vencimientoDelCiclo(ciclo: Ciclo): Date {
   const dias = ciclo === 'anual' ? 365 : 30;
@@ -37,11 +43,27 @@ export class NegociosService {
     });
   }
 
-  findAll() {
-    return this.prisma.negocio.findMany();
+  /** Solo los negocios del usuario. MASTER los ve todos. */
+  findAll(usuarioId: string, rolGlobal: string) {
+    if (rolGlobal === 'MASTER') {
+      return this.prisma.negocio.findMany();
+    }
+    return this.prisma.negocio.findMany({
+      where: { usuariosNegocio: { some: { usuarioId } } },
+    });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, usuarioId: string, rolGlobal: string) {
+    const negocio = await this.cargar(id);
+    await this.verificarPropietario(usuarioId, id, rolGlobal);
+    return negocio;
+  }
+
+  /**
+   * Carga sin comprobar permisos. Es de uso interno: la resolución del plan y de
+   * las sedes habilitadas necesita el negocio antes de saber quién pregunta.
+   */
+  private async cargar(id: string) {
     const negocio = await this.prisma.negocio.findUnique({ where: { id } });
     if (!negocio) {
       throw new NotFoundException(`Negocio con id ${id} no encontrado`);
@@ -55,7 +77,7 @@ export class NegociosService {
     rolGlobal: string,
     updateNegocioDto: UpdateNegocioDto,
   ) {
-    await this.findOne(id);
+    await this.cargar(id);
     await this.verificarPropietario(userId, id, rolGlobal);
     return this.prisma.negocio.update({
       where: { id },
@@ -64,7 +86,7 @@ export class NegociosService {
   }
 
   async remove(id: string, userId: string, rolGlobal: string) {
-    await this.findOne(id);
+    await this.cargar(id);
     await this.verificarPropietario(userId, id, rolGlobal);
     return this.prisma.negocio.delete({ where: { id } });
   }
@@ -92,7 +114,7 @@ export class NegociosService {
       );
     }
 
-    await this.findOne(negocioId);
+    await this.cargar(negocioId);
 
     // El plan gratuito no vence; los pagos, sí.
     const venceEl = plan === PLAN_ASISTENTE ? null : vencimientoDelCiclo(ciclo);
@@ -105,7 +127,7 @@ export class NegociosService {
 
   /** Estado del plan que rige hoy en el negocio (ya resuelto el vencimiento). */
   async estadoDelPlan(negocioId: string) {
-    const negocio = await this.findOne(negocioId);
+    const negocio = await this.cargar(negocioId);
     return this.planes.estado(negocio.plan, negocio.planVenceEl);
   }
 
@@ -123,6 +145,64 @@ export class NegociosService {
     if (!relacion) {
       throw new ForbiddenException('No tienes permisos sobre este negocio');
     }
+  }
+
+  /**
+   * Sedes que el usuario puede leer: todas las de los negocios donde es dueño o
+   * socio, más aquellas a las que está vinculado como administrador.
+   *
+   * Devuelve `null` cuando no hay restricción (MASTER). Es distinto de `[]`, que
+   * significa "no puede ver ninguna": si ambos casos se representaran igual, un
+   * usuario recién registrado terminaría viendo la tabla entera.
+   */
+  async sedesVisibles(
+    usuarioId: string,
+    rolGlobal: string,
+  ): Promise<string[] | null> {
+    if (rolGlobal === 'MASTER') return null;
+
+    const [porNegocio, porVinculo] = await Promise.all([
+      this.prisma.sede.findMany({
+        where: { negocio: { usuariosNegocio: { some: { usuarioId } } } },
+        select: { id: true },
+      }),
+      this.prisma.usuarioSede.findMany({
+        where: { usuarioId },
+        select: { sedeId: true },
+      }),
+    ]);
+
+    return [
+      ...new Set([
+        ...porNegocio.map((sede) => sede.id),
+        ...porVinculo.map((vinculo) => vinculo.sedeId),
+      ]),
+    ];
+  }
+
+  /**
+   * Resuelve el `where.sedeId` de un listado.
+   *
+   * Con `sedeId` valida el acceso a esa sede y filtra por ella. Sin él acota el
+   * listado a las sedes del usuario: eso es lo que impide que un `GET` sin
+   * parámetros devuelva los datos de todos los negocios del sistema.
+   */
+  async filtroDeSedes(
+    usuarioId: string,
+    rolGlobal: string,
+    sedeId?: string,
+  ): Promise<FiltroDeSede> {
+    if (sedeId) {
+      const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
+      if (!sede) {
+        throw new NotFoundException('La sede indicada no existe');
+      }
+      await this.verificarAccesoSede(usuarioId, sede, rolGlobal);
+      return sedeId;
+    }
+
+    const visibles = await this.sedesVisibles(usuarioId, rolGlobal);
+    return visibles === null ? undefined : { in: visibles };
   }
 
   /**
@@ -168,7 +248,7 @@ export class NegociosService {
    * tenerlo. Aquí se deriva en el momento, que además siempre está al día.
    */
   private async verificarSedeHabilitadaPorPlan(sede: SedeParaAcceso) {
-    const negocio = await this.findOne(sede.negocioId);
+    const negocio = await this.cargar(sede.negocioId);
     const estado = this.planes.estado(negocio.plan, negocio.planVenceEl);
     const tope = estado.vigente.maxSedes;
 

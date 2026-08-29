@@ -15,32 +15,39 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 type AuthUser = { userId: string; rolGlobal: string };
 
+// El guard va en el controlador, no por método: así un endpoint nuevo
+// nace protegido y no queda abierto por olvidar el decorador.
 @Controller('compras')
+@UseGuards(JwtAuthGuard)
 export class ComprasController {
   constructor(private readonly comprasService: ComprasService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateCompraDto) {
     return this.comprasService.create(user.userId, user.rolGlobal, dto);
   }
 
   @Get()
   findAll(
+    @CurrentUser() user: AuthUser,
     @Query('sedeId') sedeId?: string,
     @Query('proveedorId') proveedorId?: string,
   ) {
-    return this.comprasService.findAll(sedeId, proveedorId);
+    return this.comprasService.findAll(
+      user.userId,
+      user.rolGlobal,
+      sedeId,
+      proveedorId,
+    );
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.comprasService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.comprasService.findOne(id, user.userId, user.rolGlobal);
   }
 
   // Sin PATCH a propósito: una compra se anula y se rehace, no se edita.
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.comprasService.remove(id, user.userId, user.rolGlobal);
   }

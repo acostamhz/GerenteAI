@@ -166,10 +166,20 @@ export class VentasService {
     });
   }
 
-  findAll(sedeId?: string, clienteId?: string) {
+  async findAll(
+    userId: string,
+    rolGlobal: string,
+    sedeId?: string,
+    clienteId?: string,
+  ) {
+    const visibles = await this.negociosService.filtroDeSedes(
+      userId,
+      rolGlobal,
+      sedeId,
+    );
     return this.prisma.venta.findMany({
       where: {
-        ...(sedeId ? { sedeId } : {}),
+        sedeId: visibles,
         ...(clienteId ? { clienteId } : {}),
       },
       include: { detalles: true },
@@ -177,7 +187,14 @@ export class VentasService {
     });
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, userId: string, rolGlobal: string) {
+    const venta = await this.cargar(id);
+    await this.verificarAccesoALaVenta(venta.sedeId, userId, rolGlobal);
+    return venta;
+  }
+
+  /** Carga cruda: cada llamador decide qué permiso exige sobre la sede. */
+  private async cargar(id: string) {
     const venta = await this.prisma.venta.findUnique({
       where: { id },
       include: { detalles: true },
@@ -188,17 +205,29 @@ export class VentasService {
     return venta;
   }
 
-  // No existe update: recalcular stock y saldo hacia atrás sobre una venta ya
-  // registrada corrompe el inventario en silencio. Para corregir, se anula y se rehace.
-  async remove(id: string, userId: string, rolGlobal: string) {
-    const venta = await this.findOne(id);
-    const sede = await this.prisma.sede.findUnique({
-      where: { id: venta.sedeId },
-    });
+  private async verificarAccesoALaVenta(
+    sedeId: string,
+    userId: string,
+    rolGlobal: string,
+    opciones: { escritura?: boolean } = {},
+  ) {
+    const sede = await this.prisma.sede.findUnique({ where: { id: sedeId } });
     if (!sede) {
       throw new NotFoundException('La sede asociada a esta venta ya no existe');
     }
-    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal, {
+    await this.negociosService.verificarAccesoSede(
+      userId,
+      sede,
+      rolGlobal,
+      opciones,
+    );
+  }
+
+  // No existe update: recalcular stock y saldo hacia atrás sobre una venta ya
+  // registrada corrompe el inventario en silencio. Para corregir, se anula y se rehace.
+  async remove(id: string, userId: string, rolGlobal: string) {
+    const venta = await this.cargar(id);
+    await this.verificarAccesoALaVenta(venta.sedeId, userId, rolGlobal, {
       escritura: true,
     });
 
