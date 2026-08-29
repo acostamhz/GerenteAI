@@ -144,8 +144,14 @@ export function GlobalNavbar() {
         } else {
           setNegocios([]);
           setSedes([]);
+          setActiveBusinessId('');
           setActiveBusinessName('Sin Negocio');
+          setActiveSedeId('all');
           setActiveSedeName('Sin Sede');
+          localStorage.removeItem('active_business_id');
+          localStorage.removeItem('active_business_name');
+          localStorage.removeItem('active_sede_id');
+          localStorage.removeItem('active_sede_name');
         }
       })
       .catch((err) => {

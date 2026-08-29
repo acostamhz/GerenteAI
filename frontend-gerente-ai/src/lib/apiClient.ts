@@ -44,9 +44,18 @@ export async function apiClient<T>(
       console.warn(`⚠️ [API Response Error ${response.status}] ${url}:`, data);
 
       // Si el token es inválido o expiró en una ruta protegida
-      if (response.status === 401 && !endpoint.includes('/auth/login')) {
+      if (
+        response.status === 401 &&
+        !endpoint.includes('/auth/login') &&
+        !endpoint.includes('/auth/register') &&
+        !endpoint.includes('/auth/verificar-email') &&
+        !endpoint.includes('/auth/forgot-password') &&
+        !endpoint.includes('/auth/reset-password')
+      ) {
         localStorage.removeItem('access_token');
         localStorage.removeItem('user_session');
+        localStorage.removeItem('session_expires_at');
+        localStorage.removeItem('session_login_time');
         window.location.href = '/login';
       }
 

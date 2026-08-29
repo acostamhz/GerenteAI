@@ -75,23 +75,44 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
   const resolveActiveBusiness = useCallback(async (): Promise<string | null> => {
     if (customBusinessId) return customBusinessId;
 
-    const savedId = localStorage.getItem('active_business_id');
-    const savedName = localStorage.getItem('active_business_name');
-    if (savedId) {
-      if (savedName) setBusinessName(savedName);
-      return savedId;
-    }
-
     try {
       const me = await apiClient<UsuarioMeResponse>('/auth/usuarios/me');
       const userNegocios = me.negocios?.map((n) => n.negocio) || [];
 
+      // Si el usuario no tiene negocios ni sedes registradas
+      if (userNegocios.length === 0 && (!me.sedes || me.sedes.length === 0)) {
+        localStorage.removeItem('active_business_id');
+        localStorage.removeItem('active_business_name');
+        localStorage.removeItem('active_sede_id');
+        localStorage.removeItem('active_sede_name');
+        setBusinessName('Sin Negocio');
+        setSedeName('Sin Sede');
+        setHasNoBusiness(true);
+        return null;
+      }
+
+      const savedId = localStorage.getItem('active_business_id');
+      const savedName = localStorage.getItem('active_business_name');
+
+      // Validar si el savedId pertenece a los negocios reales del usuario
+      const matchedSaved = userNegocios.find((n) => n.id === savedId);
+      if (matchedSaved) {
+        if (savedName) {
+          setBusinessName(savedName);
+        } else {
+          setBusinessName(matchedSaved.nombre);
+          localStorage.setItem('active_business_name', matchedSaved.nombre);
+        }
+        return matchedSaved.id;
+      }
+
+      // Si hay negocios pero no coincidió el savedId previo, usar el primero
       if (userNegocios.length > 0) {
-        const matched = userNegocios[0];
-        localStorage.setItem('active_business_id', matched.id);
-        localStorage.setItem('active_business_name', matched.nombre);
-        setBusinessName(matched.nombre);
-        return matched.id;
+        const first = userNegocios[0];
+        localStorage.setItem('active_business_id', first.id);
+        localStorage.setItem('active_business_name', first.nombre);
+        setBusinessName(first.nombre);
+        return first.id;
       }
 
       if (me.sedes && me.sedes.length > 0) {
@@ -138,6 +159,7 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
           setPeriodMetrics(EMPTY_METRICS(periodo));
           setGeneralMetrics(EMPTY_METRICS(periodo));
           setAllTransactions([]);
+          setError(null);
           setIsLoading(false);
           setIsRefreshing(false);
           return;
@@ -187,7 +209,21 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
       } catch (err: any) {
         console.error('Error al obtener métricas del dashboard:', err);
         const errorMsg = err?.message || 'Error de conexión con el servidor al cargar las métricas financieras.';
-        setError(errorMsg);
+
+        // Si el error es de permisos por un ID residual previo, limpiar y activar NoBusiness
+        if (errorMsg.toLowerCase().includes('permisos') || errorMsg.toLowerCase().includes('no tienes')) {
+          localStorage.removeItem('active_business_id');
+          localStorage.removeItem('active_business_name');
+          localStorage.removeItem('active_sede_id');
+          localStorage.removeItem('active_sede_name');
+          setHasNoBusiness(true);
+          setBusinessName('Sin Negocio');
+          setSedeName('Sin Sede');
+          setError(null);
+        } else {
+          setError(errorMsg);
+        }
+
         setPeriodMetrics(null);
         setGeneralMetrics(null);
         setAllTransactions([]);
@@ -224,9 +260,10 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
       } else {
         reportResult = EMPTY_METRICS(newPeriodo);
       }
-      setPeriodMetrics(reportResult || EMPTY_METRICS(newPeriodo));
-    } catch (err) {
-      console.warn('Error al actualizar reporte por período:', err);
+
+      setPeriodMetrics(reportResult);
+    } catch (err: any) {
+      console.warn('Error al cambiar período:', err);
     } finally {
       setIsChartLoading(false);
     }
@@ -236,82 +273,51 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
     fetchMetrics();
   }, [fetchMetrics]);
 
+  // Escuchar cambios de selección global
   useEffect(() => {
-    const handleSync = () => {
-      const savedBusinessId = localStorage.getItem('active_business_id');
-      const savedBusinessName = localStorage.getItem('active_business_name');
-      const savedSedeId = localStorage.getItem('active_sede_id');
-      const savedSedeName = localStorage.getItem('active_sede_name');
+    const handleBusinessChange = () => {
+      const bId = localStorage.getItem('active_business_id');
+      const bName = localStorage.getItem('active_business_name');
+      const sId = localStorage.getItem('active_sede_id');
+      const sName = localStorage.getItem('active_sede_name');
 
-      if (savedBusinessId) setResolvedBusinessId(savedBusinessId);
-      if (savedBusinessName) setBusinessName(savedBusinessName);
-      setResolvedSedeId(savedSedeId && savedSedeId !== 'all' ? savedSedeId : null);
-      setSedeName(savedSedeId && savedSedeId !== 'all' ? (savedSedeName || 'Sede Seleccionada') : 'Todas las Sedes');
-
-      fetchMetrics(false);
+      setResolvedBusinessId(bId);
+      setBusinessName(bName || 'Mi Negocio');
+      setResolvedSedeId(sId && sId !== 'all' ? sId : null);
+      setSedeName(sName || 'Todas las Sedes');
+      
+      fetchMetrics(true);
     };
 
-    window.addEventListener('business_changed', handleSync);
-    window.addEventListener('sede_changed', handleSync);
+    window.addEventListener('storage', handleBusinessChange);
+    window.addEventListener('business-changed', handleBusinessChange);
+
     return () => {
-      window.removeEventListener('business_changed', handleSync);
-      window.removeEventListener('sede_changed', handleSync);
+      window.removeEventListener('storage', handleBusinessChange);
+      window.removeEventListener('business-changed', handleBusinessChange);
     };
   }, [fetchMetrics]);
 
-  // Transacciones filtradas según el período
-  const filteredTransactions = useMemo(() => {
-    if (!allTransactions.length) return [];
-
-    const now = new Date();
-
-    if (periodo === 'diario') {
-      const todayYear = now.getFullYear();
-      const todayMonth = now.getMonth();
-      const todayDate = now.getDate();
-      return allTransactions.filter((tx) => {
-        const d = new Date(tx.rawDate);
-        return (
-          d.getFullYear() === todayYear &&
-          d.getMonth() === todayMonth &&
-          d.getDate() === todayDate
-        );
-      });
-    }
-
-    if (periodo === 'semanal') {
-      const sevenDaysAgo = new Date();
-      sevenDaysAgo.setDate(now.getDate() - 7);
-      sevenDaysAgo.setHours(0, 0, 0, 0);
-      return allTransactions.filter((tx) => new Date(tx.rawDate) >= sevenDaysAgo);
-    }
-
-    // 'mensual' -> últimos meses
-    return allTransactions;
-  }, [allTransactions, periodo]);
-
-  const refreshMetrics = () => {
-    return fetchMetrics(true);
-  };
+  const isConsolidated = useMemo(() => {
+    return !resolvedSedeId || resolvedSedeId === 'all';
+  }, [resolvedSedeId]);
 
   return {
-    metrics: periodMetrics || EMPTY_METRICS(periodo),
-    generalMetrics: generalMetrics || EMPTY_METRICS('mensual'),
-    transactions: filteredTransactions,
-    allTransactions,
-    periodo,
-    setPeriodo: handlePeriodChange,
+    metrics: periodMetrics,
+    generalMetrics: generalMetrics || periodMetrics,
+    transactions: allTransactions,
     isLoading,
     isChartLoading,
     isRefreshing,
     error,
-    refreshMetrics,
     hasNoBusiness,
-    businessId: resolvedBusinessId,
+    refreshMetrics: () => fetchMetrics(true),
+    periodo,
+    setPeriodo: handlePeriodChange,
     businessName,
-    sedeId: resolvedSedeId,
     sedeName,
-    isConsolidated: !resolvedSedeId,
-    user,
+    businessId: resolvedBusinessId,
+    sedeId: resolvedSedeId,
+    isConsolidated,
   };
 }

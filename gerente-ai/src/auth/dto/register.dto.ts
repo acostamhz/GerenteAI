@@ -20,8 +20,8 @@ export class RegisterDto {
   email!: string;
 
   @IsString()
-  @IsNotEmpty()
-  nombreNegocio!: string;
+  @IsOptional()
+  nombreNegocio?: string;
 
   @IsString()
   @IsOptional()
