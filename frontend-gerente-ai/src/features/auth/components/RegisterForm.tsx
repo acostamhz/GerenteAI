@@ -4,21 +4,18 @@ import {
   Eye,
   EyeOff,
   Loader2,
-  Building2,
   User,
   Mail,
   Phone,
   Lock,
   AlertCircle,
-  CheckCircle2,
+  MailCheck,
+  Send,
   MessageCircle,
 } from "lucide-react";
-import { motion, AnimatePresence } from "motion/react";
 import { Button } from "@/app/components/ui/button";
-import { lukaWhatsappUrl } from "@/lib/whatsapp";
+import { authApi } from "../api/authApi";
 import { useAuth } from "../hooks/useAuth";
-
-const SEGUNDOS_PARA_WHATSAPP = 4;
 
 export function RegisterForm() {
   const navigate = useNavigate();
@@ -27,7 +24,6 @@ export function RegisterForm() {
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
-    businessName: "",
     phone: "",
     whatsappUsername: "",
     password: "",
@@ -38,38 +34,21 @@ export function RegisterForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [cuenta, setCuenta] = useState(SEGUNDOS_PARA_WHATSAPP);
+  const [isSuccess, setIsSuccess] = useState(false);
+
+  // Estados para reenvío
+  const [isResending, setIsResending] = useState(false);
+  const [resendMessage, setResendMessage] = useState<string | null>(null);
 
   useEffect(() => {
     clearError();
     setLocalError(null);
-
-    return () => {
-      clearError();
-    };
-  }, [clearError]);
-
-  useEffect(() => {
-    if (!success) return;
-
-    if (cuenta <= 0) {
-      window.location.href = lukaWhatsappUrl(
-        "Hola Luka, acabo de registrarme",
-      );
-      return;
-    }
-
-    const t = setTimeout(() => setCuenta((s) => s - 1), 1000);
-
-    return () => clearTimeout(t);
-  }, [success, cuenta]);
+  }, []);
 
   const calculatePasswordStrength = (pass: string) => {
     if (!pass) return { score: 0, label: "", color: "bg-border" };
 
     let score = 0;
-
     if (pass.length >= 8) score += 1;
     if (/[a-z]/.test(pass) && /[A-Z]/.test(pass)) score += 1;
     if (/[0-9]/.test(pass)) score += 1;
@@ -77,35 +56,15 @@ export function RegisterForm() {
 
     switch (score) {
       case 1:
-        return {
-          score: 25,
-          label: "Débil",
-          color: "bg-red-500",
-        };
+        return { score: 25, label: "Débil", color: "bg-red-500" };
       case 2:
-        return {
-          score: 50,
-          label: "Aceptable",
-          color: "bg-amber-500",
-        };
+        return { score: 50, label: "Aceptable", color: "bg-amber-500" };
       case 3:
-        return {
-          score: 75,
-          label: "Buena",
-          color: "bg-blue-500",
-        };
+        return { score: 75, label: "Buena", color: "bg-blue-500" };
       case 4:
-        return {
-          score: 100,
-          label: "Excelente",
-          color: "bg-emerald-500",
-        };
+        return { score: 100, label: "Excelente", color: "bg-emerald-500" };
       default:
-        return {
-          score: 15,
-          label: "Muy débil",
-          color: "bg-red-500",
-        };
+        return { score: 15, label: "Muy débil", color: "bg-red-500" };
     }
   };
 
@@ -128,21 +87,13 @@ export function RegisterForm() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    console.log("👉 [RegisterForm] Enviando registro con:", {
-      email: formData.email,
-      fullName: formData.fullName,
-      whatsappUsername: formData.whatsappUsername,
-    });
-
     setLocalError(null);
     clearError();
 
     const cleanPhone = formData.phone.replace(/\D/g, "");
 
     if (cleanPhone.length < 10) {
-      setLocalError(
-        "El número de celular debe tener al menos 10 dígitos.",
-      );
+      setLocalError("El número de celular debe tener al menos 10 dígitos.");
       return;
     }
 
@@ -152,211 +103,193 @@ export function RegisterForm() {
     }
 
     if (formData.password.length < 8) {
-      setLocalError(
-        "La contraseña debe tener al menos 8 caracteres.",
-      );
+      setLocalError("La contraseña debe tener al menos 8 caracteres.");
       return;
     }
 
-    if (
-      !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/.test(
-        formData.password,
-      )
-    ) {
-      setLocalError(
-        "La contraseña debe incluir al menos una mayúscula, una minúscula, un número y un carácter especial.",
-      );
+    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/.test(formData.password)) {
+      setLocalError("La contraseña debe incluir mayúscula, minúscula, número y carácter especial.");
       return;
     }
 
     if (!formData.termsAccepted) {
-      setLocalError(
-        "Debes aceptar los términos y condiciones para continuar.",
-      );
+      setLocalError("Debes aceptar los términos y condiciones para continuar.");
       return;
     }
 
     try {
-      const whatsappUsername = formData.whatsappUsername
-        .trim()
-        .replace(/^@+/, "");
+      const whatsappUsername = formData.whatsappUsername.trim().replace(/^@+/, "");
 
       await register({
         nombre: formData.fullName,
         email: formData.email,
         password: formData.password,
         telefono: formData.phone,
-        nombreNegocio: formData.businessName,
         whatsappUsername,
       });
 
-      setSuccess(true);
-    } catch (err) {
-      // Error manejado por AuthContext
+      setIsSuccess(true);
+    } catch (err: any) {
+      const errorMsg =
+        err?.message ||
+        (err instanceof Error ? err.message : "Error al registrar la cuenta.");
+      setLocalError(errorMsg);
+    }
+  };
+
+  const handleResendVerification = async () => {
+    if (!formData.email) return;
+    setIsResending(true);
+    setResendMessage(null);
+    try {
+      const res = await authApi.reenviarVerificacion(formData.email);
+      setResendMessage(res.mensaje || "Correo de verificación reenviado con éxito.");
+    } catch (err: any) {
+      setResendMessage(err?.message || "No se pudo reenviar el correo.");
+    } finally {
+      setIsResending(false);
     }
   };
 
   const displayError = localError || authError;
 
-  if (success) {
+  // Pantalla de Confirmación de Envío de Correo
+  if (isSuccess) {
     return (
-      <div className="w-full max-w-md mx-auto px-8 sm:px-0 py-10 text-center space-y-6 animate-in fade-in duration-500">
-        <div className="w-16 h-16 bg-emerald-500/10 text-emerald-500 rounded-full flex items-center justify-center mx-auto">
-          <CheckCircle2 className="w-8 h-8" />
+      <div className="w-full max-w-md mx-auto px-6 py-6 text-center space-y-5 animate-in fade-in duration-500">
+        <div className="relative mx-auto w-16 h-16 rounded-2xl bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/20 flex items-center justify-center shadow-lg shadow-emerald-500/10">
+          <MailCheck className="w-8 h-8 text-emerald-600 dark:text-emerald-400" />
+          <div className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-emerald-500 text-white flex items-center justify-center text-xs font-bold shadow-sm">
+            ✓
+          </div>
         </div>
 
         <div className="space-y-2">
-          <h2 className="text-2xl font-bold text-foreground">
-            ¡Cuenta creada con éxito!
+          <h2 className="text-xl font-black text-foreground tracking-tight">
+            ¡Revisa tu correo electrónico!
           </h2>
-
-          <p className="text-muted-foreground text-sm">
-            Hemos enviado un correo de confirmación a{" "}
-            <span className="font-semibold text-foreground">
-              {formData.email}
-            </span>
-            .
+          <p className="text-muted-foreground text-xs leading-relaxed max-w-xs mx-auto">
+            Hemos enviado un enlace de verificación a:
+          </p>
+          <div className="inline-block px-3 py-1 bg-muted rounded-md text-xs font-bold text-foreground">
+            {formData.email}
+          </div>
+          <p className="text-muted-foreground text-[11px] leading-relaxed pt-1">
+            Haz clic en el enlace del correo para activar tu cuenta antes de iniciar sesión.
           </p>
         </div>
 
-        <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5 space-y-3">
-          <p className="text-sm font-bold text-foreground">
-            Ahora conocé a Luka en WhatsApp
-          </p>
+        {resendMessage && (
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs font-medium text-emerald-600 dark:text-emerald-400">
+            {resendMessage}
+          </div>
+        )}
 
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            Luka es tu asistente financiero: le escribís “compré
-            mercancía por 8.000” y lo registra al instante. Te
-            llevamos al chat en {cuenta}…
-          </p>
-
+        <div className="space-y-2.5 pt-2">
           <Button
-            onClick={() => {
-              window.location.href = lukaWhatsappUrl(
-                "Hola Luka, acabo de registrarme",
-              );
-            }}
-            className="w-full py-5 text-base font-bold rounded-xl gap-2"
+            onClick={() => navigate("/login", { replace: true })}
+            className="w-full py-2.5 text-xs font-bold rounded-xl"
           >
-            <MessageCircle className="w-5 h-5" />
-            Abrir chat con Luka
+            Ir a Iniciar Sesión
           </Button>
-        </div>
 
-        <button
-          onClick={() => navigate("/login", { replace: true })}
-          className="text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        >
-          Prefiero iniciar sesión
-        </button>
+          <button
+            type="button"
+            disabled={isResending}
+            onClick={handleResendVerification}
+            className="w-full py-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
+          >
+            {isResending ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+            ¿No recibiste el correo? Reenviar enlace
+          </button>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="w-full max-w-md mx-auto px-8 sm:px-0 py-6">
-      <div className="mb-8 text-center sm:text-left">
-        <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">
+    <div className="w-full max-w-xl mx-auto px-4 sm:px-6 py-2">
+      <div className="mb-4 text-center sm:text-left">
+        <h1 className="text-2xl font-black text-foreground tracking-tight mb-1">
           Crea tu cuenta gratis
         </h1>
-
-        <p className="text-muted-foreground font-medium text-sm">
+        <p className="text-muted-foreground font-medium text-xs">
           Empieza a gestionar tu negocio con Inteligencia Artificial hoy.
         </p>
       </div>
 
-      <AnimatePresence mode="wait">
-        {displayError && (
-          <motion.div
-            key="register-error-alert"
-            initial={{ opacity: 0, y: -10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            transition={{
-              duration: 0.25,
-              ease: [0.22, 1, 0.36, 1],
-            }}
-            className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium flex items-center gap-3 shadow-sm"
-          >
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
+      {displayError && (
+        <div
+          role="alert"
+          className="mb-4 p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300"
+        >
+          <div className="flex items-center gap-2.5">
+            <AlertCircle className="w-4 h-4 shrink-0" />
             <span>{displayError}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Nombre Completo */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
-            Nombre completo
-          </label>
-
-          <div className="relative">
-            <User className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
-            <input
-              type="text"
-              name="fullName"
-              placeholder="María Rodríguez"
-              required
-              value={formData.fullName}
-              onChange={handleChange}
-              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
-            />
           </div>
+          {displayError.toLowerCase().includes("iniciar sesión") && (
+            <Link
+              to="/login"
+              className="text-xs font-bold underline hover:opacity-80 shrink-0 cursor-pointer text-destructive"
+            >
+              Iniciar Sesión →
+            </Link>
+          )}
         </div>
+      )}
 
-        {/* Correo Electrónico */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
-            Correo electrónico
-          </label>
-
-          <div className="relative">
-            <Mail className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
-            <input
-              type="email"
-              name="email"
-              placeholder="tu@empresa.com"
-              required
-              value={formData.email}
-              onChange={handleChange}
-              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
-            />
-          </div>
-        </div>
-
-        {/* Nombre del Negocio y Celular */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">
-              Nombre del Negocio
+      <form onSubmit={handleSubmit} className="space-y-3">
+        {/* Fila 1: Nombre completo y Correo */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+              Nombre completo
             </label>
-
             <div className="relative">
-              <Building2 className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
+              <User className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="text"
-                name="businessName"
-                placeholder="Mi Negocio S.A.S."
+                name="fullName"
+                placeholder="María Rodríguez"
                 required
-                value={formData.businessName}
+                value={formData.fullName}
                 onChange={handleChange}
-                className="w-full pl-10 pr-3 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
               />
             </div>
           </div>
 
-          <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+              Correo electrónico
+            </label>
+            <div className="relative">
+              <Mail className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="email"
+                name="email"
+                placeholder="tu@empresa.com"
+                required
+                value={formData.email}
+                onChange={handleChange}
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Fila 2: Celular y WhatsApp */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
               Celular
             </label>
-
             <div className="relative">
-              <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
+              <Phone className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input
                 type="tel"
                 name="phone"
@@ -365,162 +298,128 @@ export function RegisterForm() {
                 minLength={10}
                 value={formData.phone}
                 onChange={handleChange}
-                className="w-full pl-10 pr-3 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+              />
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+              WhatsApp
+            </label>
+            <div className="relative">
+              <MessageCircle className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="text"
+                name="whatsappUsername"
+                placeholder="@tu_usuario o número"
+                value={formData.whatsappUsername}
+                onChange={handleChange}
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
               />
             </div>
           </div>
         </div>
 
-        {/* Usuario de WhatsApp */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
-            Usuario de WhatsApp
-          </label>
-
-          <div className="relative">
-            <MessageCircle className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
-            <input
-              type="text"
-              name="whatsappUsername"
-              placeholder="@tu_usuario"
-              required
-              value={formData.whatsappUsername}
-              onChange={handleChange}
-              className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
-            />
-          </div>
-
-          <p className="text-xs text-muted-foreground">
-            Escribe tu nombre de usuario de WhatsApp. Puedes incluir el @.
-          </p>
-        </div>
-
-        {/* Contraseña */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
-            Contraseña
-          </label>
-
-          <div className="relative">
-            <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
-            <input
-              type={showPassword ? "text" : "password"}
-              name="password"
-              placeholder="Mínimo 8 caracteres (A-Z, a-z, 0-9, !@#)"
-              required
-              minLength={8}
-              value={formData.password}
-              onChange={handleChange}
-              className="w-full pl-11 pr-11 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
-            />
-
-            <button
-              type="button"
-              onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
-            >
-              {showPassword ? (
-                <EyeOff className="w-4 h-4" />
-              ) : (
-                <Eye className="w-4 h-4" />
-              )}
-            </button>
-          </div>
-
-          {formData.password && (
-            <div className="space-y-1 pt-1">
-              <div className="flex justify-between items-center text-xs text-muted-foreground">
-                <span>Fortaleza:</span>
-                <span className="font-bold">{strength.label}</span>
-              </div>
-
-              <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
-                <div
-                  className={`h-full transition-all duration-300 ${strength.color}`}
-                  style={{ width: `${strength.score}%` }}
-                />
-              </div>
+        {/* Fila 3: Contraseña y Confirmación */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+              Contraseña
+            </label>
+            <div className="relative">
+              <Lock className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type={showPassword ? "text" : "password"}
+                name="password"
+                placeholder="Mín. 8 caracteres (A-Z, 0-9)"
+                required
+                minLength={8}
+                value={formData.password}
+                onChange={handleChange}
+                className="w-full pl-9 pr-8 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+              >
+                {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
             </div>
-          )}
-        </div>
 
-        {/* Confirmar Contraseña */}
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-foreground uppercase tracking-wider">
-            Confirmar contraseña
-          </label>
+            {formData.password && (
+              <div className="flex items-center gap-2 pt-0.5">
+                <div className="h-1 flex-1 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-300 ${strength.color}`}
+                    style={{ width: `${strength.score}%` }}
+                  />
+                </div>
+                <span className="text-[10px] font-bold text-muted-foreground shrink-0">{strength.label}</span>
+              </div>
+            )}
+          </div>
 
-          <div className="relative">
-            <Lock className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground" />
-
-            <input
-              type={showConfirmPassword ? "text" : "password"}
-              name="confirmPassword"
-              placeholder="Confirma tu contraseña"
-              required
-              value={formData.confirmPassword}
-              onChange={handleChange}
-              className="w-full pl-11 pr-11 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
-            />
-
-            <button
-              type="button"
-              onClick={() =>
-                setShowConfirmPassword(!showConfirmPassword)
-              }
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1"
-            >
-              {showConfirmPassword ? (
-                <EyeOff className="w-4 h-4" />
-              ) : (
-                <Eye className="w-4 h-4" />
-              )}
-            </button>
+          <div className="space-y-1">
+            <label className="text-[11px] font-bold text-foreground uppercase tracking-wider">
+              Confirmar contraseña
+            </label>
+            <div className="relative">
+              <Lock className="w-3.5 h-3.5 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type={showConfirmPassword ? "text" : "password"}
+                name="confirmPassword"
+                placeholder="Repite la contraseña"
+                required
+                value={formData.confirmPassword}
+                onChange={handleChange}
+                className="w-full pl-9 pr-8 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+              >
+                {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+              </button>
+            </div>
           </div>
         </div>
 
         {/* Términos y Condiciones */}
-        <div className="pt-2">
-          <label className="flex items-start gap-3 cursor-pointer select-none">
+        <div className="pt-1">
+          <label className="flex items-center gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
               name="termsAccepted"
               checked={formData.termsAccepted}
               onChange={handleChange}
-              className="mt-1 h-4 w-4 rounded border-border text-primary focus:ring-primary/20"
+              className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary/20"
             />
-
-            <span className="text-xs text-muted-foreground font-medium leading-relaxed">
+            <span className="text-[11px] text-muted-foreground font-medium">
               Acepto los{" "}
-              <a
-                href="#"
-                className="font-bold text-primary hover:underline"
-              >
-                Términos de Servicio
+              <a href="#terminos" onClick={(e) => e.preventDefault()} className="font-bold text-primary hover:underline">
+                Términos
               </a>{" "}
               y la{" "}
-              <a
-                href="#"
-                className="font-bold text-primary hover:underline"
-              >
-                Política de Privacidad
+              <a href="#privacidad" onClick={(e) => e.preventDefault()} className="font-bold text-primary hover:underline">
+                Privacidad
               </a>{" "}
               de Luka AI.
             </span>
           </label>
         </div>
 
-        {/* Submit */}
+        {/* Botón de Registro */}
         <Button
           type="submit"
           disabled={isLoading}
-          className="w-full py-5 text-base font-bold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all mt-4"
+          className="w-full py-3 text-xs font-bold rounded-xl shadow-sm hover:shadow transition-all mt-2"
         >
           {isLoading ? (
             <>
-              <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
               Creando tu cuenta...
             </>
           ) : (
@@ -529,8 +428,8 @@ export function RegisterForm() {
         </Button>
       </form>
 
-      {/* Redirect Login */}
-      <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
+      {/* Redirección al Login */}
+      <div className="mt-4 text-center text-xs font-medium text-muted-foreground">
         ¿Ya tienes una cuenta?{" "}
         <Link
           to="/login"

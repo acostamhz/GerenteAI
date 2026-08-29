@@ -120,11 +120,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
+  const clearBusinessStorage = () => {
+    localStorage.removeItem('active_business_id');
+    localStorage.removeItem('active_business_name');
+    localStorage.removeItem('active_sede_id');
+    localStorage.removeItem('active_sede_name');
+    localStorage.removeItem('active_business_plan');
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('business_plan_')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch {
+      // Ignorar errores de acceso a storage
+    }
+  };
+
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
     localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+    clearBusinessStorage();
     setToken(null);
     setUser(null);
     setError(null);
@@ -194,13 +212,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Login normal.
-   * Aquí SÍ recibimos y almacenamos el JWT y la sesión.
+   * Almacenamos el JWT y limpiamos datos residuales de comercios de sesiones previas.
    */
   const login = async (credentials: LoginCredentials): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
 
     try {
+      clearBusinessStorage();
       const response = await authApi.login(credentials);
       const expiresAt = Date.now() + SESSION_MAX_AGE_MS;
 
@@ -228,7 +247,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /**
    * Registro.
-   * IMPORTANTE: No almacena token porque /auth/register requiere verificación por correo.
+   * IMPORTANTE: No almacena token porque requiere verificación por correo previo al login.
    */
   const register = async (credentials: RegisterCredentials): Promise<AuthUser> => {
     setIsLoading(true);

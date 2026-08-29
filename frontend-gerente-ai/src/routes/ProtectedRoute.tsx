@@ -1,14 +1,9 @@
 import { Navigate, Outlet, useLocation } from "react-router";
 import { useAuth } from "@/features/auth";
-import { PageSkeleton } from "@/shared/components/ui/PageSkeleton";
 
 export function ProtectedRoute() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated } = useAuth();
   const location = useLocation();
-
-  if (isLoading) {
-    return <PageSkeleton />;
-  }
 
   if (!isAuthenticated) {
     return (
