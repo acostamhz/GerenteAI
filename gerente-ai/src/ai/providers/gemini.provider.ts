@@ -4,6 +4,7 @@ import type { LlmProvider } from '../core/llm.provider';
 import type {
   JsonSchema,
   LlmCapabilities,
+  LlmEffort,
   LlmFinishReason,
   LlmHealth,
   LlmMessage,
@@ -108,6 +109,11 @@ export class GeminiProvider implements LlmProvider {
       generationConfig.temperature = request.temperature;
     }
 
+    const thinkingLevel = this.thinkingLevelFor(request.effort);
+    if (thinkingLevel) {
+      generationConfig.thinkingConfig = { thinkingLevel };
+    }
+
     const hasTools = Boolean(request.tools?.length);
 
     if (hasTools) {
@@ -134,6 +140,32 @@ export class GeminiProvider implements LlmProvider {
 
     body.generationConfig = generationConfig;
     return body;
+  }
+
+  /**
+   * Cuanto puede "pensar" el modelo antes de responder.
+   *
+   * Los Gemini 3.x razonan antes de contestar y por defecto lo hacen al maximo,
+   * lo que en este producto es contraproducente: clasificar "compre mercancia
+   * por 8000" no necesita razonamiento profundo, necesita respuesta rapida.
+   * Sin este control, gemini-3.7-flash tardaba mas de 30 s y se caia por timeout.
+   *
+   * Solo se envia a los modelos 3.x: en los anteriores (2.0-flash y compania)
+   * el campo no existe y la API responde 400.
+   */
+  private thinkingLevelFor(effort: LlmEffort | undefined): string | undefined {
+    if (!effort) return undefined;
+    if (!/gemini-3/i.test(this.model)) return undefined;
+
+    // "minimal" existe, pero la propia documentacion advierte que no garantiza
+    // apagar el pensamiento; "low" es el minimo con comportamiento predecible.
+    const NIVELES: Record<LlmEffort, string> = {
+      low: 'low',
+      medium: 'medium',
+      high: 'high',
+    };
+
+    return NIVELES[effort];
   }
 
   private mapToolConfig(request: LlmRequest): Record<string, unknown> {

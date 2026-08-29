@@ -17,28 +17,29 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 type AuthUser = { userId: string; rolGlobal: string };
 
+// El guard va en el controlador, no por método: así un endpoint nuevo
+// nace protegido y no queda abierto por olvidar el decorador.
 @Controller('negocios')
+@UseGuards(JwtAuthGuard)
 export class NegociosController {
   constructor(private readonly negociosService: NegociosService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateNegocioDto) {
     return this.negociosService.create(user.userId, dto);
   }
 
   @Get()
-  findAll() {
-    return this.negociosService.findAll();
+  findAll(@CurrentUser() user: AuthUser) {
+    return this.negociosService.findAll(user.userId, user.rolGlobal);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.negociosService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.negociosService.findOne(id, user.userId, user.rolGlobal);
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
   update(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
@@ -50,7 +51,6 @@ export class NegociosController {
   // Único punto donde cambia el plan. Hoy solo MASTER; mañana, el webhook de la
   // pasarela después de confirmar el pago.
   @Patch(':id/plan')
-  @UseGuards(JwtAuthGuard)
   cambiarPlan(
     @Param('id') id: string,
     @CurrentUser() user: AuthUser,
@@ -65,7 +65,6 @@ export class NegociosController {
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.negociosService.remove(id, user.userId, user.rolGlobal);
   }

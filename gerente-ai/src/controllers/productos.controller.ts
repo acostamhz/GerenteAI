@@ -7,34 +7,34 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 type AuthUser = { userId: string; rolGlobal: string };
 
+// El guard va en el controlador, no por método: así un endpoint nuevo
+// nace protegido y no queda abierto por olvidar el decorador.
 @Controller('productos')
+@UseGuards(JwtAuthGuard)
 export class ProductosController {
   constructor(private readonly productosService: ProductosService) {}
 
   @Post()
-  @UseGuards(JwtAuthGuard)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateProductoDto) {
     return this.productosService.create(user.userId, user.rolGlobal, dto);
   }
 
   @Get()
-  findAll(@Query('sedeId') sedeId?: string) {
-    return this.productosService.findAll(sedeId);
+  findAll(@CurrentUser() user: AuthUser, @Query('sedeId') sedeId?: string) {
+    return this.productosService.findAll(user.userId, user.rolGlobal, sedeId);
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.productosService.findOne(id);
+  findOne(@Param('id') id: string, @CurrentUser() user: AuthUser) {
+    return this.productosService.findOne(id, user.userId, user.rolGlobal);
   }
 
   @Patch(':id')
-  @UseGuards(JwtAuthGuard)
   update(@Param('id') id: string, @CurrentUser() user: AuthUser, @Body() dto: UpdateProductoDto) {
     return this.productosService.update(id, user.userId, user.rolGlobal, dto);
   }
 
   @Delete(':id')
-  @UseGuards(JwtAuthGuard)
   remove(@Param('id') id: string, @CurrentUser() user: AuthUser) {
     return this.productosService.remove(id, user.userId, user.rolGlobal);
   }

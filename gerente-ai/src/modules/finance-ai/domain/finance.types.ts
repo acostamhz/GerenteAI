@@ -12,7 +12,9 @@ export type MessageIntentType =
   | 'correction'
   | 'unclear'
   /** Le pidieron algo que no son las finanzas del negocio (codigo, poemas...). */
-  | 'out_of_scope';
+  | 'out_of_scope'
+  /** Pidio una funcion que solo existe en los planes pagos. */
+  | 'premium';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';

@@ -23,7 +23,7 @@ export interface RegisterCredentials {
   email: string;
   password: string;
   telefono?: string;
-  nombreNegocio: string;
+  nombreNegocio?: string;
   whatsappUsername?: string;
 }
 

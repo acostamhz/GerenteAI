@@ -48,6 +48,7 @@ export type PublicIntentType =
   | 'correccion'
   | 'no_claro'
   | 'fuera_de_alcance'
+  | 'plan_requerido'
   | 'no_registrado'
   | 'error';
 
@@ -92,6 +93,7 @@ const TYPE_LABELS: Record<MessageIntentType, PublicIntentType> = {
   correction: 'correccion',
   unclear: 'no_claro',
   out_of_scope: 'fuera_de_alcance',
+  premium: 'plan_requerido',
 };
 
 /**
@@ -123,6 +125,12 @@ const FALLBACK_REPLY: Partial<Record<LlmErrorCode, string>> = {
  * dentro de un WhatsApp no le sirve a nadie.
  */
 const DEFAULT_REGISTER_URL = 'https://luka-gules.vercel.app/home';
+
+/** Pantalla de planes, para cuando piden algo que su plan no incluye. */
+const DEFAULT_PLANS_URL = 'https://luka-gules.vercel.app/subscription';
+
+/** Turnos de conversacion que se le pasan al modelo. 6 = 3 idas y vueltas. */
+const HISTORY_TURNS = 6;
 
 const GENERIC_FALLBACK =
   'No pude procesar tu mensaje en este momento 😔 Intenta de nuevo en unos minutos.';
@@ -210,7 +218,10 @@ export class WhatsappInterpretService {
       });
     }
 
-    // ---- 3. Historial: lo que dijo el usuario -----------------------------
+    // ---- 3. Historial ------------------------------------------------------
+    // Se lee ANTES de guardar el mensaje nuevo: si no, el modelo recibiria dos
+    // veces el mismo texto (como turno anterior y como mensaje actual).
+    const history = await this.loadHistory(context.sedeId);
     await this.saveMessage(context.sedeId, 'USER', dto.message);
 
     // ---- 4. Interpretacion ------------------------------------------------
@@ -223,6 +234,9 @@ export class WhatsappInterpretService {
         businessName: context.negocioNombre,
         currency: context.currency,
         plan: context.plan,
+        planName: context.planName,
+        planIsFree: context.planIsFree,
+        history,
         // El bot existe para registrar: se guarda salvo que n8n pida lo contrario.
         persist: dto.persist ?? true,
       });
@@ -230,8 +244,16 @@ export class WhatsappInterpretService {
       return this.degradedResponse(error, context, Date.now() - startedAt);
     }
 
-    // ---- 5. Historial: lo que respondio el bot ----------------------------
-    await this.saveMessage(context.sedeId, 'ASSISTANT', result.replyText);
+    // ---- 5. Funciones que su plan no incluye -------------------------------
+    // El texto lo pone el backend, no el modelo: los precios y el enlace no se
+    // improvisan, y asi el mensaje comercial es siempre el mismo.
+    const replyText =
+      result.intent.type === 'premium' && context.planIsFree
+        ? this.upgradeReply(context.planName)
+        : result.replyText;
+
+    // ---- 6. Historial: lo que respondio el bot ----------------------------
+    await this.saveMessage(context.sedeId, 'ASSISTANT', replyText);
 
     const category = result.intent.category as TransactionCategory | null;
 
@@ -239,10 +261,10 @@ export class WhatsappInterpretService {
       `→ ${result.intent.type} · ${result.intent.amount ?? '-'} ${context.currency} · confianza ${result.intent.confidence} · guardado=${result.transaction !== null} · ${result.meta.provider}/${result.meta.model} · ${Date.now() - startedAt} ms`,
     );
 
-    // ---- 6. Contrato de salida -------------------------------------------
+    // ---- 7. Contrato de salida -------------------------------------------
     return {
       ok: true,
-      reply: result.replyText,
+      reply: replyText,
       interpreted: {
         type: TYPE_LABELS[result.intent.type],
         rawType: result.intent.type,
@@ -334,6 +356,61 @@ export class WhatsappInterpretService {
       },
       error: { code, retryable: llmError?.retryable ?? false },
     };
+  }
+
+  /**
+   * Ultimos turnos de la conversacion de esa sede.
+   *
+   * Es lo que permite completar un movimiento a medias: sin historial, el
+   * modelo preguntaba el monto, el usuario lo respondia suelto y volvia a
+   * preguntar lo mismo, porque cada mensaje llegaba sin pasado.
+   *
+   * LIMITACION: el historial es por SEDE, no por persona. Si dos empleados
+   * escriben desde la misma sede, sus conversaciones se mezclan. Separarlas
+   * requiere guardar el remitente en `Mensaje`.
+   */
+  private async loadHistory(
+    sedeId: string,
+  ): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
+    try {
+      const mensajes = await this.prisma.mensaje.findMany({
+        where: { sedeId, rol: { in: ['USER', 'ASSISTANT'] } },
+        orderBy: { fecha: 'desc' },
+        take: HISTORY_TURNS,
+      });
+
+      return mensajes.reverse().map((m) => ({
+        role: m.rol === 'USER' ? ('user' as const) : ('assistant' as const),
+        content: m.contenido,
+      }));
+    } catch (error) {
+      // Sin historial el bot responde peor, pero responde. No vale la pena
+      // dejar al usuario sin respuesta por esto.
+      this.logger.warn(
+        `No se pudo leer el historial de la sede ${sedeId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return [];
+    }
+  }
+
+  /** Pidio algo que su plan no incluye. Se le dice con que plan si lo tendria. */
+  private upgradeReply(planName: string): string {
+    const url =
+      this.config.get<string>('FRONTEND_PLANS_URL')?.trim() ||
+      DEFAULT_PLANS_URL;
+
+    return [
+      `Esa función no está incluida en tu plan ${planName} 😊`,
+      '',
+      'Con los planes Gerente o Administrador puedes tener reportes por producto, reporte de fiados, recomendaciones con IA y registrar por foto o audio.',
+      '',
+      `Puedes verlos aquí:
+${url}`,
+      '',
+      'Mientras tanto sigo registrando tus gastos, ingresos e inversiones y dándote tus resúmenes 💪',
+    ].join('\n');
   }
 
   /**
