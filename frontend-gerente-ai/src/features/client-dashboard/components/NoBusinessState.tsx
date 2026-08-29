@@ -5,17 +5,14 @@ import {
   Sparkles, 
   CheckCircle2, 
   ArrowRight, 
-  Layers, 
   MessageSquare, 
   Bot, 
   ShieldCheck, 
-  HelpCircle, 
   Phone, 
   AtSign,
   Loader2, 
   Mic, 
   Camera, 
-  Zap, 
   KeyRound,
   AlertCircle 
 } from 'lucide-react';
@@ -95,8 +92,13 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
       return;
     }
 
-    if (cleanTelContacto && !PHONE_REGEX.test(cleanTelContacto)) {
-      setError('El teléfono administrativo principal debe tener formato internacional válido.');
+    if (!cleanTelContacto) {
+      setError('Por favor ingresa el teléfono administrativo principal.');
+      return;
+    }
+
+    if (!PHONE_REGEX.test(cleanTelContacto)) {
+      setError('El teléfono administrativo principal debe tener formato internacional válido (ej. +573001234567).');
       return;
     }
 
@@ -293,16 +295,16 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
 
                   {/* Formulario Embebido */}
                   <form onSubmit={handleCreateBusiness} className="space-y-4">
-                    {/* 1. Empresa Matriz */}
+                    {/* 1. Negocio Principal */}
                     <div className="p-3.5 rounded-2xl bg-muted/20 border border-border/80 space-y-3">
                       <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
                         <Building2 className="w-3.5 h-3.5 text-emerald-500" />
-                        1. Empresa Matriz
+                        1. Negocio Principal
                       </div>
 
                       <div className="space-y-1">
                         <label className="block text-xs font-bold text-foreground">
-                          Nombre de la Empresa o Marca <span className="text-emerald-500">*</span>
+                          Nombre del Negocio o Razón Social <span className="text-emerald-500">*</span>
                         </label>
                         <div className="relative">
                           <input
@@ -311,7 +313,7 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
                             required
                             value={nombre}
                             onChange={(e) => setNombre(e.target.value)}
-                            placeholder="Ej. Grupo Gastronómico El Virrey S.A.S."
+                            placeholder="Ej. Inversiones Pérez S.A.S."
                             className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
                           />
                           <Building2 className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -321,11 +323,12 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
                           <label className="block text-[11px] font-semibold text-foreground mb-1">
-                            Teléfono Administrativo <span className="text-muted-foreground font-normal">(Opcional)</span>
+                            Teléfono Administrativo
                           </label>
                           <div className="relative">
                             <input
                               type="tel"
+                              required
                               value={telefonoContacto}
                               onChange={(e) => setTelefonoContacto(e.target.value)}
                               placeholder="Ej. +573001112233"

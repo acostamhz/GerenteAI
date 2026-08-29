@@ -1,5 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { X, Building2, MapPin, Phone, AtSign, Loader2, Sparkles, MessageSquare } from 'lucide-react';
+import { Link } from 'react-router';
+import { 
+  X, 
+  Building2, 
+  MapPin, 
+  Phone, 
+  AtSign, 
+  Loader2, 
+  Sparkles, 
+  MessageSquare, 
+  AlertCircle,
+  PlusCircle
+} from 'lucide-react';
 import { profileApi } from '@/features/shared-profile/api/profileApi';
 import { ApiError } from '@/lib/apiClient';
 import { getRandomUsernamePlaceholder } from '@/lib/activeBusiness';
@@ -14,10 +26,11 @@ const PHONE_REGEX = /^\+?[1-9]\d{6,14}$/;
 const USERNAME_REGEX = /^[a-zA-Z0-9._-]{3,30}$/;
 
 export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusinessModalProps) {
-  // Datos Empresa Matriz
+  // Datos Negocio Principal
   const [nombre, setNombre] = useState('');
   const [telefonoContacto, setTelefonoContacto] = useState('');
   const [telefonoSecundario, setTelefonoSecundario] = useState('');
+  const [contexto, setContexto] = useState('');
 
   // Datos Primera Sede / Sucursal
   const [nombreSede, setNombreSede] = useState('Sede Principal');
@@ -47,29 +60,20 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
     const cleanUsername = whatsappUsername.trim().replace(/^@/, '');
     const cleanTelContacto = telefonoContacto.trim();
     const cleanTelSecundario = telefonoSecundario.trim();
+    const cleanContexto = contexto.trim();
 
     if (!cleanNombre) {
-      setError('El nombre de la empresa o negocio matriz es obligatorio.');
+      setError('El nombre del negocio es obligatorio.');
       return;
     }
 
-    if (!cleanNombreSede) {
-      setError('El nombre de la sede/sucursal es obligatorio (ej. Sede Principal).');
+    if (!cleanTelContacto) {
+      setError('Por favor ingresa el teléfono administrativo principal.');
       return;
     }
 
-    if (!cleanPhone && !cleanUsername) {
-      setError('Debes ingresar al menos un identificador de WhatsApp (número o usuario) para que Luka opere en esta sede.');
-      return;
-    }
-
-    if (cleanPhone && !PHONE_REGEX.test(cleanPhone)) {
-      setError('El número de WhatsApp de la sede debe tener formato internacional válido (ej. +573001234567 o 573001234567).');
-      return;
-    }
-
-    if (cleanTelContacto && !PHONE_REGEX.test(cleanTelContacto)) {
-      setError('El teléfono administrativo principal debe tener formato internacional válido.');
+    if (!PHONE_REGEX.test(cleanTelContacto)) {
+      setError('El teléfono administrativo principal debe tener formato internacional válido (ej: +573001234567).');
       return;
     }
 
@@ -78,8 +82,23 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
       return;
     }
 
+    if (!cleanNombreSede) {
+      setError('El nombre de la sede o sucursal es obligatorio (ej. Sede Principal).');
+      return;
+    }
+
+    if (!cleanPhone && !cleanUsername) {
+      setError('Debes ingresar al menos un identificador de WhatsApp (número o usuario) para vincular a Luka.');
+      return;
+    }
+
+    if (cleanPhone && !PHONE_REGEX.test(cleanPhone)) {
+      setError('El número de WhatsApp no es válido. Debe tener código de país (ej: +573001234567).');
+      return;
+    }
+
     if (cleanUsername && !USERNAME_REGEX.test(cleanUsername)) {
-      setError('El usuario de WhatsApp debe tener entre 3 y 30 caracteres (solo letras, números, punto, guion o guion bajo).');
+      setError('El nombre de usuario de WhatsApp no es válido (mínimo 3 caracteres, sin espacios ni @).');
       return;
     }
 
@@ -88,16 +107,18 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
     try {
       const { negocio, sede } = await profileApi.createNegocioConSede({
         nombre: cleanNombre,
-        telefonoContacto: cleanTelContacto || undefined,
+        telefonoContacto: cleanTelContacto,
         telefonoSecundario: cleanTelSecundario || undefined,
+        contexto: cleanContexto || undefined,
         nombreSede: cleanNombreSede,
         direccionSede: direccionSede.trim() || undefined,
         whatsappPhone: cleanPhone || undefined,
         whatsappUsername: cleanUsername || undefined,
       });
 
-      // Persistir como negocio y sede activa
+      // Sincronizar en localStorage
       localStorage.setItem('active_business_id', negocio.id);
+      localStorage.setItem('active_business_name', negocio.nombre);
       if (sede?.id) {
         localStorage.setItem('active_sede_id', sede.id);
         localStorage.setItem('active_sede_name', sede.nombre || cleanNombreSede);
@@ -105,16 +126,13 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
         localStorage.removeItem('active_sede_id');
         localStorage.removeItem('active_sede_name');
       }
-      localStorage.setItem('active_business_name', negocio.nombre);
 
-      // Notificar a toda la aplicación
       window.dispatchEvent(new Event('business_changed'));
       window.dispatchEvent(new Event('sede_changed'));
 
       if (onSuccess) {
         onSuccess(negocio.id, negocio.nombre);
       }
-
       onClose();
     } catch (err: any) {
       console.error('Error creando negocio y sede:', err);
@@ -127,9 +145,9 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-xl bg-card border border-border rounded-3xl shadow-2xl p-6 sm:p-8 overflow-hidden max-h-[90vh] overflow-y-auto">
+      <div className="relative w-full max-w-4xl sm:max-w-5xl bg-card border border-border rounded-3xl shadow-2xl p-6 sm:p-8 overflow-hidden max-h-[90vh] overflow-y-auto space-y-6">
         {/* Glow de acento esmeralda */}
-        <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500/15 rounded-full blur-3xl pointer-events-none" />
 
         {/* Botón Cerrar */}
         <button
@@ -140,201 +158,250 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
         </button>
 
         {/* Header */}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0">
+        <div className="flex items-center gap-3 border-b border-border/60 pb-4">
+          <div className="w-11 h-11 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-600 dark:text-emerald-400 shrink-0 shadow-sm">
             <Building2 className="w-6 h-6" />
           </div>
           <div>
-            <h2 className="text-xl font-black text-foreground tracking-tight flex items-center gap-2">
+            <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight flex items-center gap-2">
               Crear Nuevo Negocio & Sede <Sparkles className="w-4 h-4 text-emerald-500" />
             </h2>
-            <p className="text-xs text-muted-foreground">
-              Configura tu empresa matriz y su primera sucursal para enlazar el bot Luka AI.
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Configura tu negocio y su primera sucursal para enlazar el bot Luka AI.
             </p>
           </div>
         </div>
 
         {/* Error inline */}
         {error && (
-          <div className="mb-5 p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-semibold">
-            {error}
+          <div className="p-4 rounded-2xl bg-destructive/10 border border-destructive/25 text-destructive text-xs font-semibold flex flex-col gap-2">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0" />
+              <span>{error}</span>
+            </div>
+            {(error.toLowerCase().includes('plan') || error.toLowerCase().includes('tope') || error.toLowerCase().includes('sede')) && (
+              <Link
+                to="/subscription"
+                onClick={onClose}
+                className="self-start text-[11px] font-bold underline hover:opacity-80 text-emerald-700 dark:text-emerald-400"
+              >
+                ⚡ Ver opciones para mejorar tu plan
+              </Link>
+            )}
           </div>
         )}
 
         {/* Formulario */}
-        <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Bloque 1: Empresa Matriz */}
-          <div className="p-4 rounded-2xl bg-muted/20 border border-border/80 space-y-3">
-            <div className="flex items-center gap-2 text-xs font-bold text-foreground">
-              <Building2 className="w-4 h-4 text-emerald-500" />
-              1. Datos de la Empresa Matriz
-            </div>
-
-            <div>
-              <label className="block text-xs font-bold text-foreground mb-1">
-                Nombre de la Empresa o Marca Matriz <span className="text-emerald-500">*</span>
-              </label>
-              <div className="relative">
-                <input
-                  type="text"
-                  required
-                  value={nombre}
-                  onChange={(e) => setNombre(e.target.value)}
-                  placeholder="Ej. Grupo Gastronómico El Virrey S.A.S., Tienda La 80..."
-                  className="w-full pl-10 pr-4 py-2.5 bg-background border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                />
-                <Building2 className="w-4 h-4 text-muted-foreground absolute left-3.5 top-1/2 -translate-y-1/2" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">
-                  Teléfono Administrativo Principal <span className="text-muted-foreground font-normal">(Opcional)</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    value={telefonoContacto}
-                    onChange={(e) => setTelefonoContacto(e.target.value)}
-                    placeholder="Ej. +573001112233"
-                    className="w-full pl-9 pr-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                  />
-                  <Phone className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">
-                  Teléfono Secundario / Soporte <span className="text-muted-foreground font-normal">(Opcional)</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="tel"
-                    value={telefonoSecundario}
-                    onChange={(e) => setTelefonoSecundario(e.target.value)}
-                    placeholder="Ej. +573109998877"
-                    className="w-full pl-9 pr-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                  />
-                  <Phone className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Bloque 2: Primera Sede / Sucursal */}
-          <div className="p-4 rounded-2xl bg-muted/20 border border-border/80 space-y-3.5">
-            <div className="flex items-center gap-2 text-xs font-bold text-foreground">
-              <MapPin className="w-4 h-4 text-emerald-500" />
-              2. Primera Sede / Sucursal Operativa
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-bold text-foreground mb-1">
-                  Nombre de la Sede <span className="text-emerald-500">*</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    required
-                    value={nombreSede}
-                    onChange={(e) => setNombreSede(e.target.value)}
-                    placeholder="Ej. Sede Principal - Chapinero"
-                    className="w-full pl-9 pr-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                  />
-                  <MapPin className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-foreground mb-1">
-                  Dirección Física <span className="text-muted-foreground font-normal">(Opcional)</span>
-                </label>
-                <div className="relative">
-                  <input
-                    type="text"
-                    value={direccionSede}
-                    onChange={(e) => setDireccionSede(e.target.value)}
-                    placeholder="Ej. Calle 85 # 15-20, Bogotá"
-                    className="w-full pl-9 pr-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                  />
-                  <MapPin className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-                </div>
-              </div>
-            </div>
-
-            {/* Canal WhatsApp de la Sede */}
-            <div className="pt-2 border-t border-border/60 space-y-3">
-              <div className="flex items-center gap-1.5 text-xs font-bold text-foreground">
-                <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
-                Canal de WhatsApp de esta Sede
-                <span className="text-[10px] font-normal text-muted-foreground">(Al menos uno requerido)</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold text-foreground mb-1">
-                    Número de WhatsApp
-                  </label>
-                  <div className="relative">
-                    <input
-                      type="tel"
-                      value={whatsappPhone}
-                      onChange={(e) => setWhatsappPhone(e.target.value)}
-                      placeholder="Ej. +573001234567"
-                      className="w-full pl-9 pr-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
-                    />
-                    <Phone className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {/* Grilla 2 Columnas Lado a Lado */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-stretch">
+            {/* 🏢 CARD 1: Negocio Principal */}
+            <div className="p-5 sm:p-6 rounded-3xl bg-muted/20 border border-border/80 flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                    <Building2 className="w-4 h-4 text-emerald-500" />
+                    <span>1. Negocio Principal</span>
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    El número desde el que le escribirás a Luka.
-                  </p>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                    Matriz
+                  </span>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-semibold text-foreground mb-1">
-                    Usuario de WhatsApp <span className="text-muted-foreground font-normal">(Alternativo)</span>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-foreground block">
+                    Nombre del Negocio o Razón Social *
                   </label>
                   <div className="relative">
+                    <Building2 className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
                     <input
                       type="text"
-                      value={whatsappUsername}
-                      onChange={(e) => setWhatsappUsername(e.target.value)}
-                      placeholder={`Ej. ${usernamePlaceholder} (sin @)`}
-                      className="w-full pl-9 pr-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
+                      required
+                      placeholder="Ej: Inversiones Pérez S.A.S."
+                      value={nombre}
+                      onChange={(e) => setNombre(e.target.value)}
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
                     />
-                    <AtSign className="w-3.5 h-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-1">
-                    Solo si tienes usuario en WhatsApp y tu número está oculto.
-                  </p>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground block">
+                      Teléfono Administrativo
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="tel"
+                        required
+                        value={telefonoContacto}
+                        onChange={(e) => setTelefonoContacto(e.target.value)}
+                        placeholder="Ej. +573001112233"
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground block">
+                      Teléfono Secundario <span className="text-muted-foreground font-normal">(Opcional)</span>
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="tel"
+                        value={telefonoSecundario}
+                        onChange={(e) => setTelefonoSecundario(e.target.value)}
+                        placeholder="Ej. 6023345678"
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-foreground block">
+                    Descripción o Rubro <span className="text-muted-foreground font-normal">(Opcional)</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Ej. Restaurante, café de especialidad y repostería artesanal."
+                    value={contexto}
+                    onChange={(e) => setContexto(e.target.value)}
+                    className="w-full px-3.5 py-2 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm resize-none"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* 📍 CARD 2: Primera Sede / Sucursal */}
+            <div className="p-5 sm:p-6 rounded-3xl bg-muted/20 border border-border/80 flex flex-col justify-between space-y-4">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between border-b border-border/50 pb-2.5">
+                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                    <MapPin className="w-4 h-4 text-emerald-500" />
+                    <span>2. Primera Sede & Canal WhatsApp</span>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-md">
+                    Sucursal
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-bold text-foreground block">
+                      Nombre de la Sede *
+                    </label>
+                    <div className="relative">
+                      <MapPin className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        required
+                        value={nombreSede}
+                        onChange={(e) => setNombreSede(e.target.value)}
+                        placeholder="Ej. Sede Principal"
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-semibold text-foreground block">
+                      Dirección Física <span className="text-muted-foreground font-normal">(Opcional)</span>
+                    </label>
+                    <div className="relative">
+                      <MapPin className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        type="text"
+                        value={direccionSede}
+                        onChange={(e) => setDireccionSede(e.target.value)}
+                        placeholder="Ej. Calle 10 # 4-50"
+                        className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Canal WhatsApp de la Sede */}
+                <div className="pt-3 border-t border-border/60 space-y-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
+                      Línea de WhatsApp para Luka AI
+                    </span>
+                    <span className="text-[10px] font-normal text-muted-foreground">Requerido</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-foreground block">
+                        Número de WhatsApp
+                      </label>
+                      <div className="relative">
+                        <Phone className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-emerald-500" />
+                        <input
+                          type="tel"
+                          value={whatsappPhone}
+                          onChange={(e) => setWhatsappPhone(e.target.value)}
+                          placeholder="Ej. +573043904488"
+                          className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Línea desde la que escribirás ventas o gastos.
+                      </p>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-semibold text-foreground block">
+                        Usuario WhatsApp <span className="text-muted-foreground font-normal">(Alias)</span>
+                      </label>
+                      <div className="relative">
+                        <AtSign className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          type="text"
+                          value={whatsappUsername}
+                          onChange={(e) => setWhatsappUsername(e.target.value)}
+                          placeholder={`Ej. ${usernamePlaceholder}`}
+                          className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground">
+                        Solo si tienes usuario o número privado.
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <div className="pt-2 flex items-center justify-end gap-3">
+          {/* Footer de botones */}
+          <div className="pt-4 border-t border-border/60 flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={onClose}
               disabled={isSubmitting}
-              className="px-4 py-2.5 rounded-xl text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50"
+              className="px-5 py-2.5 rounded-xl text-xs font-bold text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={isSubmitting || !nombre.trim() || !nombreSede.trim()}
-              className="flex items-center gap-2 px-6 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-slate-950 text-xs font-black rounded-xl shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-6 py-2.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white text-xs font-black rounded-xl shadow-md shadow-emerald-500/20 transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSubmitting ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Registrando Empresa & Sede...
+                  Registrando Negocio & Sede...
                 </>
               ) : (
-                'Registrar Empresa & Sede'
+                <>
+                  <PlusCircle className="w-4 h-4 mr-1" />
+                  Crear Negocio & Sede
+                </>
               )}
             </button>
           </div>

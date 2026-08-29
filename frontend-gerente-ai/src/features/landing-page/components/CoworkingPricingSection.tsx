@@ -1,85 +1,106 @@
 "use client";
 
 import { Check, Star } from "lucide-react";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { Link } from "react-router";
+import { planesApi, PlanBackend, PLANES_FALLBACK, DESCUENTO_ANUAL } from "@/shared/api/planesApi";
 
 type BillingPeriod = "monthly" | "annual";
 
-const plans = [
-  {
-    name: "Asistente",
-    description: "Empieza a organizar tu negocio con Luka.",
-    monthlyPrice: "Gratis",
-    annualPrice: "Gratis",
-    annualBilling: "",
-    features: [
-      "Registro de ventas",
-      "Registro de gastos",
-      "Consultas por WhatsApp",
-      "Reportes básicos",
-      "1 negocio",
-    ],
-    button: "Comenzar gratis",
-    featured: false,
-    dark: false,
-  },
-  {
-    name: "Gerente",
-    description: "La mejor opción para la mayoría de negocios.",
-    monthlyPrice: "$79.900",
-    annualPrice: "$66.583",
-    annualBilling: "Facturado $799.000/año",
-    features: [
-      "Todo lo del plan Asistente",
-      "Inventario inteligente",
-      "Clientes y proveedores",
-      "IA conversacional completa",
-      "Automatizaciones",
-      "Hasta 4 sedes",
-    ],
-    button: "Probar 30 días",
-    featured: true,
-    dark: false,
-  },
-  {
-    name: "Administrador",
-    description: "Para negocios en crecimiento.",
-    monthlyPrice: "$249.900",
-    annualPrice: "$208.250",
-    annualBilling: "Facturado $2.499.000/año",
-    features: [
-      "Todo lo del plan Gerente",
-      "Hasta 10 sedes",
-      "Roles de usuarios",
-      "Indicadores avanzados",
-      "Reportes ejecutivos",
-    ],
-    button: "Elegir plan",
-    featured: false,
-    dark: false,
-  },
-  {
-    name: "Corporativo",
-    description: "Una solución diseñada para empresas.",
-    monthlyPrice: "Cotizar",
-    annualPrice: "Cotizar",
-    annualBilling: "",
-    features: [
-      "Sedes ilimitadas",
-      "Integraciones",
-      "Soporte prioritario",
-      "Desarrollo personalizado",
-      "Acompañamiento",
-    ],
-    button: "Hablar con ventas",
-    featured: false,
-    dark: true,
-  },
-];
+const PRECIO_FORMATTER = new Intl.NumberFormat("es-CO");
 
 export function CoworkingPricingSection() {
-  const [billingPeriod, setBillingPeriod] =
-    useState<BillingPeriod>("monthly");
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
+  const [catalogo, setCatalogo] = useState<PlanBackend[]>(PLANES_FALLBACK);
+
+  useEffect(() => {
+    planesApi.getPlanesCatalogo().then((planes) => {
+      if (planes && planes.length > 0) {
+        setCatalogo(planes);
+      }
+    });
+  }, []);
+
+  const planAsistente = catalogo.find((p) => p.id === 1) || PLANES_FALLBACK[0];
+  const planGerente = catalogo.find((p) => p.id === 2) || PLANES_FALLBACK[1];
+  const planAdmin = catalogo.find((p) => p.id === 3) || PLANES_FALLBACK[2];
+
+  const plans = [
+    {
+      name: "Asistente",
+      description: "Empieza a organizar tu negocio con Luka.",
+      monthlyPrice: "Gratis",
+      annualPrice: "Gratis",
+      annualBilling: "",
+      features: [
+        "Registro de ventas",
+        "Registro de gastos",
+        "Consultas por WhatsApp",
+        "Reportes básicos",
+        "1 sede comercial",
+      ],
+      button: "Comenzar gratis",
+      link: "/register",
+      featured: false,
+      dark: false,
+    },
+    {
+      name: "Gerente",
+      description: "La mejor opción para la mayoría de negocios.",
+      monthlyPrice: `$${PRECIO_FORMATTER.format(planGerente.precioMensual)}`,
+      annualPrice: `$${PRECIO_FORMATTER.format(Math.round(planGerente.precioAnual / 12))}`,
+      annualBilling: `Facturado $${PRECIO_FORMATTER.format(planGerente.precioAnual)}/año`,
+      features: [
+        "Todo lo del plan Asistente",
+        "Inventario inteligente",
+        "Clientes y proveedores",
+        "IA conversacional completa",
+        "Notas de voz y fotos",
+        `Hasta ${planGerente.maxSedes} sedes`,
+      ],
+      button: "Probar 30 días",
+      link: "/subscription",
+      featured: true,
+      dark: false,
+    },
+    {
+      name: "Administrador",
+      description: "Para negocios en crecimiento y cadenas.",
+      monthlyPrice: `$${PRECIO_FORMATTER.format(planAdmin.precioMensual)}`,
+      annualPrice: `$${PRECIO_FORMATTER.format(Math.round(planAdmin.precioAnual / 12))}`,
+      annualBilling: `Facturado $${PRECIO_FORMATTER.format(planAdmin.precioAnual)}/año`,
+      features: [
+        "Todo lo del plan Gerente",
+        `Hasta ${planAdmin.maxSedes} sedes`,
+        "Roles de usuarios",
+        "Indicadores avanzados",
+        "Reportes ejecutivos",
+        "IA predictiva avanzada",
+      ],
+      button: "Elegir plan",
+      link: "/subscription",
+      featured: false,
+      dark: false,
+    },
+    {
+      name: "Corporativo",
+      description: "Una solución diseñada para empresas a la medida.",
+      monthlyPrice: "Cotizar",
+      annualPrice: "Cotizar",
+      annualBilling: "",
+      features: [
+        "Sedes ilimitadas",
+        "Integraciones personalizadas",
+        "Soporte prioritario 24/7",
+        "Desarrollo personalizado",
+        "Acompañamiento VIP",
+      ],
+      button: "Hablar con ventas",
+      link: "https://wa.me/573043904488?text=Hola,%20quisiera%20información%20sobre%20el%20Plan%20Corporativo%20de%20Luka%20AI",
+      featured: false,
+      dark: true,
+    },
+  ];
 
   return (
     <section
@@ -90,7 +111,7 @@ export function CoworkingPricingSection() {
         {/* Header */}
         <div className="text-center mb-10">
           <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm font-semibold mb-4">
-            Planes
+            Planes y Precios
           </span>
 
           <h2 className="text-4xl md:text-5xl font-bold tracking-tight text-slate-900 dark:text-white leading-tight">
@@ -135,7 +156,7 @@ export function CoworkingPricingSection() {
 
             {/* Discount Badge */}
             <span className="absolute -top-2.5 -right-2.5 z-20 px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold shadow-sm">
-              -20%
+              -16%
             </span>
           </div>
         </div>
@@ -263,19 +284,36 @@ export function CoworkingPricingSection() {
                     </ul>
                   </div>
 
-                  {/* Button */}
-                  <button
-                    type="button"
-                    className={`w-full mt-8 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] ${
-                      plan.featured
-                        ? "bg-white text-slate-800 hover:bg-slate-50 shadow-sm"
-                        : plan.dark
-                          ? "bg-cyan-500 text-white hover:bg-cyan-400 shadow-lg shadow-cyan-500/20"
-                          : "bg-gradient-to-r from-emerald-600 to-cyan-500 text-white hover:from-emerald-700 hover:to-cyan-600 shadow-lg shadow-emerald-500/15"
-                    }`}
-                  >
-                    {plan.button}
-                  </button>
+                  {/* Button / Link */}
+                  {plan.link.startsWith("http") ? (
+                    <a
+                      href={plan.link}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className={`w-full mt-8 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 text-center hover:scale-[1.02] active:scale-[0.98] ${
+                        plan.featured
+                          ? "bg-white text-slate-800 hover:bg-slate-50 shadow-sm"
+                          : plan.dark
+                            ? "bg-cyan-500 text-white hover:bg-cyan-400 shadow-lg shadow-cyan-500/20"
+                            : "bg-gradient-to-r from-emerald-600 to-cyan-500 text-white hover:from-emerald-700 hover:to-cyan-600 shadow-lg shadow-emerald-500/15"
+                      }`}
+                    >
+                      {plan.button}
+                    </a>
+                  ) : (
+                    <Link
+                      to={plan.link}
+                      className={`w-full mt-8 py-3 px-4 rounded-xl text-sm font-semibold transition-all duration-300 text-center hover:scale-[1.02] active:scale-[0.98] ${
+                        plan.featured
+                          ? "bg-white text-slate-800 hover:bg-slate-50 shadow-sm"
+                          : plan.dark
+                            ? "bg-cyan-500 text-white hover:bg-cyan-400 shadow-lg shadow-cyan-500/20"
+                            : "bg-gradient-to-r from-emerald-600 to-cyan-500 text-white hover:from-emerald-700 hover:to-cyan-600 shadow-lg shadow-emerald-500/15"
+                      }`}
+                    >
+                      {plan.button}
+                    </Link>
+                  )}
                 </div>
               </div>
             );

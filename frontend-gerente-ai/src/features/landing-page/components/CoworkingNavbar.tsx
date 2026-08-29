@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Bot, Menu, X, LogIn } from "lucide-react";
+import { Bot, Menu, X, LogIn, User, ArrowRight } from "lucide-react";
 import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
+import { useAuth } from "@/features/auth";
 
 function easeInOutQuart(t: number): number {
   return t < 0.5
@@ -32,18 +33,17 @@ function customSmoothScroll(targetY: number, duration: number = 1000) {
   requestAnimationFrame(animation);
 }
 
+const navLinks = [
+  { name: "Características", href: "#caracteristicas" },
+  { name: "Módulos", href: "#modulos" },
+  { name: "Planes", href: "#planes" },
+  { name: "Testimonios", href: "#testimonios" },
+  { name: "Preguntas", href: "#preguntas" },
+];
+
 export function CoworkingNavbar() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  const navLinks = [
-    { name: "Inicio", href: "#inicio" },
-    { name: "Beneficios", href: "#beneficios" },
-    { name: "Cómo funciona", href: "#como-funciona" },
-    { name: "Características", href: "#caracteristicas" },
-    { name: "Testimonios", href: "#testimonios" },
-    { name: "Planes", href: "#planes" },
-    { name: "FAQ", href: "#faq" },
-  ];
+  const { user, isAuthenticated } = useAuth();
 
   const handleSmoothScroll = (
     e: React.MouseEvent<HTMLAnchorElement>,
@@ -56,7 +56,7 @@ export function CoworkingNavbar() {
     const element = document.getElementById(targetId);
 
     if (element) {
-      const yOffset = -110;
+      const yOffset = -80;
 
       const targetY =
         element.getBoundingClientRect().top +
@@ -138,33 +138,49 @@ export function CoworkingNavbar() {
             {/* Theme Toggle */}
             <ThemeToggle />
 
-            {/* Iniciar Sesión */}
-            <Link
-              to="/login"
-              className="
-                flex
-                items-center
-                gap-2
-                text-sm
-                font-semibold
-                text-slate-700
-                dark:text-slate-200
-                hover:text-slate-900
-                dark:hover:text-white
-                px-3.5
-                py-2
-                rounded-xl
-                border
-                border-gray-200
-                dark:border-slate-700
-                hover:border-slate-400
-                dark:hover:border-slate-500
-                transition-all
-              "
-            >
-              <LogIn className="w-4 h-4 text-emerald-500" />
-              <span>Iniciar Sesión</span>
-            </Link>
+            {/* Iniciar Sesión vs Dashboard según estado de autenticación */}
+            {isAuthenticated ? (
+              <div className="flex items-center gap-2">
+                <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-gray-200/80 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200">
+                  <User className="w-3.5 h-3.5 text-emerald-500" />
+                  <span className="max-w-[130px] truncate">{user?.nombre || "Usuario"}</span>
+                </span>
+                <Link
+                  to="/dashboard"
+                  className="flex items-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-3.5 py-2 rounded-xl shadow-sm hover:shadow-md transition-all"
+                >
+                  <span>Ir al Dashboard</span>
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </Link>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                className="
+                  flex
+                  items-center
+                  gap-2
+                  text-sm
+                  font-semibold
+                  text-slate-700
+                  dark:text-slate-200
+                  hover:text-slate-900
+                  dark:hover:text-white
+                  px-3.5
+                  py-2
+                  rounded-xl
+                  border
+                  border-gray-200
+                  dark:border-slate-700
+                  hover:border-slate-400
+                  dark:hover:border-slate-500
+                  transition-all
+                "
+              >
+                <LogIn className="w-4 h-4 text-emerald-500" />
+                <span>Iniciar Sesión</span>
+              </Link>
+            )}
           </div>
 
           {/* Mobile */}
@@ -213,28 +229,60 @@ export function CoworkingNavbar() {
           </div>
 
           <div className="pt-4 border-t border-gray-200 dark:border-slate-800">
-            <Link
-              to="/login"
-              onClick={() => setMobileMenuOpen(false)}
-              className="
-                flex
-                items-center
-                justify-center
-                gap-2
-                w-full
-                py-2.5
-                rounded-xl
-                border
-                border-gray-300
-                dark:border-slate-700
-                text-slate-800
-                dark:text-slate-200
-                font-semibold
-              "
-            >
-              <LogIn className="w-4 h-4 text-emerald-500" />
-              Iniciar Sesión
-            </Link>
+            {isAuthenticated ? (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200">
+                  <User className="w-3.5 h-3.5 text-emerald-500" />
+                  <span>Hola, {user?.nombre || "Usuario"}</span>
+                </div>
+                <Link
+                  to="/dashboard"
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="
+                    flex
+                    items-center
+                    justify-center
+                    gap-2
+                    w-full
+                    py-2.5
+                    rounded-xl
+                    bg-gradient-to-r
+                    from-emerald-600
+                    to-emerald-500
+                    text-white
+                    font-bold
+                    text-sm
+                    shadow-sm
+                  "
+                >
+                  <span>Ir al Dashboard</span>
+                  <ArrowRight className="w-4 h-4" />
+                </Link>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                onClick={() => setMobileMenuOpen(false)}
+                className="
+                  flex
+                  items-center
+                  justify-center
+                  gap-2
+                  w-full
+                  py-2.5
+                  rounded-xl
+                  border
+                  border-gray-300
+                  dark:border-slate-700
+                  text-slate-800
+                  dark:text-slate-200
+                  font-semibold
+                "
+              >
+                <LogIn className="w-4 h-4 text-emerald-500" />
+                Iniciar Sesión
+              </Link>
+            )}
           </div>
         </div>
       )}

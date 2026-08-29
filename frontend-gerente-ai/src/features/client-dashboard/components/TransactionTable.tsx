@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Search, ArrowUp, ArrowDown, Download, AlertCircle, RefreshCw } from "lucide-react";
+import { Skeleton } from "@/shared/components/ui/Skeleton";
 import { DashboardTransactionItem } from "../types";
 import { TransactionEmptyState } from "./TransactionEmptyState";
 
@@ -179,14 +180,14 @@ export function TransactionTable({
             </thead>
             <tbody className="divide-y divide-border">
               {isLoading ? (
-                Array.from({ length: 4 }).map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-16" /></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-24" /></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-28" /></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-36" /></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-24" /></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-muted rounded w-20" /></td>
+                Array.from({ length: 5 }).map((_, i) => (
+                  <tr key={i} className="animate-in fade-in duration-300">
+                    <td className="px-6 py-4"><Skeleton width={70} height={20} className="rounded-md" /></td>
+                    <td className="px-6 py-4"><Skeleton width={110} height={20} className="rounded-md" /></td>
+                    <td className="px-6 py-4"><Skeleton width={120} height={18} className="rounded-md" /></td>
+                    <td className="px-6 py-4"><Skeleton width={160} height={18} className="rounded-md" /></td>
+                    <td className="px-6 py-4"><Skeleton width={110} height={18} className="rounded-md" /></td>
+                    <td className="px-6 py-4"><Skeleton width={90} height={18} className="rounded-md" /></td>
                   </tr>
                 ))
               ) : (
