@@ -39,6 +39,17 @@ export interface WhatsAppMessageRequest {
   plan?: string;
   /** Guarda el movimiento detectado a traves del puerto de datos. */
   persist?: boolean;
+  /**
+   * Turnos anteriores de la conversacion, del mas viejo al mas nuevo.
+   *
+   * Sin esto el modelo no puede completar un movimiento a medias: preguntaba
+   * el monto, el usuario lo respondia suelto y volvia a preguntar lo mismo.
+   */
+  history?: { role: 'user' | 'assistant'; content: string }[];
+  /** Nombre comercial del plan, para decidir que funciones estan incluidas. */
+  planName?: string;
+  /** true si el plan vigente es el gratuito. */
+  planIsFree?: boolean;
 }
 
 export interface WhatsAppMessageResult {
@@ -101,8 +112,13 @@ export class WhatsAppMessageService {
             businessName: request.businessName ?? 'el negocio',
             currency,
             referenceDate,
+            planName: request.planName,
+            planIsFree: request.planIsFree,
           }),
-          messages: [{ role: 'user', content: request.message }],
+          messages: [
+            ...(request.history ?? []),
+            { role: 'user', content: request.message },
+          ],
           schemaName: 'intencion_financiera',
           schema: WHATSAPP_INTENT_SCHEMA,
           // Interpretar un mensaje es determinista: sin creatividad.
@@ -320,6 +336,7 @@ const INTENT_TYPES: MessageIntentType[] = [
   'correction',
   'unclear',
   'out_of_scope',
+  'premium',
 ];
 
 const TRANSACTION_TYPES: TransactionType[] = [
@@ -382,6 +399,7 @@ function normalizeConfidence(
   if (intent.type === 'unclear') return 0.3;
   // Reconocer que algo NO es del dominio suele ser facil: no es una duda.
   if (intent.type === 'out_of_scope') return 0.9;
+  if (intent.type === 'premium') return 0.9;
   if (intent.type === 'query') return 0.85;
   if (intent.type === 'correction') return 0.6;
   if (intent.amount === null) return 0.4;
