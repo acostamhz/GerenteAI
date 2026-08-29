@@ -39,6 +39,10 @@ export interface WhatsappContext {
   sedeId: string;
   sedeNombre: string;
   plan: PlanId;
+  /** Nombre comercial del plan vigente ("Asistente", "Gerente"...). */
+  planName: string;
+  /** true si el plan vigente es el gratuito: decide que funciones se ofrecen. */
+  planIsFree: boolean;
   currency: string;
   /** Contexto de negocio/sede que el dashboard configura para la IA. */
   contexto: string | null;
@@ -231,14 +235,14 @@ export class WhatsappRoutingService {
       negocioNombre: sede.negocio.nombre,
       sedeId: sede.id,
       sedeNombre: sede.nombre,
-      plan: this.planDelNegocio(sede.negocio),
+      ...this.planDelNegocio(sede.negocio),
       currency: DEFAULT_CURRENCY,
       contexto: sede.contexto ?? sede.negocio.contexto,
     };
   }
 
   /**
-   * Cuota de IA que le corresponde al negocio.
+   * Cuota de IA y datos comerciales del plan del negocio.
    *
    * El plan vive en `Negocio`, no en `Usuario`: comercialmente se compra por
    * negocio, asi que quien maneja dos negocios paga dos planes. `Usuario.plan`
@@ -248,12 +252,18 @@ export class WhatsappRoutingService {
    * Se resuelve contra el plan VIGENTE y no el contratado: un Gerente vencido
    * cae a Asistente, igual que en el resto del backend (`PlanesService.estado`).
    */
-  private planDelNegocio(negocio: {
-    plan: number;
-    planVenceEl: Date | null;
-  }): PlanId {
+  private planDelNegocio(negocio: { plan: number; planVenceEl: Date | null }): {
+    plan: PlanId;
+    planName: string;
+    planIsFree: boolean;
+  } {
     const { vigente } = this.planes.estado(negocio.plan, negocio.planVenceEl);
-    return CUOTA_POR_PLAN[vigente.id] ?? 'asistente';
+
+    return {
+      plan: CUOTA_POR_PLAN[vigente.id] ?? 'asistente',
+      planName: vigente.nombre,
+      planIsFree: vigente.id === PLAN_ASISTENTE,
+    };
   }
 }
 
