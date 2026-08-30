@@ -2,6 +2,7 @@ import { RealCashflow } from "./RealCashflow";
 import { PendingCashflow } from "./PendingCashflow";
 
 import { useDashboardMetrics } from "@/features/client-dashboard/hooks/useDashboardMetrics";
+import { apiClient } from "@/lib/apiClient";
 
 export function CashflowView() {
   const {
@@ -15,56 +16,15 @@ export function CashflowView() {
     ventaId: string,
     monto: number,
   ): Promise<void> => {
-    const response = await fetch(
-      `${import.meta.env.VITE_API_URL}/abonos`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        credentials: "include",
-        body: JSON.stringify({
-          clienteId,
-          ventaId,
-          monto,
-        }),
-      },
-    );
+    await apiClient("/abonos", {
+      method: "POST",
+      body: JSON.stringify({
+        clienteId,
+        ventaId,
+        monto,
+      }),
+    });
 
-    if (!response.ok) {
-      let message =
-        "No se pudo registrar el pago.";
-
-      try {
-        const data = await response.json();
-
-        if (Array.isArray(data?.message)) {
-          message =
-            data.message.join(", ");
-        } else if (
-          typeof data?.message ===
-          "string"
-        ) {
-          message = data.message;
-        }
-      } catch {
-        // Conservamos el mensaje genérico.
-      }
-
-      throw new Error(message);
-    }
-
-    /*
-     * El backend ya actualizó:
-     *
-     * Cliente.saldoPendiente
-     * Venta.saldoPendiente
-     * Abono
-     *
-     * Ahora volvemos a consultar /fiados
-     * para que la tabla muestre el estado
-     * real actualizado.
-     */
     await refreshFiados();
   };
 
