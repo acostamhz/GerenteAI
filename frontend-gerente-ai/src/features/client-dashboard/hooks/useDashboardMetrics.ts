@@ -4,14 +4,21 @@ import {
   useCallback,
   useMemo,
 } from "react";
+
 import { useAuth } from "@/features/auth";
+
 import {
   PeriodoTipo,
   ReporteFinanciero,
   DashboardTransactionItem,
 } from "../types";
+
 import { dashboardApi } from "../api/dashboardApi";
-import { profileApi } from "@/features/shared-profile/api/profileApi";
+
+import {
+  profileApi,
+} from "@/features/shared-profile/api/profileApi";
+
 import { apiClient } from "@/lib/apiClient";
 
 interface UsuarioMeResponse {
@@ -82,19 +89,6 @@ export function useDashboardMetrics(
   const [periodo, setPeriodoState] =
     useState<PeriodoTipo>("mensual");
 
-  /*
-   * IMPORTANTE:
-   *
-   * Antes estos estados comenzaban en null.
-   *
-   * Eso provocaba que RealCashflow intentara hacer:
-   *
-   * metrics.ingresos.total
-   *
-   * cuando metrics todavía era null.
-   *
-   * Ahora siempre existe una estructura válida.
-   */
   const [periodMetrics, setPeriodMetrics] =
     useState<ReporteFinanciero>(
       EMPTY_METRICS("mensual"),
@@ -112,7 +106,9 @@ export function useDashboardMetrics(
     useState<string | null>(() => {
       return (
         customBusinessId ||
-        localStorage.getItem("active_business_id") ||
+        localStorage.getItem(
+          "active_business_id",
+        ) ||
         null
       );
     });
@@ -120,8 +116,9 @@ export function useDashboardMetrics(
   const [businessName, setBusinessName] =
     useState<string>(() => {
       return (
-        localStorage.getItem("active_business_name") ||
-        "Mi Negocio"
+        localStorage.getItem(
+          "active_business_name",
+        ) || "Mi Negocio"
       );
     });
 
@@ -131,38 +128,42 @@ export function useDashboardMetrics(
         return customSedeId;
       }
 
-      const s =
-        localStorage.getItem("active_sede_id");
+      const sedeId =
+        localStorage.getItem(
+          "active_sede_id",
+        );
 
-      return s && s !== "all" ? s : null;
+      return sedeId && sedeId !== "all"
+        ? sedeId
+        : null;
     });
 
   const [sedeName, setSedeName] =
     useState<string>(() => {
       return (
-        localStorage.getItem("active_sede_name") ||
-        "Todas las sedes"
+        localStorage.getItem(
+          "active_sede_name",
+        ) || "Todas las sedes"
       );
     });
 
   const [hasNoBusiness, setHasNoBusiness] =
-    useState<boolean>(false);
+    useState(false);
 
   const [isLoading, setIsLoading] =
-    useState<boolean>(true);
+    useState(true);
 
   const [isChartLoading, setIsChartLoading] =
-    useState<boolean>(false);
+    useState(false);
 
   const [isRefreshing, setIsRefreshing] =
-    useState<boolean>(false);
+    useState(false);
 
   const [error, setError] =
     useState<string | null>(null);
 
   /*
-   * Determinar el negocio activo sobre el que el usuario
-   * realmente tiene permisos.
+   * Resolver negocio activo.
    */
   const resolveActiveBusiness = useCallback(
     async (): Promise<string | null> => {
@@ -181,12 +182,10 @@ export function useDashboardMetrics(
             (n) => n.negocio,
           ) || [];
 
-        /*
-         * Si el usuario no tiene negocios ni sedes.
-         */
         if (
           userNegocios.length === 0 &&
-          (!me.sedes || me.sedes.length === 0)
+          (!me.sedes ||
+            me.sedes.length === 0)
         ) {
           localStorage.removeItem(
             "active_business_id",
@@ -221,22 +220,18 @@ export function useDashboardMetrics(
             "active_business_name",
           );
 
-        /*
-         * Validar negocio guardado.
-         */
         const matchedSaved =
           userNegocios.find(
             (n) => n.id === savedId,
           );
 
         if (matchedSaved) {
-          if (savedName) {
-            setBusinessName(savedName);
-          } else {
-            setBusinessName(
+          setBusinessName(
+            savedName ||
               matchedSaved.nombre,
-            );
+          );
 
+          if (!savedName) {
             localStorage.setItem(
               "active_business_name",
               matchedSaved.nombre,
@@ -246,12 +241,9 @@ export function useDashboardMetrics(
           return matchedSaved.id;
         }
 
-        /*
-         * Si no hay negocio guardado válido,
-         * utilizar el primero disponible.
-         */
         if (userNegocios.length > 0) {
-          const first = userNegocios[0];
+          const first =
+            userNegocios[0];
 
           localStorage.setItem(
             "active_business_id",
@@ -263,14 +255,13 @@ export function useDashboardMetrics(
             first.nombre,
           );
 
-          setBusinessName(first.nombre);
+          setBusinessName(
+            first.nombre,
+          );
 
           return first.id;
         }
 
-        /*
-         * Fallback mediante una sede.
-         */
         if (
           me.sedes &&
           me.sedes.length > 0
@@ -281,6 +272,10 @@ export function useDashboardMetrics(
           localStorage.setItem(
             "active_business_id",
             firstSede.negocioId,
+          );
+
+          setBusinessName(
+            "Mi Negocio",
           );
 
           return firstSede.negocioId;
@@ -298,10 +293,97 @@ export function useDashboardMetrics(
   );
 
   /*
-   * Carga inicial completa o refresco manual.
+   * Resolver las sedes que deben alimentar Cashflow.
+   */
+  const resolveSedeIds = useCallback(
+    async (
+      businessId: string | null,
+      sedeId: string | null,
+      report?: ReporteFinanciero,
+    ): Promise<string[]> => {
+      if (sedeId) {
+        return [sedeId];
+      }
+
+      if (
+        report?.sedes &&
+        report.sedes.length > 0
+      ) {
+        return report.sedes.map(
+          (s) => s.sede.id,
+        );
+      }
+
+      if (!businessId) {
+        return [];
+      }
+
+      const sedesList =
+        await profileApi
+          .getSedes(businessId)
+          .catch(() => []);
+
+      return sedesList.map(
+        (s) => s.id,
+      );
+    },
+    [],
+  );
+
+  /*
+   * Cargar transacciones.
+   *
+   * Las transacciones se obtienen desde las sedes
+   * autorizadas del negocio.
+   */
+  const loadTransactions = useCallback(
+    async (
+      businessId: string | null,
+      sedeId: string | null,
+      report?: ReporteFinanciero,
+    ) => {
+      try {
+        const targetSedeIds =
+          await resolveSedeIds(
+            businessId,
+            sedeId,
+            report,
+          );
+
+        if (
+          targetSedeIds.length === 0
+        ) {
+          setAllTransactions([]);
+          return;
+        }
+
+        const txList =
+          await dashboardApi.getTransacciones(
+            targetSedeIds,
+          );
+
+        setAllTransactions(
+          txList || [],
+        );
+      } catch (err) {
+        console.warn(
+          "No se pudieron cargar las transacciones:",
+          err,
+        );
+
+        setAllTransactions([]);
+      }
+    },
+    [resolveSedeIds],
+  );
+
+  /*
+   * Carga principal.
    */
   const fetchMetrics = useCallback(
-    async (isManualRefresh = false) => {
+    async (
+      isManualRefresh = false,
+    ) => {
       setIsLoading(true);
 
       if (isManualRefresh) {
@@ -310,7 +392,8 @@ export function useDashboardMetrics(
 
       setError(null);
 
-      const startTime = Date.now();
+      const startTime =
+        Date.now();
 
       try {
         if (!token) {
@@ -319,9 +402,6 @@ export function useDashboardMetrics(
           );
         }
 
-        /*
-         * Resolver negocio activo.
-         */
         const targetBusinessId =
           await resolveActiveBusiness();
 
@@ -329,9 +409,6 @@ export function useDashboardMetrics(
           targetBusinessId,
         );
 
-        /*
-         * Resolver sede activa.
-         */
         const currentSedeStorage =
           localStorage.getItem(
             "active_sede_id",
@@ -360,29 +437,19 @@ export function useDashboardMetrics(
             : "Todas las sedes",
         );
 
-        /*
-         * No hay negocio ni sede.
-         */
         if (
           !targetBusinessId &&
           !effectiveSedeId
         ) {
           setHasNoBusiness(true);
 
-          const emptyMetrics =
+          const empty =
             EMPTY_METRICS(periodo);
 
-          setPeriodMetrics(
-            emptyMetrics,
-          );
-
-          setGeneralMetrics(
-            emptyMetrics,
-          );
-
+          setPeriodMetrics(empty);
+          setGeneralMetrics(empty);
           setAllTransactions([]);
 
-          setError(null);
           setIsLoading(false);
           setIsRefreshing(false);
 
@@ -392,9 +459,11 @@ export function useDashboardMetrics(
         setHasNoBusiness(false);
 
         /*
-         * 1. Obtener reporte financiero real.
+         * Obtener reporte financiero.
          */
-        let reportResult: ReporteFinanciero;
+        let reportResult:
+          | ReporteFinanciero
+          | undefined;
 
         if (effectiveSedeId) {
           reportResult =
@@ -408,35 +477,24 @@ export function useDashboardMetrics(
               targetBusinessId,
               periodo,
             );
-        } else {
-          reportResult =
-            EMPTY_METRICS(periodo);
         }
 
-        /*
-         * Actualizar nombre del negocio si viene
-         * en la respuesta del backend.
-         */
-        if (reportResult?.negocio?.nombre) {
+        const safeReport =
+          reportResult ||
+          EMPTY_METRICS(periodo);
+
+        if (
+          safeReport?.negocio?.nombre
+        ) {
           setBusinessName(
-            reportResult.negocio.nombre,
+            safeReport.negocio.nombre,
           );
 
           localStorage.setItem(
             "active_business_name",
-            reportResult.negocio.nombre,
+            safeReport.negocio.nombre,
           );
         }
-
-        /*
-         * Nunca guardar null.
-         *
-         * Si el backend devuelve algo inesperado,
-         * utilizamos EMPTY_METRICS.
-         */
-        const safeReport =
-          reportResult ||
-          EMPTY_METRICS(periodo);
 
         setPeriodMetrics(
           safeReport,
@@ -447,58 +505,13 @@ export function useDashboardMetrics(
         );
 
         /*
-         * 2. Cargar transacciones reales.
+         * Obtener movimientos.
          */
-        try {
-          let targetSedeIds: string[] = [];
-
-          if (effectiveSedeId) {
-            targetSedeIds = [
-              effectiveSedeId,
-            ];
-          } else if (
-            safeReport?.sedes &&
-            safeReport.sedes.length > 0
-          ) {
-            targetSedeIds =
-              safeReport.sedes.map(
-                (s) => s.sede.id,
-              );
-          } else if (targetBusinessId) {
-            const sedesList =
-              await profileApi
-                .getSedes(
-                  targetBusinessId,
-                )
-                .catch(() => []);
-
-            targetSedeIds =
-              sedesList.map(
-                (s) => s.id,
-              );
-          }
-
-          if (
-            targetSedeIds.length > 0
-          ) {
-            const txList =
-              await dashboardApi.getTransacciones(
-                targetSedeIds,
-              );
-
-            setAllTransactions(
-              txList || [],
-            );
-          } else {
-            setAllTransactions([]);
-          }
-        } catch {
-          /*
-           * Si falla únicamente la carga de
-           * transacciones, no hacemos caer las métricas.
-           */
-          setAllTransactions([]);
-        }
+        await loadTransactions(
+          targetBusinessId,
+          effectiveSedeId,
+          safeReport,
+        );
       } catch (err: any) {
         console.error(
           "Error al obtener métricas del dashboard:",
@@ -509,17 +522,12 @@ export function useDashboardMetrics(
           err?.message ||
           "Error de conexión con el servidor al cargar las métricas financieras.";
 
-        /*
-         * Si el error corresponde a permisos,
-         * limpiar selección residual.
-         */
+        const lower =
+          errorMsg.toLowerCase();
+
         if (
-          errorMsg
-            .toLowerCase()
-            .includes("permisos") ||
-          errorMsg
-            .toLowerCase()
-            .includes("no tienes")
+          lower.includes("permisos") ||
+          lower.includes("no tienes")
         ) {
           localStorage.removeItem(
             "active_business_id",
@@ -538,27 +546,15 @@ export function useDashboardMetrics(
           );
 
           setHasNoBusiness(true);
-          setBusinessName("Sin Negocio");
+          setBusinessName(
+            "Sin Negocio",
+          );
           setSedeName("Sin Sede");
           setError(null);
         } else {
           setError(errorMsg);
         }
 
-        /*
-         * IMPORTANTE:
-         *
-         * Antes aquí se hacía:
-         *
-         * setPeriodMetrics(null)
-         * setGeneralMetrics(null)
-         *
-         * Eso podía provocar nuevamente:
-         *
-         * Cannot read properties of null
-         *
-         * Ahora siempre mantenemos una estructura válida.
-         */
         setPeriodMetrics(
           EMPTY_METRICS(periodo),
         );
@@ -569,10 +565,6 @@ export function useDashboardMetrics(
 
         setAllTransactions([]);
       } finally {
-        /*
-         * Garantizar al menos 280ms para una transición
-         * visual suave del skeleton.
-         */
         const elapsed =
           Date.now() - startTime;
 
@@ -595,16 +587,22 @@ export function useDashboardMetrics(
       resolveActiveBusiness,
       customSedeId,
       periodo,
+      loadTransactions,
     ],
   );
 
   /*
    * Cambio de período.
+   *
+   * IMPORTANTE:
+   * Se actualizan tanto las métricas como las transacciones.
    */
   const handlePeriodChange = async (
     newPeriodo: PeriodoTipo,
   ) => {
-    if (newPeriodo === periodo) {
+    if (
+      newPeriodo === periodo
+    ) {
       return;
     }
 
@@ -632,7 +630,9 @@ export function useDashboardMetrics(
     setIsChartLoading(true);
 
     try {
-      let reportResult: ReporteFinanciero;
+      let reportResult:
+        | ReporteFinanciero
+        | undefined;
 
       if (effectiveSedeId) {
         reportResult =
@@ -640,37 +640,47 @@ export function useDashboardMetrics(
             effectiveSedeId,
             newPeriodo,
           );
-      } else if (resolvedBusinessId) {
+      } else if (
+        resolvedBusinessId
+      ) {
         reportResult =
           await dashboardApi.getReporteNegocio(
             resolvedBusinessId,
             newPeriodo,
           );
-      } else {
-        reportResult =
-          EMPTY_METRICS(newPeriodo);
       }
 
-      /*
-       * Nunca dejar metrics en null.
-       */
-      setPeriodMetrics(
+      const safeReport =
         reportResult ||
-          EMPTY_METRICS(newPeriodo),
+        EMPTY_METRICS(
+          newPeriodo,
+        );
+
+      setPeriodMetrics(
+        safeReport,
       );
-    } catch (err: any) {
+
+      /*
+       * Actualizar transacciones también.
+       */
+      await loadTransactions(
+        resolvedBusinessId,
+        effectiveSedeId,
+        safeReport,
+      );
+    } catch (err) {
       console.warn(
         "Error al cambiar período:",
         err,
       );
 
-      /*
-       * Mantener una estructura válida incluso
-       * si falla el cambio de período.
-       */
       setPeriodMetrics(
-        EMPTY_METRICS(newPeriodo),
+        EMPTY_METRICS(
+          newPeriodo,
+        ),
       );
+
+      setAllTransactions([]);
     } finally {
       setIsChartLoading(false);
     }
@@ -684,50 +694,52 @@ export function useDashboardMetrics(
   }, [fetchMetrics]);
 
   /*
-   * Escuchar cambios de selección global.
+   * Cambios de negocio/sede.
    */
   useEffect(() => {
-    const handleBusinessChange = () => {
-      const bId =
-        localStorage.getItem(
-          "active_business_id",
+    const handleBusinessChange =
+      () => {
+        const bId =
+          localStorage.getItem(
+            "active_business_id",
+          );
+
+        const bName =
+          localStorage.getItem(
+            "active_business_name",
+          );
+
+        const sId =
+          localStorage.getItem(
+            "active_sede_id",
+          );
+
+        const sName =
+          localStorage.getItem(
+            "active_sede_name",
+          );
+
+        setResolvedBusinessId(
+          bId,
         );
 
-      const bName =
-        localStorage.getItem(
-          "active_business_name",
+        setBusinessName(
+          bName || "Mi Negocio",
         );
 
-      const sId =
-        localStorage.getItem(
-          "active_sede_id",
+        setResolvedSedeId(
+          sId && sId !== "all"
+            ? sId
+            : null,
         );
 
-      const sName =
-        localStorage.getItem(
-          "active_sede_name",
+        setSedeName(
+          sName ||
+            "Todas las sedes",
         );
 
-      setResolvedBusinessId(
-        bId,
-      );
-
-      setBusinessName(
-        bName || "Mi Negocio",
-      );
-
-      setResolvedSedeId(
-        sId && sId !== "all"
-          ? sId
-          : null,
-      );
-
-      setSedeName(
-        sName || "Todas las sedes",
-      );
-
-      fetchMetrics(true);
-    };
+        fetchMetrics(true);
+      };
 
     window.addEventListener(
       "storage",
@@ -752,23 +764,25 @@ export function useDashboardMetrics(
     };
   }, [fetchMetrics]);
 
-  /*
-   * Determinar si estamos viendo todas las sedes.
-   */
-  const isConsolidated = useMemo(() => {
-    return (
-      !resolvedSedeId ||
-      resolvedSedeId === "all"
-    );
-  }, [resolvedSedeId]);
+  const isConsolidated =
+    useMemo(() => {
+      return (
+        !resolvedSedeId ||
+        resolvedSedeId === "all"
+      );
+    }, [resolvedSedeId]);
 
   return {
+    user,
+
     metrics: periodMetrics,
 
     generalMetrics:
-      generalMetrics || periodMetrics,
+      generalMetrics ||
+      periodMetrics,
 
-    transactions: allTransactions,
+    transactions:
+      allTransactions,
 
     isLoading,
 

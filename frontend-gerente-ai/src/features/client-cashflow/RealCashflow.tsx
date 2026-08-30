@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+
 import {
   Area,
   AreaChart,
@@ -7,141 +8,231 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { Search, Filter } from "lucide-react";
+
+import {
+  Search,
+  Filter,
+} from "lucide-react";
+
 import {
   fmt,
   ChartTooltip,
 } from "@/shared/components/ui/ChartTooltip";
+
 import { DateDropdown } from "@/shared/components/ui/DateDropdown";
+
 import {
   useDashboardMetrics,
   type PeriodoTipo,
 } from "@/features/client-dashboard";
 
-/** Las opciones del selector son los periodos que entiende /reportes. */
 const PERIODOS = [
-  { value: "diario", label: "Hoy" },
-  { value: "semanal", label: "Últimos 7 días" },
-  { value: "mensual", label: "Este mes" },
+  {
+    value: "diario",
+    label: "Hoy",
+  },
+  {
+    value: "semanal",
+    label: "Últimos 7 días",
+  },
+  {
+    value: "mensual",
+    label: "Este mes",
+  },
 ];
 
-const ETIQUETA_DIA = new Intl.DateTimeFormat("es-CO", {
-  day: "2-digit",
-  month: "short",
-});
+const ETIQUETA_DIA =
+  new Intl.DateTimeFormat(
+    "es-CO",
+    {
+      day: "2-digit",
+      month: "short",
+    },
+  );
 
 export function RealCashflow() {
-  // Se reutiliza el hook del dashboard para obtener:
-  // - métricas financieras reales
-  // - transacciones reales
-  // - negocio y sede activos
-  // - período seleccionado
   const {
     metrics,
     transactions,
     periodo,
     setPeriodo,
     isLoading,
+    isChartLoading,
   } = useDashboardMetrics();
 
-  const [busqueda, setBusqueda] = useState("");
+  const [busqueda, setBusqueda] =
+    useState("");
 
   /*
-   * Protección adicional:
-   * aunque el hook ahora siempre debe entregar una estructura válida,
-   * evitamos que este componente pueda romperse si metrics llegara a
-   * ser null/undefined por alguna condición inesperada.
+   * Métricas financieras reales.
    */
-  const totalIngresos = metrics?.ingresos?.total ?? 0;
-  const totalGastos = metrics?.egresos?.total ?? 0;
-  const saldo = metrics?.balance ?? 0;
+  const totalIngresos =
+    metrics?.ingresos?.total ?? 0;
+
+  const totalGastos =
+    metrics?.egresos?.total ?? 0;
+
+  const saldo =
+    metrics?.balance ?? 0;
 
   /*
-   * Transformar las transacciones del dashboard al formato utilizado
-   * por la tabla y el gráfico.
-   */
-  const movimientos = useMemo(
-    () =>
-      transactions.map((tx) => ({
-        id: tx.id,
-        fecha: ETIQUETA_DIA.format(new Date(tx.rawDate)),
-        rawDate: tx.rawDate,
-        concepto: tx.personName
-          ? `${tx.activity} — ${tx.personName}`
-          : tx.activity,
-        categoria: tx.paymentMethod,
-        monto: tx.amount,
-        tipo:
-          tx.type === "Gasto"
-            ? ("gasto" as const)
-            : ("ingreso" as const),
-      })),
-    [transactions],
-  );
-
-  /*
-   * Filtrar movimientos según la búsqueda.
-   */
-  const visibles = useMemo(() => {
-    const q = busqueda.trim().toLowerCase();
-
-    if (!q) {
-      return movimientos;
-    }
-
-    return movimientos.filter(
-      (m) =>
-        m.concepto.toLowerCase().includes(q) ||
-        m.categoria.toLowerCase().includes(q),
-    );
-  }, [movimientos, busqueda]);
-
-  /*
-   * Construir la serie del gráfico agrupando los movimientos por día.
+   * Transformar transacciones.
    *
-   * El gráfico y la tabla utilizan la misma fuente de datos:
-   * transactions.
+   * REGLA:
+   *
+   * Venta contado = ingreso
+   * Abono = ingreso
+   * Venta fiado = NO movimiento de caja
+   * Compra = gasto
+   * Gasto = gasto
    */
-  const serie = useMemo(() => {
-    const porDia = new Map<
-      string,
-      {
-        etiqueta: string;
-        ventas: number;
-        gastos: number;
-        orden: number;
+  const movimientos =
+    useMemo(() => {
+      return transactions
+        .filter((tx) => {
+          /*
+           * Una venta FIADA no representa entrada
+           * de dinero, por lo tanto no debe aparecer
+           * como movimiento de caja.
+           */
+          return tx.type !== "Convertida";
+        })
+        .map((tx) => {
+          const esIngreso =
+            tx.type === "Venta" ||
+            tx.type === "Abono";
+
+          return {
+            id: tx.id,
+
+            fecha:
+              ETIQUETA_DIA.format(
+                new Date(
+                  tx.rawDate,
+                ),
+              ),
+
+            rawDate: tx.rawDate,
+
+            concepto:
+              tx.personName
+                ? `${tx.activity} — ${tx.personName}`
+                : tx.activity,
+
+            categoria:
+              tx.paymentMethod,
+
+            monto:
+              Number(tx.amount) || 0,
+
+            tipo: esIngreso
+              ? ("ingreso" as const)
+              : ("gasto" as const),
+          };
+        });
+    }, [transactions]);
+
+  /*
+   * Filtrado por búsqueda.
+   */
+  const visibles =
+    useMemo(() => {
+      const q =
+        busqueda
+          .trim()
+          .toLowerCase();
+
+      if (!q) {
+        return movimientos;
       }
-    >();
 
-    for (const m of movimientos) {
-      const dia = m.rawDate.slice(0, 10);
+      return movimientos.filter(
+        (movimiento) =>
+          movimiento.concepto
+            .toLowerCase()
+            .includes(q) ||
+          movimiento.categoria
+            .toLowerCase()
+            .includes(q),
+      );
+    }, [
+      movimientos,
+      busqueda,
+    ]);
 
-      const acumulado =
-        porDia.get(dia) ??
-        {
-          etiqueta: m.fecha,
-          ventas: 0,
-          gastos: 0,
-          orden: new Date(m.rawDate).getTime(),
-        };
+  /*
+   * Serie del gráfico.
+   *
+   * Usa exactamente los mismos movimientos
+   * que se muestran como movimientos de caja.
+   */
+  const serie =
+    useMemo(() => {
+      const porDia =
+        new Map<
+          string,
+          {
+            etiqueta: string;
+            ventas: number;
+            gastos: number;
+            orden: number;
+          }
+        >();
 
-      if (m.tipo === "ingreso") {
-        acumulado.ventas += m.monto;
-      } else {
-        acumulado.gastos += m.monto;
+      for (const movimiento of movimientos) {
+        const fecha =
+          new Date(
+            movimiento.rawDate,
+          );
+
+        const dia =
+          movimiento.rawDate.slice(
+            0,
+            10,
+          );
+
+        const acumulado =
+          porDia.get(dia) ?? {
+            etiqueta:
+              movimiento.fecha,
+
+            ventas: 0,
+
+            gastos: 0,
+
+            orden:
+              fecha.getTime(),
+          };
+
+        if (
+          movimiento.tipo ===
+          "ingreso"
+        ) {
+          acumulado.ventas +=
+            movimiento.monto;
+        } else {
+          acumulado.gastos +=
+            movimiento.monto;
+        }
+
+        porDia.set(
+          dia,
+          acumulado,
+        );
       }
 
-      porDia.set(dia, acumulado);
-    }
-
-    return [...porDia.values()].sort(
-      (a, b) => a.orden - b.orden,
-    );
-  }, [movimientos]);
+      return [...porDia.values()]
+        .sort(
+          (a, b) =>
+            a.orden - b.orden,
+        );
+    }, [movimientos]);
 
   return (
     <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Chart Section */}
+      {/* =========================
+          CHART
+      ========================== */}
       <div className="bg-card border border-border rounded-2xl shadow-sm p-6 max-w-5xl">
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-bold text-foreground">
@@ -151,16 +242,20 @@ export function RealCashflow() {
           <DateDropdown
             value={periodo}
             options={PERIODOS}
-            onChange={(v) =>
-              setPeriodo(v as PeriodoTipo)
+            onChange={(value) =>
+              setPeriodo(
+                value as PeriodoTipo,
+              )
             }
           />
         </div>
 
         <div className="h-64 w-full">
-          {isLoading ? (
+          {isLoading ||
+          isChartLoading ? (
             <div className="h-full w-full rounded-xl bg-muted/40 animate-pulse" />
-          ) : serie.length === 0 ? (
+          ) : serie.length ===
+            0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center">
               <p className="text-sm font-bold text-foreground">
                 Sin movimientos en este periodo
@@ -171,7 +266,10 @@ export function RealCashflow() {
               </p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer
+              width="100%"
+              height="100%"
+            >
               <AreaChart
                 data={serie}
                 margin={{
@@ -236,17 +334,23 @@ export function RealCashflow() {
                   fontSize={12}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(value) =>
+                  tickFormatter={(
+                    value,
+                  ) =>
                     `$${value / 1000}k`
                   }
                 />
 
                 <Tooltip
-                  content={<ChartTooltip />}
+                  content={
+                    <ChartTooltip />
+                  }
                   cursor={{
                     fill: "transparent",
-                    stroke: "currentColor",
-                    strokeDasharray: "4 4",
+                    stroke:
+                      "currentColor",
+                    strokeDasharray:
+                      "4 4",
                   }}
                 />
 
@@ -273,19 +377,19 @@ export function RealCashflow() {
         </div>
       </div>
 
-      {/* Summary strip */}
-      <div className="grid grid-cols-3 gap-5 max-w-5xl">
+      {/* =========================
+          SUMMARY
+      ========================== */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-5 max-w-5xl">
         {/* Ingresos */}
         <div className="bg-card border border-border rounded-2xl shadow-sm px-6 py-5">
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
             Ingresos
           </p>
 
-          <div className="flex items-baseline gap-2">
-            <p className="text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-500">
-              {fmt(totalIngresos)}
-            </p>
-          </div>
+          <p className="text-3xl font-black tracking-tight text-emerald-600 dark:text-emerald-500">
+            {fmt(totalIngresos)}
+          </p>
         </div>
 
         {/* Egresos */}
@@ -294,28 +398,26 @@ export function RealCashflow() {
             Egresos
           </p>
 
-          <div className="flex items-baseline gap-2">
-            <p className="text-3xl font-black tracking-tight text-rose-600 dark:text-rose-500">
-              {fmt(totalGastos)}
-            </p>
-          </div>
+          <p className="text-3xl font-black tracking-tight text-rose-600 dark:text-rose-500">
+            {fmt(totalGastos)}
+          </p>
         </div>
 
-        {/* Saldo Neto */}
+        {/* Saldo */}
         <div className="bg-card border border-border rounded-2xl shadow-sm px-6 py-5">
           <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
             Saldo Neto
           </p>
 
-          <div className="flex items-baseline gap-2">
-            <p className="text-3xl font-black tracking-tight text-foreground">
-              {fmt(saldo)}
-            </p>
-          </div>
+          <p className="text-3xl font-black tracking-tight text-foreground">
+            {fmt(saldo)}
+          </p>
         </div>
       </div>
 
-      {/* Table */}
+      {/* =========================
+          TABLE
+      ========================== */}
       <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden max-w-5xl">
         <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
           <div className="relative group">
@@ -324,16 +426,22 @@ export function RealCashflow() {
             <input
               type="text"
               value={busqueda}
-              onChange={(e) =>
-                setBusqueda(e.target.value)
+              onChange={(event) =>
+                setBusqueda(
+                  event.target.value,
+                )
               }
               placeholder="Buscar transacción..."
               className="pl-9 pr-4 py-2 w-72 bg-card border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-sm"
             />
           </div>
 
-          <button className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-muted-foreground bg-card border border-border rounded-xl shadow-sm hover:text-foreground hover:bg-muted transition-colors">
+          <button
+            type="button"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-muted-foreground bg-card border border-border rounded-xl shadow-sm hover:text-foreground hover:bg-muted transition-colors"
+          >
             <Filter className="w-4 h-4" />
+
             Filtros
           </button>
         </div>
@@ -375,7 +483,8 @@ export function RealCashflow() {
 
               {/* Empty */}
               {!isLoading &&
-                visibles.length === 0 && (
+                visibles.length ===
+                  0 && (
                   <tr>
                     <td
                       colSpan={4}
@@ -390,47 +499,57 @@ export function RealCashflow() {
 
               {/* Transactions */}
               {!isLoading &&
-                visibles.map((row) => (
-                  <tr
-                    key={row.id}
-                    className="hover:bg-muted/30 transition-colors"
-                  >
-                    <td className="px-6 py-4 text-sm text-muted-foreground font-medium whitespace-nowrap">
-                      {row.fecha}
-                    </td>
+                visibles.map(
+                  (row) => (
+                    <tr
+                      key={row.id}
+                      className="hover:bg-muted/30 transition-colors"
+                    >
+                      <td className="px-6 py-4 text-sm text-muted-foreground font-medium whitespace-nowrap">
+                        {row.fecha}
+                      </td>
 
-                    <td className="px-6 py-4 text-sm text-foreground font-bold">
-                      {row.concepto}
-                    </td>
+                      <td className="px-6 py-4 text-sm text-foreground font-bold">
+                        {row.concepto}
+                      </td>
 
-                    <td className="px-6 py-4">
-                      <span
-                        className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
-                          row.tipo === "ingreso"
-                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
-                            : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
-                        }`}
-                      >
-                        {row.categoria}
-                      </span>
-                    </td>
+                      <td className="px-6 py-4">
+                        <span
+                          className={`text-xs font-bold px-2.5 py-1 rounded-lg ${
+                            row.tipo ===
+                            "ingreso"
+                              ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400"
+                              : "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400"
+                          }`}
+                        >
+                          {
+                            row.categoria
+                          }
+                        </span>
+                      </td>
 
-                    <td className="px-6 py-4 text-right tabular-nums">
-                      <span
-                        className={`text-sm font-black ${
-                          row.tipo === "ingreso"
-                            ? "text-emerald-600 dark:text-emerald-500"
-                            : "text-rose-600 dark:text-rose-500"
-                        }`}
-                      >
-                        {row.tipo === "ingreso"
-                          ? "+"
-                          : "−"}
-                        {fmt(row.monto)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
+                      <td className="px-6 py-4 text-right tabular-nums">
+                        <span
+                          className={`text-sm font-black ${
+                            row.tipo ===
+                            "ingreso"
+                              ? "text-emerald-600 dark:text-emerald-500"
+                              : "text-rose-600 dark:text-rose-500"
+                          }`}
+                        >
+                          {row.tipo ===
+                          "ingreso"
+                            ? "+"
+                            : "−"}
+
+                          {fmt(
+                            row.monto,
+                          )}
+                        </span>
+                      </td>
+                    </tr>
+                  ),
+                )}
             </tbody>
           </table>
         </div>
