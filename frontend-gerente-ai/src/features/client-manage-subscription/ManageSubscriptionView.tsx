@@ -100,7 +100,7 @@ export function ManageSubscriptionView() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
         <div>
-          <h1 className="text-3xl font-black text-foreground tracking-tight">Administrar Suscripción</h1>
+          <h1 className="text-3xl font-black text-foreground tracking-tight">Administrar suscripción</h1>
           <p className="text-muted-foreground mt-1">
             Estado de tu plan, cuota de sucursales e historial para <strong className="text-foreground">{negocioNombre}</strong>
           </p>
@@ -185,7 +185,7 @@ export function ManageSubscriptionView() {
             className="px-5 py-3 bg-card border border-border text-foreground font-bold text-xs rounded-xl hover:bg-muted transition-colors text-center flex items-center justify-center gap-2 shadow-sm"
           >
             <Sparkles className="w-4 h-4 text-emerald-500" />
-            <span>Cambiar Plan</span>
+            <span>Cambiar plan</span>
           </Link>
         </div>
       </div>
@@ -267,7 +267,7 @@ export function ManageSubscriptionView() {
               <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
                 <CardIcon className="w-4 h-4 text-muted-foreground" />
               </div>
-              <h3 className="font-bold text-foreground text-sm">Pasarela de Pagos</h3>
+              <h3 className="font-bold text-foreground text-sm">Pasarela de pagos</h3>
             </div>
             <span className="text-[10px] font-black uppercase tracking-wider text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20">
               Wompi Bancolombia

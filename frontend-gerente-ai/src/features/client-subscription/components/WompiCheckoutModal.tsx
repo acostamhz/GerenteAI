@@ -228,7 +228,7 @@ export function WompiCheckoutModal({
               </div>
               <div>
                 <span className="text-xs font-bold text-muted-foreground uppercase tracking-widest block">
-                  Pasarela de Pagos
+                  Pasarela de pagos
                 </span>
                 <span className="text-sm font-black text-foreground">
                   Suscripción Plan {plan.nombre} ({ciclo === 'anual' ? 'Anual -16%' : 'Mensual'})

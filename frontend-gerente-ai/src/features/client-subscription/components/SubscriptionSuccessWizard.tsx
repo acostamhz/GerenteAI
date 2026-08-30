@@ -247,7 +247,7 @@ export function SubscriptionSuccessWizard({
               onClick={handleNext}
               className="w-full py-2.5 bg-card hover:bg-muted text-foreground border border-border font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
             >
-              <span>Ver Administrar Suscripción</span>
+              <span>Ver Administrar suscripción</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>

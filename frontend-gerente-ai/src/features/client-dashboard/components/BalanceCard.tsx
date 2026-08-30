@@ -56,6 +56,7 @@ export function BalanceCard({
   const [trm, setTrm] = useState<TRMRecord | null>(null);
   const [trmLoading, setTrmLoading] = useState(true);
   const [trmError, setTrmError] = useState(false);
+  const [currentDate, setCurrentDate] = useState(new Date());
 
   useEffect(() => {
     let cancelled = false;
@@ -114,6 +115,35 @@ export function BalanceCard({
     };
   }, []);
 
+  useEffect(() => {
+    const updateCurrentDate = () => {
+      setCurrentDate(new Date());
+    };
+
+    const now = new Date();
+
+    const nextMidnight = new Date(now);
+    nextMidnight.setHours(24, 0, 0, 0);
+
+    const timeUntilMidnight =
+      nextMidnight.getTime() - now.getTime();
+
+    const midnightTimeout = setTimeout(() => {
+      updateCurrentDate();
+
+      const dailyInterval = setInterval(
+        updateCurrentDate,
+        24 * 60 * 60 * 1000
+      );
+
+      return () => clearInterval(dailyInterval);
+    }, timeUntilMidnight);
+
+    return () => {
+      clearTimeout(midnightTimeout);
+    };
+  }, []);
+
   const trmValue =
     trm !== null ? Number(trm.valor) : null;
 
@@ -125,16 +155,12 @@ export function BalanceCard({
         })
       : null;
 
-  const formattedTRMDate = trm?.vigenciadesde
-    ? new Date(trm.vigenciadesde).toLocaleDateString(
-        "es-CO",
-        {
-          day: "2-digit",
-          month: "2-digit",
-          year: "numeric",
-        }
-      )
-    : null;
+  const formattedCurrentDate =
+    currentDate.toLocaleDateString("es-CO", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    });
 
   if (isLoading) {
     return (
@@ -196,11 +222,9 @@ export function BalanceCard({
               ) : (
                 <>
                   {formattedTRM} COP
-                  {formattedTRMDate && (
-                    <span className="ml-1">
-                      · TRM {formattedTRMDate}
-                    </span>
-                  )}
+                  <span className="ml-1">
+                    · TRM {formattedCurrentDate}
+                  </span>
                 </>
               )}
             </p>
@@ -225,7 +249,7 @@ export function BalanceCard({
             type="button"
             onClick={() =>
               alert(
-                "Registrar Gasto rápido: Abre el módulo de gastos o envía la foto a Luka por WhatsApp."
+                "Registrar gasto rápido: Abre el módulo de gastos o envía la foto a Luka por WhatsApp."
               )
             }
             className="flex-1 bg-foreground hover:bg-foreground/90 text-background font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition-colors cursor-pointer"
