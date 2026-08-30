@@ -47,7 +47,7 @@ export function ProfileView({ isAdmin: _isAdmin }: { isAdmin?: boolean } = {}) {
       <div className="flex items-center justify-between pt-2">
         <div>
           <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
-            Centro de Perfil & Negocios
+            Centro de perfil y negocios
           </h1>
           <p className="text-xs sm:text-sm text-muted-foreground mt-0.5">
             Administra tu identidad, organizaciones conectadas y canales autónomos de Inteligencia Artificial.

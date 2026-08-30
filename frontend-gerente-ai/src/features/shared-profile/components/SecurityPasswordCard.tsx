@@ -127,7 +127,7 @@ export function SecurityPasswordCard({
       <div className="border-b border-slate-200/80 dark:border-border/60 pb-3.5">
         <h3 className="text-sm sm:text-base font-bold text-foreground flex items-center gap-2">
           <Lock className="w-4 h-4 text-emerald-500 shrink-0" />
-          Seguridad & Acceso
+          Seguridad y acceso
         </h3>
         <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
           Gestiona las credenciales de acceso, correo electrónico y contraseña.
@@ -143,7 +143,7 @@ export function SecurityPasswordCard({
             </div>
             <div className="min-w-0 flex-1">
               <h4 className="text-xs sm:text-sm font-bold text-foreground truncate">
-                Contraseña de Seguridad
+                Contraseña de seguridad
               </h4>
               <p className="text-[11px] text-muted-foreground truncate">
                 Autenticación protegida y cifrada
@@ -207,7 +207,7 @@ export function SecurityPasswordCard({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <h4 className="text-xs sm:text-sm font-bold text-foreground truncate">
-                    Correo de Cuenta
+                    Correo de cuenta
                   </h4>
                   <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[9px] font-bold bg-emerald-500/15 text-emerald-800 dark:text-emerald-300 border border-emerald-500/30 shrink-0">
                     <CheckCircle2 className="w-2.5 h-2.5 text-emerald-500" /> Verificado

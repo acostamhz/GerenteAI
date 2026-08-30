@@ -33,7 +33,7 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
   const [contexto, setContexto] = useState('');
 
   // Datos Primera Sede / Sucursal
-  const [nombreSede, setNombreSede] = useState('Sede Principal');
+  const [nombreSede, setNombreSede] = useState('Sede principal');
   const [direccionSede, setDireccionSede] = useState('');
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [whatsappUsername, setWhatsappUsername] = useState('');
@@ -83,7 +83,7 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
     }
 
     if (!cleanNombreSede) {
-      setError('El nombre de la sede o sucursal es obligatorio (ej. Sede Principal).');
+      setError('El nombre de la sede o sucursal es obligatorio (ej. Sede principal).');
       return;
     }
 
@@ -300,7 +300,7 @@ export function CreateBusinessModal({ isOpen, onClose, onSuccess }: CreateBusine
                         required
                         value={nombreSede}
                         onChange={(e) => setNombreSede(e.target.value)}
-                        placeholder="Ej. Sede Principal"
+                        placeholder="Ej. Sede principal"
                         className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"
                       />
                     </div>

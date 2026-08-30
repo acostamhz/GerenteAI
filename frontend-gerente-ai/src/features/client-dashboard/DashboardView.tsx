@@ -67,7 +67,7 @@ export function DashboardView() {
               <div>
                 <div className="flex items-center gap-2 mb-1">
                   <h1 className="text-3xl font-black text-foreground tracking-tight">
-                    Detalles de Saldo
+                    Detalles de saldo
                   </h1>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted-foreground">
@@ -93,7 +93,7 @@ export function DashboardView() {
                   className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 shadow-sm hover:from-emerald-500/20 hover:to-emerald-500/10 transition-colors"
                 >
                   <Sparkles className="w-4 h-4 text-emerald-500" />
-                  Mejora tu Plan
+                  Mejora tu plan
                 </Link>
                 
                 {/* Selector Segmentado Interactivo y Reactivo */}
@@ -137,7 +137,7 @@ export function DashboardView() {
                   title="Sincronizar saldo con el servidor"
                 >
                   <RefreshCw className={`w-4 h-4 text-muted-foreground ${isRefreshing ? "animate-spin text-emerald-500" : ""}`} />
-                  Gestionar Saldo
+                  Gestionar saldo
                 </button>
               </div>
             </motion.div>
