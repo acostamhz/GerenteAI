@@ -1,85 +1,701 @@
-import { Search, Clock, AlertTriangle } from "lucide-react";
+import {
+  useMemo,
+  useState,
+} from "react";
+
+import {
+  Search,
+  Clock,
+  AlertTriangle,
+  CheckCircle2,
+  Loader2,
+} from "lucide-react";
+
 import { fmt } from "@/shared/components/ui/ChartTooltip";
 
-const PENDING_DATA = [
-  { id: 1, fecha: "10 Jul", cliente: "Ferretería San José", monto: 1200000, diasRetraso: 5, estado: "vencido" },
-  { id: 2, fecha: "15 Jul", cliente: "Distribuidora Central", monto: 4500000, diasRetraso: 0, estado: "al_dia" },
-  { id: 3, fecha: "05 Jul", cliente: "Taller Hermanos", monto: 850000, diasRetraso: 10, estado: "critico" },
-  { id: 4, fecha: "22 Jul", cliente: "Comercializadora XY", monto: 3200000, diasRetraso: -5, estado: "proximo" },
-];
+import {
+  ClienteFiado,
+  VentaFiada,
+} from "@/features/client-dashboard/types";
 
-export function PendingCashflow() {
-  const totalCobrar = PENDING_DATA.reduce((s, r) => s + r.monto, 0);
-  const totalVencido = PENDING_DATA.filter(r => r.diasRetraso > 0).reduce((s, r) => s + r.monto, 0);
+interface PendingCashflowProps {
+  fiados: {
+    sede: {
+      id: string;
+      nombre: string;
+    };
+
+    generadoEl: string;
+
+    totales: {
+      porCobrar: number;
+      vencido: number;
+      clientesConDeuda: number;
+      ventasPendientes: number;
+    };
+
+    clientes: ClienteFiado[];
+  } | null;
+
+  isLoading?: boolean;
+
+  onRegisterPayment: (
+    clienteId: string,
+    ventaId: string,
+    monto: number,
+  ) => Promise<void>;
+}
+
+interface PendingRow {
+  id: string;
+
+  ventaId: string;
+
+  clienteId: string;
+
+  fecha: string;
+
+  fechaVencimiento: string | null;
+
+  cliente: string;
+
+  monto: number;
+
+  diasRetraso: number;
+
+  estado:
+    | "critico"
+    | "vencido"
+    | "al_dia"
+    | "proximo";
+
+  venta: VentaFiada;
+}
+
+/**
+ * Formatea una fecha para mostrarla
+ * de forma corta en la tabla.
+ */
+const formatShortDate = (
+  fecha: string | null,
+) => {
+  if (!fecha) {
+    return "Sin vencimiento";
+  }
+
+  const date = new Date(fecha);
+
+  if (Number.isNaN(date.getTime())) {
+    return "Fecha inválida";
+  }
+
+  return date.toLocaleDateString(
+    "es-CO",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    },
+  );
+};
+
+/**
+ * Determina el estado de una venta
+ * utilizando la información real del backend.
+ */
+const getEstado = (
+  venta: VentaFiada,
+): Pick<
+  PendingRow,
+  "estado" | "diasRetraso"
+> => {
+  /*
+   * El backend ya informa si la venta
+   * está vencida y cuántos días lleva
+   * de atraso.
+   */
+  if (venta.vencida) {
+    if (venta.diasDeAtraso >= 8) {
+      return {
+        estado: "critico",
+        diasRetraso:
+          venta.diasDeAtraso,
+      };
+    }
+
+    return {
+      estado: "vencido",
+      diasRetraso:
+        venta.diasDeAtraso,
+    };
+  }
+
+  /*
+   * Una venta sin fecha de vencimiento
+   * no puede clasificarse como próxima.
+   */
+  if (!venta.fechaVencimiento) {
+    return {
+      estado: "al_dia",
+      diasRetraso: 0,
+    };
+  }
+
+  const ahora = new Date();
+
+  const vencimiento =
+    new Date(
+      venta.fechaVencimiento,
+    );
+
+  if (
+    Number.isNaN(
+      vencimiento.getTime(),
+    )
+  ) {
+    return {
+      estado: "al_dia",
+      diasRetraso: 0,
+    };
+  }
+
+  const diferencia =
+    vencimiento.getTime() -
+    ahora.getTime();
+
+  const dias = Math.ceil(
+    diferencia / 86_400_000,
+  );
+
+  /*
+   * Si la diferencia es 0 o negativa,
+   * visualmente la tratamos como "vence hoy".
+   */
+  if (dias <= 0) {
+    return {
+      estado: "al_dia",
+      diasRetraso: 0,
+    };
+  }
+
+  return {
+    estado: "proximo",
+    diasRetraso: -dias,
+  };
+};
+
+export function PendingCashflow({
+  fiados,
+  isLoading = false,
+  onRegisterPayment,
+}: PendingCashflowProps) {
+  const [
+    search,
+    setSearch,
+  ] = useState("");
+
+  const [
+    payingId,
+    setPayingId,
+  ] = useState<string | null>(
+    null,
+  );
+
+  const [
+    paymentError,
+    setPaymentError,
+  ] = useState<string | null>(
+    null,
+  );
+
+  /*
+   * Convertimos:
+   *
+   * clientes[]
+   *    └── ventas[]
+   *
+   * en una lista plana para la tabla.
+   *
+   * NO se crean datos ficticios.
+   */
+  const rows = useMemo(
+    (): PendingRow[] => {
+      if (!fiados) {
+        return [];
+      }
+
+      const result: PendingRow[] =
+        [];
+
+      for (const cliente of fiados.clientes) {
+        for (const venta of cliente.ventas) {
+          /*
+           * Protección adicional:
+           * solamente mostramos deudas reales.
+           */
+          if (
+            venta.saldoPendiente <= 0
+          ) {
+            continue;
+          }
+
+          const estado =
+            getEstado(venta);
+
+          result.push({
+            id: `${cliente.id}-${venta.id}`,
+
+            ventaId: venta.id,
+
+            clienteId: cliente.id,
+
+            fecha: formatShortDate(
+              venta.fecha,
+            ),
+
+            fechaVencimiento:
+              venta.fechaVencimiento,
+
+            cliente:
+              cliente.nombre,
+
+            monto:
+              venta.saldoPendiente,
+
+            diasRetraso:
+              estado.diasRetraso,
+
+            estado:
+              estado.estado,
+
+            /*
+             * Conservamos la venta real.
+             */
+            venta,
+          });
+        }
+      }
+
+      /*
+       * Orden:
+       *
+       * 1. Críticas
+       * 2. Vencidas
+       * 3. Próximas / al día
+       *
+       * Dentro de cada grupo,
+       * mayor deuda primero.
+       */
+      return result.sort(
+        (a, b) => {
+          const priority = {
+            critico: 0,
+            vencido: 1,
+            al_dia: 2,
+            proximo: 3,
+          };
+
+          const priorityDifference =
+            priority[a.estado] -
+            priority[b.estado];
+
+          if (
+            priorityDifference !== 0
+          ) {
+            return priorityDifference;
+          }
+
+          return (
+            b.monto -
+            a.monto
+          );
+        },
+      );
+    },
+    [fiados],
+  );
+
+  /*
+   * Filtro de búsqueda.
+   */
+  const filteredRows =
+    useMemo(() => {
+      const term =
+        search
+          .trim()
+          .toLowerCase();
+
+      if (!term) {
+        return rows;
+      }
+
+      return rows.filter(
+        (row) =>
+          row.cliente
+            .toLowerCase()
+            .includes(term) ||
+          row.ventaId
+            .toLowerCase()
+            .includes(term),
+      );
+    }, [rows, search]);
+
+  /**
+   * Registra un pago.
+   *
+   * El método se utiliza únicamente
+   * para confirmación visual porque el
+   * backend actual todavía no almacena
+   * método de pago.
+   */
+  const handlePayment = async (
+    row: PendingRow,
+    method: string,
+  ) => {
+    if (!method) {
+      return;
+    }
+
+    const confirmar =
+      window.confirm(
+        `¿Registrar pago de ${fmt(
+          row.monto,
+        )} para ${row.cliente}?\n\nMétodo seleccionado: ${method}`,
+      );
+
+    if (!confirmar) {
+      return;
+    }
+
+    setPaymentError(null);
+
+    setPayingId(row.id);
+
+    try {
+      /*
+       * Enviamos la deuda REAL seleccionada.
+       *
+       * El backend se encargará de:
+       *
+       * Cliente.saldoPendiente
+       * Venta.saldoPendiente
+       * Abono
+       */
+      await onRegisterPayment(
+        row.clienteId,
+        row.ventaId,
+        row.monto,
+      );
+    } catch (error: any) {
+      console.error(
+        "Error al registrar el pago:",
+        error,
+      );
+
+      setPaymentError(
+        error?.message ||
+          "No se pudo registrar el pago.",
+      );
+    } finally {
+      setPayingId(null);
+    }
+  };
+
+  const totalCobrar =
+    fiados?.totales
+      .porCobrar ?? 0;
+
+  const totalVencido =
+    fiados?.totales
+      .vencido ?? 0;
 
   return (
     <div className="flex flex-col gap-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Summary strip */}
-      <div className="grid grid-cols-2 gap-5 max-w-3xl">
+      {/* =========================================================
+          RESUMEN
+      ========================================================== */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 max-w-3xl">
+        {/* Total por cobrar */}
         <div className="bg-card border border-border rounded-2xl shadow-sm px-6 py-5 relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-5">
             <Clock className="w-24 h-24" />
           </div>
-          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">Total por Cobrar (En la calle)</p>
-          <p className="text-3xl font-black tracking-tight text-foreground">{fmt(totalCobrar)}</p>
+
+          <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-widest mb-3">
+            Total por Cobrar (En la calle)
+          </p>
+
+          <p className="text-3xl font-black tracking-tight text-foreground">
+            {fmt(totalCobrar)}
+          </p>
         </div>
+
+        {/* Cartera vencida */}
         <div className="bg-card border border-rose-500/20 rounded-2xl shadow-sm px-6 py-5 bg-rose-500/5 relative overflow-hidden">
           <div className="absolute top-0 right-0 p-4 opacity-5">
             <AlertTriangle className="w-24 h-24 text-rose-500" />
           </div>
-          <p className="text-[11px] font-bold text-rose-600 dark:text-rose-500 uppercase tracking-widest mb-3">Cartera Vencida</p>
+
+          <p className="text-[11px] font-bold text-rose-600 dark:text-rose-500 uppercase tracking-widest mb-3">
+            Cartera Vencida
+          </p>
+
           <div className="flex items-center gap-3">
-            <p className="text-3xl font-black tracking-tight text-rose-600 dark:text-rose-500">{fmt(totalVencido)}</p>
-            <AlertTriangle className="w-6 h-6 text-rose-500" strokeWidth={2.5} />
+            <p className="text-3xl font-black tracking-tight text-rose-600 dark:text-rose-500">
+              {fmt(totalVencido)}
+            </p>
+
+            <AlertTriangle
+              className="w-6 h-6 text-rose-500"
+              strokeWidth={2.5}
+            />
           </div>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden max-w-5xl">
-        <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20">
-          <div className="relative group">
-            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-            <input type="text" placeholder="Buscar cliente o factura..." className="pl-9 pr-4 py-2 w-72 bg-card border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-sm" />
+      {/* =========================================================
+          ERROR DE PAGO
+      ========================================================== */}
+      {paymentError && (
+        <div className="flex items-start gap-3 rounded-xl border border-rose-500/20 bg-rose-500/5 px-4 py-3 text-sm text-rose-600 dark:text-rose-400 max-w-5xl">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+
+          <div>
+            <p className="font-bold">
+              No se pudo registrar el pago
+            </p>
+
+            <p className="mt-1">
+              {paymentError}
+            </p>
           </div>
         </div>
+      )}
+
+      {/* =========================================================
+          TABLA
+      ========================================================== */}
+      <div className="bg-card border border-border rounded-2xl shadow-sm overflow-hidden max-w-5xl">
+        {/* Toolbar */}
+        <div className="p-4 border-b border-border flex items-center justify-between bg-muted/20 gap-4">
+          <div className="relative group">
+            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+
+            <input
+              type="text"
+              value={search}
+              onChange={(event) =>
+                setSearch(
+                  event.target.value,
+                )
+              }
+              placeholder="Buscar cliente o factura..."
+              className="pl-9 pr-4 py-2 w-72 max-w-full bg-card border border-border rounded-xl text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all shadow-sm"
+            />
+          </div>
+
+          <div className="text-xs font-semibold text-muted-foreground whitespace-nowrap">
+            {filteredRows.length}{" "}
+            {filteredRows.length === 1
+              ? "deuda"
+              : "deudas"}
+          </div>
+        </div>
+
+        {/* Content */}
         <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead>
-              <tr className="border-b border-border bg-muted/30">
-                <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest w-36 whitespace-nowrap">Fecha Venc.</th>
-                <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">Cliente / Deudor</th>
-                <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest w-40">Estado</th>
-                <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest text-right w-32">Monto</th>
-                <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest text-right w-32">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {PENDING_DATA.map((row) => (
-                <tr key={row.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="px-6 py-4 text-sm text-muted-foreground font-medium whitespace-nowrap">{row.fecha}</td>
-                  <td className="px-6 py-4 text-sm font-bold text-foreground">{row.cliente}</td>
-                  <td className="px-6 py-4">
-                    {row.estado === "critico" && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 whitespace-nowrap border border-rose-200 dark:border-rose-800"><Clock className="w-3 h-3" /> {row.diasRetraso} días mora</span>}
-                    {row.estado === "vencido" && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap border border-amber-200 dark:border-amber-800"><Clock className="w-3 h-3" /> {row.diasRetraso} días mora</span>}
-                    {row.estado === "al_dia" && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 whitespace-nowrap border border-emerald-200 dark:border-emerald-800">Vence hoy</span>}
-                    {row.estado === "proximo" && <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400 whitespace-nowrap border border-cyan-200 dark:border-cyan-800">En {Math.abs(row.diasRetraso)} días</span>}
-                  </td>
-                  <td className="px-6 py-4 text-right tabular-nums">
-                    <span className="text-sm font-black text-foreground">{fmt(row.monto)}</span>
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <select defaultValue="" className="w-full bg-card border border-border text-foreground text-xs font-bold rounded-lg px-2 py-1.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all cursor-pointer shadow-sm">
-                      <option value="" disabled>Marcar pago...</option>
-                      <option value="transfer">Transferencia</option>
-                      <option value="cash">Efectivo</option>
-                      <option value="card">Tarjeta</option>
-                    </select>
-                  </td>
+          {isLoading ? (
+            <div className="flex items-center justify-center gap-3 py-16 text-sm text-muted-foreground">
+              <Loader2 className="w-5 h-5 animate-spin" />
+
+              Cargando cartera...
+            </div>
+          ) : filteredRows.length ===
+            0 ? (
+            <div className="flex flex-col items-center justify-center py-16 px-6 text-center">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/10 flex items-center justify-center mb-4">
+                <CheckCircle2 className="w-6 h-6 text-emerald-500" />
+              </div>
+
+              <p className="text-sm font-bold text-foreground">
+                No hay cuentas pendientes
+              </p>
+
+              <p className="text-sm text-muted-foreground mt-1">
+                No encontramos ventas fiadas
+                con saldo pendiente.
+              </p>
+            </div>
+          ) : (
+            <table className="w-full text-left">
+              <thead>
+                <tr className="border-b border-border bg-muted/30">
+                  <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest w-36 whitespace-nowrap">
+                    Fecha Venc.
+                  </th>
+
+                  <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest">
+                    Cliente / Deudor
+                  </th>
+
+                  <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest w-40">
+                    Estado
+                  </th>
+
+                  <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest text-right w-32">
+                    Saldo
+                  </th>
+
+                  <th className="px-6 py-4 text-[11px] font-bold text-muted-foreground uppercase tracking-widest text-right w-40">
+                    Acción
+                  </th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+
+              <tbody className="divide-y divide-border">
+                {filteredRows.map(
+                  (row) => {
+                    const isPaying =
+                      payingId ===
+                      row.id;
+
+                    return (
+                      <tr
+                        key={row.id}
+                        className="hover:bg-muted/30 transition-colors"
+                      >
+                        {/* Fecha */}
+                        <td className="px-6 py-4 text-sm text-muted-foreground font-medium whitespace-nowrap">
+                          <div>
+                            {formatShortDate(
+                              row.fechaVencimiento,
+                            )}
+                          </div>
+
+                          <div className="text-[10px] mt-0.5 opacity-70">
+                            Venta{" "}
+                            {row.fecha}
+                          </div>
+                        </td>
+
+                        {/* Cliente */}
+                        <td className="px-6 py-4">
+                          <div className="text-sm font-bold text-foreground">
+                            {row.cliente}
+                          </div>
+
+                          <div className="text-[10px] text-muted-foreground mt-0.5 font-mono">
+                            {row.ventaId}
+                          </div>
+                        </td>
+
+                        {/* Estado */}
+                        <td className="px-6 py-4">
+                          {row.estado ===
+                            "critico" && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400 whitespace-nowrap border border-rose-200 dark:border-rose-800">
+                              <Clock className="w-3 h-3" />
+
+                              {row.diasRetraso}{" "}
+                              días mora
+                            </span>
+                          )}
+
+                          {row.estado ===
+                            "vencido" && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 whitespace-nowrap border border-amber-200 dark:border-amber-800">
+                              <Clock className="w-3 h-3" />
+
+                              {row.diasRetraso}{" "}
+                              días mora
+                            </span>
+                          )}
+
+                          {row.estado ===
+                            "al_dia" && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 whitespace-nowrap border border-emerald-200 dark:border-emerald-800">
+                              Vence hoy
+                            </span>
+                          )}
+
+                          {row.estado ===
+                            "proximo" && (
+                            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-bold bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400 whitespace-nowrap border border-cyan-200 dark:border-cyan-800">
+                              En{" "}
+                              {Math.abs(
+                                row.diasRetraso,
+                              )}{" "}
+                              días
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Saldo */}
+                        <td className="px-6 py-4 text-right tabular-nums">
+                          <span className="text-sm font-black text-foreground">
+                            {fmt(
+                              row.monto,
+                            )}
+                          </span>
+                        </td>
+
+                        {/* Acción */}
+                        <td className="px-6 py-4 text-right">
+                          <select
+                            defaultValue=""
+                            disabled={
+                              isPaying
+                            }
+                            onChange={(
+                              event,
+                            ) => {
+                              const method =
+                                event
+                                  .target
+                                  .value;
+
+                              /*
+                               * Reset visual.
+                               */
+                              event.target.value =
+                                "";
+
+                              void handlePayment(
+                                row,
+                                method,
+                              );
+                            }}
+                            className="w-full bg-card border border-border text-foreground text-xs font-bold rounded-lg px-2 py-1.5 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition-all cursor-pointer shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
+                          >
+                            <option
+                              value=""
+                              disabled
+                            >
+                              {isPaying
+                                ? "Registrando..."
+                                : "Marcar pago..."}
+                            </option>
+
+                            <option value="Transferencia">
+                              Transferencia
+                            </option>
+
+                            <option value="Efectivo">
+                              Efectivo
+                            </option>
+
+                            <option value="Tarjeta">
+                              Tarjeta
+                            </option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  },
+                )}
+              </tbody>
+            </table>
+          )}
         </div>
       </div>
     </div>

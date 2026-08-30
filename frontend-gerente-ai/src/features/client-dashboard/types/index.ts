@@ -74,6 +74,80 @@ export interface ReporteFinanciero {
   sedes?: SedeReporteItem[];
 }
 
+/*
+ * ============================================================
+ * FIADOS
+ * ============================================================
+ */
+
+export interface AbonoFiado {
+  id: string;
+  monto: number;
+  fecha: string;
+}
+
+export interface VentaFiada {
+  id: string;
+
+  fecha: string;
+
+  total: number;
+
+  saldoPendiente: number;
+
+  abonado: number;
+
+  fechaVencimiento: string | null;
+
+  vencida: boolean;
+
+  diasDesdeLaVenta: number;
+
+  diasDeAtraso: number;
+
+  abonos: AbonoFiado[];
+}
+
+export interface ClienteFiado {
+  id: string;
+
+  nombre: string;
+
+  telefono: string | null;
+
+  saldoPendiente: number;
+
+  vencido: number;
+
+  diasDeLaDeudaMasAntigua: number;
+
+  ventas: VentaFiada[];
+}
+
+export interface ReporteFiados {
+  sede: {
+    id: string;
+    nombre: string;
+  };
+
+  generadoEl: string;
+
+  totales: {
+    porCobrar: number;
+    vencido: number;
+    clientesConDeuda: number;
+    ventasPendientes: number;
+  };
+
+  clientes: ClienteFiado[];
+}
+
+/*
+ * ============================================================
+ * DASHBOARD TRANSACTIONS
+ * ============================================================
+ */
+
 export interface DashboardTransactionItem {
   id: string;
 
