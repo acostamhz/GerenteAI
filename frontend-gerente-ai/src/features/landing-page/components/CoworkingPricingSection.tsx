@@ -58,7 +58,7 @@ export function CoworkingPricingSection() {
         "Notas de voz y fotos",
         `Hasta ${planGerente.maxSedes} sedes`,
       ],
-      button: "Probar 30 días",
+      button: "Elegir plan",
       link: "/subscription",
       featured: true,
       dark: false,

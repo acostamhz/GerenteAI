@@ -9,7 +9,7 @@ const benefits = [
     className: 'md:col-span-2 md:row-span-2 bg-gradient-to-br from-slate-900 to-slate-950 border border-white/5',
   },
   {
-    title: 'Análisis en Tiempo Real',
+    title: 'Análisis en tiempo real',
     description: 'Visualiza tus métricas clave, flujo de caja y rentabilidad en un dashboard intuitivo y siempre actualizado.',
     icon: <LineChart className="w-6 h-6 text-emerald-400" />,
     className: 'md:col-span-1 bg-slate-900/50 border border-white/5',
@@ -21,7 +21,7 @@ const benefits = [
     className: 'md:col-span-1 bg-slate-900/50 border border-white/5',
   },
   {
-    title: 'Seguro y Privado',
+    title: 'Seguro y privado',
     description: 'Tus datos financieros están encriptados y seguros en la nube.',
     icon: <Shield className="w-6 h-6 text-emerald-400" />,
     className: 'md:col-span-2 bg-slate-900/50 border border-white/5 flex flex-row items-center gap-6',
