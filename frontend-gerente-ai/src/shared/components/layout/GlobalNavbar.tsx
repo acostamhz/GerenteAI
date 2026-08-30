@@ -1,22 +1,21 @@
 import { useState, useRef, useEffect } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
-import { 
-  Building2, 
-  MapPin, 
-  ChevronDown, 
-  Check, 
-  Bell, 
-  Settings, 
-  User, 
-  CreditCard, 
-  ShieldCheck, 
-  LogOut, 
-  LayoutDashboard, 
-  Bot, 
-  TrendingUp, 
-  Briefcase, 
-  Server, 
-  Layers
+import {
+  Building2,
+  MapPin,
+  ChevronDown,
+  Check,
+  Bell,
+  User,
+  CreditCard,
+  ShieldCheck,
+  LogOut,
+  LayoutDashboard,
+  Bot,
+  TrendingUp,
+  Briefcase,
+  Server,
+  Layers,
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/features/auth/hooks/useAuth";
@@ -49,31 +48,48 @@ export function GlobalNavbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, token } = useAuth();
-  const isAdmin = location.pathname.startsWith("/admin") || user?.rolGlobal === "MASTER";
-  
+
+  const isAdmin =
+    location.pathname.startsWith("/admin") ||
+    user?.rolGlobal === "MASTER";
+
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const [isBusinessDropdownOpen, setIsBusinessDropdownOpen] = useState(false);
   const [isSedeDropdownOpen, setIsSedeDropdownOpen] = useState(false);
 
   const [negocios, setNegocios] = useState<NegocioItem[]>([]);
   const [sedes, setSedes] = useState<SedeItem[]>([]);
 
-  const [activeBusinessName, setActiveBusinessName] = useState<string>(() => {
-    return localStorage.getItem('active_business_name') || 'Mi Negocio';
-  });
-  const [activeBusinessId, setActiveBusinessId] = useState<string>(() => {
-    return localStorage.getItem('active_business_id') || '';
-  });
+  const [activeBusinessName, setActiveBusinessName] =
+    useState<string>(() => {
+      return (
+        localStorage.getItem("active_business_name") ||
+        "Mi Negocio"
+      );
+    });
 
-  const [activeSedeName, setActiveSedeName] = useState<string>(() => {
-    return localStorage.getItem('active_sede_name') || 'Todas las sedes';
-  });
-  const [activeSedeId, setActiveSedeId] = useState<string>(() => {
-    return localStorage.getItem('active_sede_id') || 'all';
-  });
+  const [activeBusinessId, setActiveBusinessId] =
+    useState<string>(() => {
+      return (
+        localStorage.getItem("active_business_id") || ""
+      );
+    });
+
+  const [activeSedeName, setActiveSedeName] =
+    useState<string>(() => {
+      return (
+        localStorage.getItem("active_sede_name") ||
+        "Todas las sedes"
+      );
+    });
+
+  const [activeSedeId, setActiveSedeId] =
+    useState<string>(() => {
+      return (
+        localStorage.getItem("active_sede_id") || "all"
+      );
+    });
 
   const dropdownRef = useRef<HTMLDivElement>(null);
-  const businessDropdownRef = useRef<HTMLDivElement>(null);
   const sedeDropdownRef = useRef<HTMLDivElement>(null);
 
   const handleLogout = () => {
@@ -82,198 +98,406 @@ export function GlobalNavbar() {
     navigate("/login", { replace: true });
   };
 
-  // Cargar sedes para un negocio dado
+  // ============================================================
+  // Cargar sedes del negocio activo
+  // ============================================================
+
   const loadSedesForBusiness = async (negocioId: string) => {
     if (!negocioId) {
       setSedes([]);
       return;
     }
+
     try {
       const data = await profileApi.getSedes(negocioId);
+
       setSedes(data || []);
 
-      const savedSedeId = localStorage.getItem('active_sede_id');
-      if (savedSedeId === 'all' || !savedSedeId) {
-        setActiveSedeId('all');
-        setActiveSedeName('Todas las sedes');
-        localStorage.setItem('active_sede_id', 'all');
-        localStorage.setItem('active_sede_name', 'Todas las sedes');
+      const savedSedeId =
+        localStorage.getItem("active_sede_id");
+
+      if (savedSedeId === "all" || !savedSedeId) {
+        setActiveSedeId("all");
+        setActiveSedeName("Todas las sedes");
+
+        localStorage.setItem(
+          "active_sede_id",
+          "all"
+        );
+
+        localStorage.setItem(
+          "active_sede_name",
+          "Todas las sedes"
+        );
       } else {
-        const found = (data || []).find((s: SedeItem) => s.id === savedSedeId);
+        const found = (data || []).find(
+          (s: SedeItem) => s.id === savedSedeId
+        );
+
         if (found) {
           setActiveSedeId(found.id);
           setActiveSedeName(found.nombre);
-          localStorage.setItem('active_sede_id', found.id);
-          localStorage.setItem('active_sede_name', found.nombre);
+
+          localStorage.setItem(
+            "active_sede_id",
+            found.id
+          );
+
+          localStorage.setItem(
+            "active_sede_name",
+            found.nombre
+          );
         } else if (data && data.length > 0) {
           setActiveSedeId(data[0].id);
           setActiveSedeName(data[0].nombre);
-          localStorage.setItem('active_sede_id', data[0].id);
-          localStorage.setItem('active_sede_name', data[0].nombre);
+
+          localStorage.setItem(
+            "active_sede_id",
+            data[0].id
+          );
+
+          localStorage.setItem(
+            "active_sede_name",
+            data[0].nombre
+          );
         } else {
-          setActiveSedeId('all');
-          setActiveSedeName('Todas las sedes');
-          localStorage.setItem('active_sede_id', 'all');
-          localStorage.setItem('active_sede_name', 'Todas las sedes');
+          setActiveSedeId("all");
+          setActiveSedeName("Todas las sedes");
+
+          localStorage.setItem(
+            "active_sede_id",
+            "all"
+          );
+
+          localStorage.setItem(
+            "active_sede_name",
+            "Todas las sedes"
+          );
         }
       }
     } catch (err) {
-      console.warn('Error cargando sedes para el negocio:', err);
+      console.warn(
+        "Error cargando sedes para el negocio:",
+        err
+      );
+
       setSedes([]);
     }
   };
 
-  // Cargar exclusivamente los negocios a los que este usuario tiene permiso
+  // ============================================================
+  // Cargar negocios permitidos
+  //
+  // El selector de negocios ya NO existe visualmente en la
+  // navbar. Sin embargo, necesitamos conocer el negocio activo
+  // para cargar correctamente sus sedes.
+  // ============================================================
+
   useEffect(() => {
     if (!token) return;
 
-    apiClient<UsuarioMeResponse>('/auth/usuarios/me')
+    apiClient<UsuarioMeResponse>("/auth/usuarios/me")
       .then((data) => {
-        const userBusinesses = data.negocios?.map((n) => n.negocio) || [];
+        const userBusinesses =
+          data.negocios?.map((n) => n.negocio) || [];
+
         if (userBusinesses.length > 0) {
           setNegocios(userBusinesses);
-          const savedId = localStorage.getItem('active_business_id');
-          const matched = userBusinesses.find((n) => n.id === savedId) || userBusinesses[0];
-          
+
+          const savedId = localStorage.getItem(
+            "active_business_id"
+          );
+
+          const matched =
+            userBusinesses.find(
+              (n) => n.id === savedId
+            ) || userBusinesses[0];
+
           setActiveBusinessId(matched.id);
           setActiveBusinessName(matched.nombre);
-          localStorage.setItem('active_business_id', matched.id);
-          localStorage.setItem('active_business_name', matched.nombre);
+
+          localStorage.setItem(
+            "active_business_id",
+            matched.id
+          );
+
+          localStorage.setItem(
+            "active_business_name",
+            matched.nombre
+          );
 
           loadSedesForBusiness(matched.id);
         } else {
           setNegocios([]);
           setSedes([]);
-          setActiveBusinessId('');
-          setActiveBusinessName('Sin Negocio');
-          setActiveSedeId('all');
-          setActiveSedeName('Sin Sede');
-          localStorage.removeItem('active_business_id');
-          localStorage.removeItem('active_business_name');
-          localStorage.removeItem('active_sede_id');
-          localStorage.removeItem('active_sede_name');
+
+          setActiveBusinessId("");
+          setActiveBusinessName("Sin Negocio");
+
+          setActiveSedeId("all");
+          setActiveSedeName("Sin Sede");
+
+          localStorage.removeItem(
+            "active_business_id"
+          );
+
+          localStorage.removeItem(
+            "active_business_name"
+          );
+
+          localStorage.removeItem(
+            "active_sede_id"
+          );
+
+          localStorage.removeItem(
+            "active_sede_name"
+          );
         }
       })
       .catch((err) => {
-        console.warn('No se pudieron cargar los negocios en el navbar:', err);
+        console.warn(
+          "No se pudieron cargar los negocios en el navbar:",
+          err
+        );
       });
   }, [token]);
 
-  // Escuchar cambios de negocio o sede entre componentes
+  // ============================================================
+  // Sincronización de negocio y sede entre componentes
+  // ============================================================
+
   useEffect(() => {
     const handleBusinessSync = () => {
-      const savedName = localStorage.getItem('active_business_name');
-      const savedId = localStorage.getItem('active_business_id');
-      if (savedName) setActiveBusinessName(savedName);
-      if (savedId && savedId !== activeBusinessId) {
+      const savedName = localStorage.getItem(
+        "active_business_name"
+      );
+
+      const savedId = localStorage.getItem(
+        "active_business_id"
+      );
+
+      if (savedName) {
+        setActiveBusinessName(savedName);
+      }
+
+      if (
+        savedId &&
+        savedId !== activeBusinessId
+      ) {
         setActiveBusinessId(savedId);
         loadSedesForBusiness(savedId);
       }
     };
 
     const handleSedeSync = () => {
-      const savedSedeName = localStorage.getItem('active_sede_name');
-      const savedSedeId = localStorage.getItem('active_sede_id');
-      if (savedSedeName) setActiveSedeName(savedSedeName);
-      if (savedSedeId) setActiveSedeId(savedSedeId);
+      const savedSedeName =
+        localStorage.getItem("active_sede_name");
+
+      const savedSedeId =
+        localStorage.getItem("active_sede_id");
+
+      if (savedSedeName) {
+        setActiveSedeName(savedSedeName);
+      }
+
+      if (savedSedeId) {
+        setActiveSedeId(savedSedeId);
+      }
     };
 
-    window.addEventListener('business_changed', handleBusinessSync);
-    window.addEventListener('sede_changed', handleSedeSync);
+    window.addEventListener(
+      "business_changed",
+      handleBusinessSync
+    );
+
+    window.addEventListener(
+      "sede_changed",
+      handleSedeSync
+    );
+
     return () => {
-      window.removeEventListener('business_changed', handleBusinessSync);
-      window.removeEventListener('sede_changed', handleSedeSync);
+      window.removeEventListener(
+        "business_changed",
+        handleBusinessSync
+      );
+
+      window.removeEventListener(
+        "sede_changed",
+        handleSedeSync
+      );
     };
   }, [activeBusinessId]);
 
-  const handleSelectBusiness = (negocio: NegocioItem) => {
-    setActiveBusinessId(negocio.id);
-    setActiveBusinessName(negocio.nombre);
-    localStorage.setItem('active_business_id', negocio.id);
-    localStorage.setItem('active_business_name', negocio.nombre);
-    setIsBusinessDropdownOpen(false);
+  // ============================================================
+  // Seleccionar sede
+  // ============================================================
 
-    // Resetear la sede seleccionada a 'all' por defecto para el nuevo negocio
-    setActiveSedeId('all');
-    setActiveSedeName('Todas las sedes');
-    localStorage.setItem('active_sede_id', 'all');
-    localStorage.setItem('active_sede_name', 'Todas las sedes');
-
-    loadSedesForBusiness(negocio.id).then(() => {
-      window.dispatchEvent(new Event('business_changed'));
-      window.dispatchEvent(new Event('sede_changed'));
-    });
-  };
-
-  const handleSelectSede = (sedeId: string, nombre: string) => {
+  const handleSelectSede = (
+    sedeId: string,
+    nombre: string
+  ) => {
     setActiveSedeId(sedeId);
     setActiveSedeName(nombre);
-    localStorage.setItem('active_sede_id', sedeId);
-    localStorage.setItem('active_sede_name', nombre);
+
+    localStorage.setItem(
+      "active_sede_id",
+      sedeId
+    );
+
+    localStorage.setItem(
+      "active_sede_name",
+      nombre
+    );
+
     setIsSedeDropdownOpen(false);
-    window.dispatchEvent(new Event('sede_changed'));
+
+    window.dispatchEvent(
+      new Event("sede_changed")
+    );
   };
+
+  // ============================================================
+  // Cerrar dropdowns al hacer click fuera
+  // ============================================================
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(
+          event.target as Node
+        )
+      ) {
         setIsDropdownOpen(false);
       }
-      if (businessDropdownRef.current && !businessDropdownRef.current.contains(event.target as Node)) {
-        setIsBusinessDropdownOpen(false);
-      }
-      if (sedeDropdownRef.current && !sedeDropdownRef.current.contains(event.target as Node)) {
+
+      if (
+        sedeDropdownRef.current &&
+        !sedeDropdownRef.current.contains(
+          event.target as Node
+        )
+      ) {
         setIsSedeDropdownOpen(false);
       }
     }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+
+    document.addEventListener(
+      "mousedown",
+      handleClickOutside
+    );
+
+    return () =>
+      document.removeEventListener(
+        "mousedown",
+        handleClickOutside
+      );
   }, []);
 
+  // ============================================================
+  // Navegación principal
+  // ============================================================
+
   const clientNav = [
-    { id: "/", Icon: LayoutDashboard, label: "Resumen" },
-    { id: "/insights", Icon: Bot, label: "Recomendaciones de IA", badge: 2 },
-    { id: "/cashflow", Icon: TrendingUp, label: "Flujo de Caja" },
+    {
+      id: "/",
+      Icon: LayoutDashboard,
+      label: "Resumen",
+    },
+    {
+      id: "/insights",
+      Icon: Bot,
+      label: "Recomendaciones de IA",
+      badge: 2,
+    },
+    {
+      id: "/cashflow",
+      Icon: TrendingUp,
+      label: "Flujo de Caja",
+    },
   ];
 
   const adminNav = [
-    { id: "/admin/crm", Icon: Briefcase, label: "Negocio (CRM)" },
-    { id: "/admin/ops", Icon: Server, label: "Sistema (Ops)" },
+    {
+      id: "/admin/crm",
+      Icon: Briefcase,
+      label: "Negocio (CRM)",
+    },
+    {
+      id: "/admin/ops",
+      Icon: Server,
+      label: "Sistema (Ops)",
+    },
   ];
 
-  const nav: Array<{ id: string; Icon: any; label: string; badge?: number }> = isAdmin ? adminNav : clientNav;
+  const nav: Array<{
+    id: string;
+    Icon: any;
+    label: string;
+    badge?: number;
+  }> = isAdmin ? adminNav : clientNav;
 
   return (
     <header className="bg-card dark:bg-muted/10 border-b border-border shrink-0 relative z-10">
-      {/* Top Main Navbar */}
-      <div className="flex items-center justify-between px-6 py-3">
-        {/* Left: Logo & Actions */}
-        <div className="flex items-center gap-6">
+      {/* ======================================================
+          GLOBAL NAVBAR
+      ====================================================== */}
+
+      <div className="relative flex items-center justify-between px-6 py-3 min-h-[74px]">
+        {/* ====================================================
+            LEFT: LOGO + NOTIFICACIONES + THEME
+        ==================================================== */}
+
+        <div className="flex items-center gap-6 shrink-0">
           {/* Logo */}
           <div className="flex items-center gap-2">
-            <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400">Luka AI</span>
+            <span className="text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400">
+              Luka AI
+            </span>
           </div>
 
           <div className="w-px h-6 bg-border" />
 
-          {/* Actions (Notifs, Settings, Theme) */}
+          {/* Notificaciones + Theme */}
           <div className="flex items-center gap-2">
-            <button className="relative w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-full hover:bg-muted cursor-pointer">
-              <Bell className="w-5 h-5" strokeWidth={2} />
+            {/* Notificaciones */}
+            <button
+              type="button"
+              className="relative w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-full hover:bg-muted cursor-pointer"
+            >
+              <Bell
+                className="w-5 h-5"
+                strokeWidth={2}
+              />
+
               <span className="absolute top-2 right-2.5 w-1.5 h-1.5 bg-destructive rounded-full" />
             </button>
-            <button className="w-9 h-9 flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors rounded-full hover:bg-muted cursor-pointer">
-              <Settings className="w-5 h-5" strokeWidth={2} />
-            </button>
+
+            {/* Tema */}
             <ThemeToggle />
           </div>
         </div>
 
-        {/* Center: Page Selector */}
-        <div className="flex-1 flex justify-center px-8">
-          <nav className="flex items-center gap-1.5 p-1.5 bg-muted/40 border border-border rounded-2xl">
-            {nav.map(({ id, Icon, label, badge }) => {
-              const isActive = location.pathname === id || (id === "/" && location.pathname === "");
+        {/* ====================================================
+            CENTER: NAVBAR PRINCIPAL
+
+            Absolute + left-1/2 garantiza que quede centrada
+            respecto a TODA la navbar global y no respecto
+            al espacio restante entre izquierda y derecha.
+        ==================================================== */}
+
+        <nav className="absolute left-1/2 -translate-x-1/2 flex items-center gap-1.5 p-1.5 bg-muted/40 border border-border rounded-2xl">
+          {nav.map(
+            ({
+              id,
+              Icon,
+              label,
+              badge,
+            }) => {
+              const isActive =
+                location.pathname === id ||
+                (id === "/" &&
+                  location.pathname === "");
+
               return (
                 <Link
                   key={id}
@@ -284,186 +508,287 @@ export function GlobalNavbar() {
                       : "text-muted-foreground hover:text-foreground hover:bg-muted/80"
                   }`}
                 >
-                  <Icon className={`w-4 h-4 ${isActive ? 'text-emerald-600 dark:text-emerald-500' : ''}`} strokeWidth={isActive ? 2.5 : 2} />
+                  <Icon
+                    className={`w-4 h-4 ${
+                      isActive
+                        ? "text-emerald-600 dark:text-emerald-500"
+                        : ""
+                    }`}
+                    strokeWidth={
+                      isActive ? 2.5 : 2
+                    }
+                  />
+
                   {label}
+
                   {badge && (
-                    <span className={`ml-1.5 text-[10px] font-black rounded-full px-2 py-0.5 transition-colors ${
-                      isActive 
-                        ? "bg-emerald-500 text-white" 
-                        : "bg-muted-foreground/20 text-muted-foreground group-hover:bg-muted-foreground/30"
-                    }`}>
+                    <span
+                      className={`ml-1.5 text-[10px] font-black rounded-full px-2 py-0.5 transition-colors ${
+                        isActive
+                          ? "bg-emerald-500 text-white"
+                          : "bg-muted-foreground/20 text-muted-foreground"
+                      }`}
+                    >
                       {badge}
                     </span>
                   )}
                 </Link>
               );
-            })}
-          </nav>
-        </div>
+            }
+          )}
+        </nav>
 
-        {/* Right: Context Selectors (Business Dropdown, Sede Dropdown & User Profile) */}
-        <div className="flex items-center gap-2.5 text-sm font-semibold">
+        {/* ====================================================
+            RIGHT: TODAS LAS SEDES + USUARIO
+        ==================================================== */}
+
+        <div className="flex items-center gap-2.5 text-sm font-semibold ml-auto shrink-0">
           {!isAdmin && (
-            <div className="flex items-center gap-1.5">
-              {/* 🏢 1. Selector de Negocio */}
-              <div className="relative" ref={businessDropdownRef}>
+            <>
+              {/* =================================================
+                  SELECTOR DE SEDES
+              ================================================= */}
+
+              <div
+                className="relative"
+                ref={sedeDropdownRef}
+              >
                 <button
+                  type="button"
                   onClick={() => {
-                    setIsBusinessDropdownOpen(!isBusinessDropdownOpen);
-                    setIsSedeDropdownOpen(false);
-                  }}
-                  className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 hover:bg-muted/80 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
-                  title="Negocio Activo"
-                >
-                  <Building2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                  <span className="max-w-[120px] truncate">{activeBusinessName}</span>
-                  <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isBusinessDropdownOpen ? 'rotate-180' : ''}`} />
-                </button>
-
-                {isBusinessDropdownOpen && (
-                  <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                    <div className="px-4 py-2 border-b border-border text-[11px] font-bold text-muted-foreground uppercase flex items-center justify-between">
-                      <span>Tus Negocios</span>
-                      <Building2 className="w-3.5 h-3.5 text-emerald-500" />
-                    </div>
-                    {negocios.length > 0 ? (
-                      negocios.map((negocio) => (
-                        <button
-                          key={negocio.id}
-                          onClick={() => handleSelectBusiness(negocio)}
-                          className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer ${
-                            activeBusinessId === negocio.id ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
-                          }`}
-                        >
-                          <span className="truncate">{negocio.nombre}</span>
-                          {activeBusinessId === negocio.id && <Check className="w-4 h-4 text-emerald-500" />}
-                        </button>
-                      ))
-                    ) : (
-                      <div className="px-4 py-3 text-xs text-muted-foreground">
-                        No tienes negocios registrados.
-                      </div>
-                    )}
-
-                    {/* Botón para Administrar Negocios y Sedes en Perfil */}
-                    <div className="p-2 border-t border-border mt-1">
-                      <Link
-                        to="/profile"
-                        onClick={() => setIsBusinessDropdownOpen(false)}
-                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs transition-colors cursor-pointer shadow-xs"
-                      >
-                        <Building2 className="w-3.5 h-3.5" />
-                        <span>Administrar Negocios y Sedes</span>
-                      </Link>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* 📍 2. Selector de Sede */}
-              <div className="relative" ref={sedeDropdownRef}>
-                <button
-                  onClick={() => {
-                    setIsSedeDropdownOpen(!isSedeDropdownOpen);
-                    setIsBusinessDropdownOpen(false);
+                    setIsSedeDropdownOpen(
+                      !isSedeDropdownOpen
+                    );
                   }}
                   className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground transition-colors bg-muted/50 hover:bg-muted/80 px-3 py-1.5 rounded-lg border border-border cursor-pointer text-xs font-bold"
                   title="Sede Activa"
                 >
                   <MapPin className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
-                  <span className="max-w-[110px] truncate">{activeSedeName}</span>
-                  <ChevronDown className={`w-3 h-3 text-muted-foreground/60 transition-transform ${isSedeDropdownOpen ? 'rotate-180' : ''}`} />
+
+                  <span className="max-w-[110px] truncate">
+                    {activeSedeName}
+                  </span>
+
+                  <ChevronDown
+                    className={`w-3 h-3 text-muted-foreground/60 transition-transform ${
+                      isSedeDropdownOpen
+                        ? "rotate-180"
+                        : ""
+                    }`}
+                  />
                 </button>
 
                 {isSedeDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-64 bg-card border border-border rounded-2xl shadow-xl py-2 z-50 animate-in fade-in slide-in-from-top-2">
+                    {/* Título */}
                     <div className="px-4 py-2 border-b border-border text-[11px] font-bold text-muted-foreground uppercase flex items-center justify-between">
-                      <span>Sedes de {activeBusinessName}</span>
+                      <span>
+                        Sedes de{" "}
+                        {activeBusinessName}
+                      </span>
+
                       <MapPin className="w-3.5 h-3.5 text-emerald-500" />
                     </div>
 
-                    {/* Opción Consolidado (Todas las Sedes) */}
+                    {/* Todas las sedes */}
                     <button
-                      onClick={() => handleSelectSede('all', 'Todas las sedes')}
+                      type="button"
+                      onClick={() =>
+                        handleSelectSede(
+                          "all",
+                          "Todas las sedes"
+                        )
+                      }
                       className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer border-b border-border/50 ${
-                        activeSedeId === 'all' ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
+                        activeSedeId === "all"
+                          ? "text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5"
+                          : "text-foreground"
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <Layers className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Todas las sedes (Consolidado)</span>
+
+                        <span>
+                          Todas las sedes
+                          (Consolidado)
+                        </span>
                       </div>
-                      {activeSedeId === 'all' && <Check className="w-4 h-4 text-emerald-500" />}
+
+                      {activeSedeId ===
+                        "all" && (
+                        <Check className="w-4 h-4 text-emerald-500" />
+                      )}
                     </button>
 
-                    {/* Sedes Individuales */}
+                    {/* Sedes individuales */}
                     {sedes.length > 0 ? (
                       sedes.map((sede) => (
                         <button
+                          type="button"
                           key={sede.id}
-                          onClick={() => handleSelectSede(sede.id, sede.nombre)}
+                          onClick={() =>
+                            handleSelectSede(
+                              sede.id,
+                              sede.nombre
+                            )
+                          }
                           className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer ${
-                            activeSedeId === sede.id ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
+                            activeSedeId ===
+                            sede.id
+                              ? "text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5"
+                              : "text-foreground"
                           }`}
                         >
                           <div className="truncate">
-                            <div className="truncate font-semibold">{sede.nombre}</div>
+                            <div className="truncate font-semibold">
+                              {sede.nombre}
+                            </div>
+
                             {sede.direccion && (
-                              <div className="text-[10px] text-muted-foreground truncate">{sede.direccion}</div>
+                              <div className="text-[10px] text-muted-foreground truncate">
+                                {sede.direccion}
+                              </div>
                             )}
                           </div>
-                          {activeSedeId === sede.id && <Check className="w-4 h-4 text-emerald-500 shrink-0 ml-2" />}
+
+                          {activeSedeId ===
+                            sede.id && (
+                            <Check className="w-4 h-4 text-emerald-500 shrink-0 ml-2" />
+                          )}
                         </button>
                       ))
                     ) : (
                       <div className="px-4 py-3 text-xs text-muted-foreground">
-                        No hay sedes registradas para este negocio.
+                        No hay sedes registradas
+                        para este negocio.
                       </div>
                     )}
 
-                    {/* Botón para Gestionar Sedes en Perfil */}
-                    <div className="p-2 border-t border-border mt-1">
+                    {/* =================================================
+                        ACCIONES DE PERFIL
+                        
+                        Primero gestionar sedes.
+                        Debajo administrar negocios.
+                    ================================================= */}
+
+                    <div className="p-2 border-t border-border mt-1 space-y-2">
+                      {/* Gestionar sedes */}
                       <Link
                         to="/profile"
-                        onClick={() => setIsSedeDropdownOpen(false)}
+                        onClick={() =>
+                          setIsSedeDropdownOpen(
+                            false
+                          )
+                        }
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs transition-colors cursor-pointer shadow-xs"
                       >
                         <MapPin className="w-3.5 h-3.5" />
-                        <span>Gestionar sedes en perfil</span>
+
+                        <span>
+                          Gestionar sedes en
+                          perfil
+                        </span>
+                      </Link>
+
+                      {/* Administrar negocios */}
+                      <Link
+                        to="/profile"
+                        onClick={() =>
+                          setIsSedeDropdownOpen(
+                            false
+                          )
+                        }
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-muted/60 hover:bg-muted text-foreground font-bold text-xs transition-colors cursor-pointer shadow-xs"
+                      >
+                        <Building2 className="w-3.5 h-3.5" />
+
+                        <span>
+                          Administrar negocios
+                        </span>
                       </Link>
                     </div>
                   </div>
                 )}
               </div>
-            </div>
+            </>
           )}
 
-          {/* User Dropdown */}
-          <div className="relative" ref={dropdownRef}>
-            <button 
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
+          {/* =====================================================
+              USUARIO / NEGOCIO REGISTRADO
+          ===================================================== */}
+
+          <div
+            className="relative"
+            ref={dropdownRef}
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setIsDropdownOpen(
+                  !isDropdownOpen
+                )
+              }
               className="flex items-center gap-2 text-emerald-800 dark:text-emerald-100 hover:text-emerald-900 transition-colors bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 px-4 py-2 rounded-xl border border-emerald-500/20 shadow-sm cursor-pointer"
             >
-              {user?.nombre || "Usuario"} <ChevronDown className={`w-4 h-4 transition-transform ${isDropdownOpen ? 'rotate-180' : ''}`} />
+              {user?.nombre || "Grupo Caishen"}
+
+              <ChevronDown
+                className={`w-4 h-4 transition-transform ${
+                  isDropdownOpen
+                    ? "rotate-180"
+                    : ""
+                }`}
+              />
             </button>
 
             {isDropdownOpen && (
               <div className="absolute right-0 mt-2 w-56 bg-card border border-border rounded-2xl shadow-lg py-2 z-50 animate-in fade-in slide-in-from-top-2">
-                <Link to={isAdmin ? "/profile?admin=true" : "/profile"} onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <User className="w-4 h-4" /> Perfil
+                <Link
+                  to={
+                    isAdmin
+                      ? "/profile?admin=true"
+                      : "/profile"
+                  }
+                  onClick={() =>
+                    setIsDropdownOpen(false)
+                  }
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <User className="w-4 h-4" />
+                  Perfil
                 </Link>
-                <Link to="/settings" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <Settings className="w-4 h-4" /> Configuración
+
+                <Link
+                  to="/subscription"
+                  onClick={() =>
+                    setIsDropdownOpen(false)
+                  }
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+                >
+                  <CreditCard className="w-4 h-4" />
+                  Planes de suscripción
                 </Link>
-                <Link to="/subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <CreditCard className="w-4 h-4" /> Planes de suscripción
+
+                <Link
+                  to="/manage-subscription"
+                  onClick={() =>
+                    setIsDropdownOpen(false)
+                  }
+                  className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  Administrar suscripción
                 </Link>
-                <Link to="/manage-subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors">
-                  <ShieldCheck className="w-4 h-4" /> Administrar suscripción
-                </Link>
+
                 <div className="h-px bg-border my-2" />
-                <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer">
-                  <LogOut className="w-4 h-4" /> Cerrar sesión
+
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer"
+                >
+                  <LogOut className="w-4 h-4" />
+                  Cerrar sesión
                 </button>
               </div>
             )}
