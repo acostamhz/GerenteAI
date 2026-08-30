@@ -36,7 +36,7 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
   const [telefonoSecundario, setTelefonoSecundario] = useState('');
 
   // Datos Primera Sede
-  const [nombreSede, setNombreSede] = useState('Sede Principal');
+  const [nombreSede, setNombreSede] = useState('Sede principal');
   const [direccionSede, setDireccionSede] = useState('');
   const [whatsappPhone, setWhatsappPhone] = useState('');
   const [whatsappUsername, setWhatsappUsername] = useState('');
@@ -78,7 +78,7 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
     }
 
     if (!cleanNombreSede) {
-      setError('El nombre de la sede/sucursal es obligatorio (ej. Sede Principal).');
+      setError('El nombre de la sede/sucursal es obligatorio (ej. Sede principal).');
       return;
     }
 
@@ -374,7 +374,7 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
                               required
                               value={nombreSede}
                               onChange={(e) => setNombreSede(e.target.value)}
-                              placeholder="Ej. Sede Principal"
+                              placeholder="Ej. Sede principal"
                               className="w-full pl-8 pr-3 py-2 bg-background border border-border rounded-xl text-xs text-foreground placeholder:text-muted-foreground/60 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all font-medium"
                             />
                             <MapPin className="w-3 h-3 text-muted-foreground absolute left-2.5 top-1/2 -translate-y-1/2" />

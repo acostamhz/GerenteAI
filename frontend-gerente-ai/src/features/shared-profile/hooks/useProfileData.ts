@@ -196,7 +196,7 @@ export function useProfileData() {
         nombre: dto.nombre,
         telefonoContacto: dto.telefonoContacto || undefined,
         telefonoSecundario: dto.telefonoSecundario || undefined,
-        nombreSede: dto.nombreSede || 'Sede Principal',
+        nombreSede: dto.nombreSede || 'Sede principal',
         direccionSede: dto.direccionSede || undefined,
         whatsappPhone: dto.whatsappPhone || dto.telefono || undefined,
         whatsappUsername: dto.whatsappUsername || undefined,
@@ -209,7 +209,7 @@ export function useProfileData() {
           [negocio.id]: [sede],
         }));
         localStorage.setItem('active_sede_id', sede.id);
-        localStorage.setItem('active_sede_name', sede.nombre || dto.nombreSede || 'Sede Principal');
+        localStorage.setItem('active_sede_name', sede.nombre || dto.nombreSede || 'Sede principal');
       }
 
       localStorage.setItem('active_business_id', negocio.id);

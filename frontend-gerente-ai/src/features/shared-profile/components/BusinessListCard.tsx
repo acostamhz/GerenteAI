@@ -18,7 +18,7 @@ export function BusinessListCard({ isAdmin }: { isAdmin: boolean }) {
             </div>
             <div>
               <h3 className="text-2xl font-black tracking-tight text-foreground">Luka AI</h3>
-              <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Sede Principal</p>
+              <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">Sede principal</p>
             </div>
           </div>
           

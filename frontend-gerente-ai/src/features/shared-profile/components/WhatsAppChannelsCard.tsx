@@ -49,7 +49,7 @@ export function WhatsAppChannelsCard({
       canales.push({
         id: negocio.id,
         telefono: negocio.telefono,
-        nombreSede: 'Sede Principal',
+        nombreSede: 'Sede principal',
         nombreNegocio: negocio.nombre,
       });
     }
@@ -75,7 +75,7 @@ export function WhatsAppChannelsCard({
           <div>
             <h3 className="text-base font-bold text-foreground flex items-center gap-2">
               <MessageSquare className="w-4 h-4 text-emerald-500" />
-              Canales y Líneas de WhatsApp Conectadas
+              Canales y líneas de WhatsApp conectadas
             </h3>
             <p className="text-xs text-muted-foreground mt-0.5">
               Líneas sincronizadas para capturar ventas, gastos y responder consultas autónomas.
@@ -84,7 +84,7 @@ export function WhatsAppChannelsCard({
 
           <div className="text-right">
             <span className="text-xs font-bold text-emerald-800 dark:text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-3 py-1 rounded-full">
-              {totalCanales} de {maxLimit} Líneas Activas • Plan {planInfo.nombre}
+              {totalCanales} de {maxLimit} Líneas activas • Plan {planInfo.nombre}
             </span>
           </div>
         </div>
