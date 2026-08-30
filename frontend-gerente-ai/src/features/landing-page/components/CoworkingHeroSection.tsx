@@ -33,14 +33,14 @@ export function CoworkingHeroSection() {
             to="/register"
             className="px-8 py-4 rounded-xl bg-emerald-600 text-white font-medium hover:bg-emerald-700 transition-all duration-300 flex items-center gap-2 hover:scale-[1.02] shadow-lg shadow-emerald-500/25 active:scale-[0.98]"
           >
-            <span>Comenzar Prueba Gratis</span>
+            <span>Comenzar prueba gratis</span>
             <ArrowRight className="w-5 h-5" />
           </Link>
           <a
             href="#planes"
             className="px-8 py-4 rounded-xl bg-white/80 dark:bg-slate-800/80 backdrop-blur-md text-slate-900 dark:text-white font-medium border border-gray-200 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700 transition-all duration-300 hover:scale-[1.02] active:scale-[0.98] shadow-sm cursor-pointer"
           >
-            Ver Planes y Precios
+            Ver planes y precios
           </a>
         </div>
       </div>

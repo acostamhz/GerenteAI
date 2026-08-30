@@ -301,6 +301,9 @@ export function RegisterForm() {
                 className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
               />
             </div>
+            <p className="text-[10px] text-muted-foreground">
+              Debes incluir el código de país <span className="font-semibold">+57</span>
+            </p>
           </div>
 
           <div className="space-y-1">
@@ -312,12 +315,15 @@ export function RegisterForm() {
               <input
                 type="text"
                 name="whatsappUsername"
-                placeholder="@tu_usuario o número"
+                placeholder="@usuario"
                 value={formData.whatsappUsername}
                 onChange={handleChange}
                 className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
               />
             </div>
+            <p className="text-[10px] text-muted-foreground">
+              Escríbelo sin el @, solo el nombre de usuario. Ejemplo: <span className="font-semibold">mariarodriguez</span>
+            </p>
           </div>
         </div>
 
