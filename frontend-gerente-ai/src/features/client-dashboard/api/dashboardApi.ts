@@ -4,6 +4,7 @@ import {
   PeriodoTipo,
   ReporteFinanciero,
   DashboardTransactionItem,
+  ReporteFiados,
 } from "../types";
 
 import { formatNumber } from "../utils/formatters";
@@ -47,6 +48,7 @@ interface BackendVenta {
   total: number;
   tipo: "CONTADO" | "FIADO";
   fecha: string;
+
   cliente?: {
     id: string;
     nombre: string;
@@ -65,6 +67,7 @@ interface BackendCompra {
   id: string;
   total: number;
   fecha: string;
+
   proveedor?: {
     id: string;
     nombre: string;
@@ -75,10 +78,17 @@ interface BackendAbono {
   id: string;
   monto: number;
   fecha: string;
+
   cliente?: {
     id: string;
     nombre: string;
   } | null;
+}
+
+export interface CreateAbonoPayload {
+  clienteId: string;
+  ventaId?: string;
+  monto: number;
 }
 
 const formatearFecha = (fecha: string) =>
@@ -134,32 +144,68 @@ export const dashboardApi = {
   },
 
   /**
+   * Obtiene el reporte de cartera/fiados de una sede.
+   *
+   * Este endpoint devuelve:
+   *
+   * sede
+   * totales
+   * clientes[]
+   *   └── ventas[]
+   */
+  getFiados: async (
+    sedeId: string,
+  ): Promise<ReporteFiados> => {
+    return apiClient<ReporteFiados>(
+      `/reportes/fiados/${encodeURIComponent(sedeId)}`,
+    );
+  },
+
+  /**
+   * Registra un abono.
+   *
+   * El backend decide cómo distribuirlo:
+   *
+   * - Si llega ventaId -> se aplica a esa venta.
+   * - Si no llega ventaId -> se distribuye desde la deuda más antigua.
+   */
+  crearAbono: async (
+    payload: CreateAbonoPayload,
+  ) => {
+    return apiClient(
+      "/abonos",
+      {
+        method: "POST",
+        body: JSON.stringify(payload),
+      },
+    );
+  },
+
+  /**
    * Obtiene los movimientos reales del negocio.
    *
-   * Reglas contables:
-   *
    * CONTADO:
-   *   Sí entra al flujo de caja.
+   * Sí entra al flujo de caja.
    *
    * FIADO:
-   *   NO entra al flujo de caja.
-   *   Representa una cuenta por cobrar.
+   * NO entra al flujo de caja.
    *
    * ABONO:
-   *   Sí entra al flujo de caja.
+   * Sí entra al flujo de caja.
    *
    * COMPRA:
-   *   Sale de caja.
+   * Sale de caja.
    *
    * GASTO:
-   *   Sale de caja.
+   * Sale de caja.
    */
   getTransacciones: async (
     sedeIds?: string | string[],
   ): Promise<DashboardTransactionItem[]> => {
     if (
       !sedeIds ||
-      (Array.isArray(sedeIds) && sedeIds.length === 0)
+      (Array.isArray(sedeIds) &&
+        sedeIds.length === 0)
     ) {
       return [];
     }
@@ -177,23 +223,32 @@ export const dashboardApi = {
           abonosRes,
         ] = await Promise.allSettled([
           apiClient<BackendVenta[]>(
-            `/ventas?sedeId=${encodeURIComponent(sedeId)}`,
+            `/ventas?sedeId=${encodeURIComponent(
+              sedeId,
+            )}`,
           ),
 
           apiClient<BackendGasto[]>(
-            `/gastos?sedeId=${encodeURIComponent(sedeId)}`,
+            `/gastos?sedeId=${encodeURIComponent(
+              sedeId,
+            )}`,
           ),
 
           apiClient<BackendCompra[]>(
-            `/compras?sedeId=${encodeURIComponent(sedeId)}`,
+            `/compras?sedeId=${encodeURIComponent(
+              sedeId,
+            )}`,
           ),
 
           apiClient<BackendAbono[]>(
-            `/abonos?sedeId=${encodeURIComponent(sedeId)}`,
+            `/abonos?sedeId=${encodeURIComponent(
+              sedeId,
+            )}`,
           ),
         ]);
 
-        const items: DashboardTransactionItem[] = [];
+        const items: DashboardTransactionItem[] =
+          [];
 
         /*
          * VENTAS
@@ -203,22 +258,29 @@ export const dashboardApi = {
           Array.isArray(ventasRes.value)
         ) {
           for (const venta of ventasRes.value) {
-            const esFiado = venta.tipo === "FIADO";
+            const esFiado =
+              venta.tipo === "FIADO";
 
             items.push({
               id: `venta-${venta.id}`,
 
-              type: esFiado ? "Convertida" : "Venta",
+              type: esFiado
+                ? "Convertida"
+                : "Venta",
 
-              amount: Number(venta.total) || 0,
+              amount:
+                Number(venta.total) || 0,
 
               amountFormatted: `${
                 esFiado ? "" : "+ "
-              }${formatNumber(Number(venta.total) || 0)} COP`,
+              }${formatNumber(
+                Number(venta.total) || 0,
+              )} COP`,
 
-              paymentMethod: esFiado
-                ? "Fiado"
-                : "Contado",
+              paymentMethod:
+                esFiado
+                  ? "Fiado"
+                  : "Contado",
 
               pmDetails: esFiado
                 ? "Cuenta por cobrar"
@@ -234,7 +296,9 @@ export const dashboardApi = {
                 venta.cliente?.nombre ||
                 "Cliente general",
 
-              date: formatearFecha(venta.fecha),
+              date: formatearFecha(
+                venta.fecha,
+              ),
 
               rawDate: venta.fecha,
             });
@@ -243,9 +307,6 @@ export const dashboardApi = {
 
         /*
          * ABONOS
-         *
-         * Un abono representa dinero que realmente
-         * ingresó a caja, por lo tanto es ingreso.
          */
         if (
           abonosRes.status === "fulfilled" &&
@@ -257,7 +318,8 @@ export const dashboardApi = {
 
               type: "Abono",
 
-              amount: Number(abono.monto) || 0,
+              amount:
+                Number(abono.monto) || 0,
 
               amountFormatted: `+ ${formatNumber(
                 Number(abono.monto) || 0,
@@ -265,7 +327,8 @@ export const dashboardApi = {
 
               paymentMethod: "Abono",
 
-              pmDetails: "Pago de cuenta por cobrar",
+              pmDetails:
+                "Pago de cuenta por cobrar",
 
               status: "Exitoso",
 
@@ -275,7 +338,9 @@ export const dashboardApi = {
                 abono.cliente?.nombre ||
                 "Cliente",
 
-              date: formatearFecha(abono.fecha),
+              date: formatearFecha(
+                abono.fecha,
+              ),
 
               rawDate: abono.fecha,
             });
@@ -295,7 +360,8 @@ export const dashboardApi = {
 
               type: "Gasto",
 
-              amount: Number(gasto.monto) || 0,
+              amount:
+                Number(gasto.monto) || 0,
 
               amountFormatted: `- ${formatNumber(
                 Number(gasto.monto) || 0,
@@ -312,9 +378,12 @@ export const dashboardApi = {
                 gasto.descripcion ||
                 "Gasto registrado",
 
-              personName: "Gasto operativo",
+              personName:
+                "Gasto operativo",
 
-              date: formatearFecha(gasto.fecha),
+              date: formatearFecha(
+                gasto.fecha,
+              ),
 
               rawDate: gasto.fecha,
             });
@@ -334,7 +403,8 @@ export const dashboardApi = {
 
               type: "Compra",
 
-              amount: Number(compra.total) || 0,
+              amount:
+                Number(compra.total) || 0,
 
               amountFormatted: `- ${formatNumber(
                 Number(compra.total) || 0,
@@ -342,17 +412,21 @@ export const dashboardApi = {
 
               paymentMethod: "Compra",
 
-              pmDetails: "Egreso por compra",
+              pmDetails:
+                "Egreso por compra",
 
               status: "Exitoso",
 
-              activity: "Compra registrada",
+              activity:
+                "Compra registrada",
 
               personName:
                 compra.proveedor?.nombre ||
                 "Proveedor",
 
-              date: formatearFecha(compra.fecha),
+              date: formatearFecha(
+                compra.fecha,
+              ),
 
               rawDate: compra.fecha,
             });
@@ -367,20 +441,26 @@ export const dashboardApi = {
       .flat()
       .sort(
         (a, b) =>
-          new Date(b.rawDate).getTime() -
-          new Date(a.rawDate).getTime(),
+          new Date(
+            b.rawDate,
+          ).getTime() -
+          new Date(
+            a.rawDate,
+          ).getTime(),
       );
   },
 
   /**
-   * Obtiene los reportes financieros de las sedes
-   * seleccionadas.
+   * Obtiene los reportes financieros de
+   * las sedes seleccionadas.
    */
   getCashflow: async (
     sedeIds: string | string[],
     periodo: PeriodoTipo = "diario",
     fecha?: string,
-  ): Promise<BackendReporteFinanciero[]> => {
+  ): Promise<
+    BackendReporteFinanciero[]
+  > => {
     const ids = Array.isArray(sedeIds)
       ? sedeIds
       : [sedeIds];
