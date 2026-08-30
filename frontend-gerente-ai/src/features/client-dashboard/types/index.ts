@@ -1,4 +1,7 @@
-export type PeriodoTipo = 'diario' | 'semanal' | 'mensual';
+export type PeriodoTipo =
+  | "diario"
+  | "semanal"
+  | "mensual";
 
 export interface ReportePeriodoInfo {
   tipo: PeriodoTipo;
@@ -37,39 +40,65 @@ export interface SedeReporteItem {
     id: string;
     nombre: string;
   };
+
   ingresos: CifrasIngresos;
+
   egresos: CifrasEgresos;
+
   balance: number;
+
   informativo: CifrasInformativo;
 }
 
 export interface ReporteFinanciero {
   periodo: ReportePeriodoInfo;
+
   negocio?: {
     id: string;
     nombre: string;
   };
+
   sede?: {
     id: string;
     nombre: string;
   };
+
   ingresos: CifrasIngresos;
+
   egresos: CifrasEgresos;
+
   balance: number;
+
   informativo: CifrasInformativo;
+
   sedes?: SedeReporteItem[];
 }
 
 export interface DashboardTransactionItem {
   id: string;
-  type: 'Venta' | 'Gasto' | 'Convertida';
+
+  type:
+    | "Venta"
+    | "Gasto"
+    | "Convertida"
+    | "Abono"
+    | "Compra";
+
   amount: number;
+
   amountFormatted: string;
+
   paymentMethod: string;
+
   pmDetails?: string;
+
   status: string;
+
   activity: string;
+
   personName: string;
+
   date: string;
+
   rawDate: string;
 }

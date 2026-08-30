@@ -1,14 +1,15 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+
 import { ReportesService } from '../services/reportes.service';
 import { ReporteQueryDto } from '../dto/reportes/reporte-query.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
-type AuthUser = { userId: string; rolGlobal: string };
+type AuthUser = {
+  userId: string;
+  rolGlobal: string;
+};
 
-// A diferencia de los módulos de negocio, aquí los GET no son públicos: la regla es
-// que un admin solo vea su sede y solo el dueño vea el consolidado, y eso obliga a
-// saber quién está preguntando.
 @Controller('reportes')
 @UseGuards(JwtAuthGuard)
 export class ReportesController {
@@ -44,8 +45,6 @@ export class ReportesController {
     );
   }
 
-  // --- Reportes Premium: planes Gerente y Administrador ---
-
   @Get('producto/:sedeId')
   porProducto(
     @Param('sedeId') sedeId: string,
@@ -63,6 +62,10 @@ export class ReportesController {
 
   @Get('fiados/:sedeId')
   fiados(@Param('sedeId') sedeId: string, @CurrentUser() user: AuthUser) {
-    return this.reportesService.fiados(sedeId, user.userId, user.rolGlobal);
+    return this.reportesService.fiados(
+      sedeId,
+      user.userId,
+      user.rolGlobal,
+    );
   }
 }
