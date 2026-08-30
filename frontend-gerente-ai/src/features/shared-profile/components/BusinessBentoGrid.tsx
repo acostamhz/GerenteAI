@@ -165,7 +165,7 @@ export function BusinessBentoGrid({
         <div>
           <h3 className="text-base font-bold text-foreground flex items-center gap-2">
             <Building2 className="w-4 h-4 text-emerald-500" />
-            Negocios y Sedes Administrados ({negocios.length})
+            Negocios y sedes administrados ({negocios.length})
           </h3>
           <p className="text-xs text-muted-foreground mt-0.5">
             Tus organizaciones conectadas con el agente autónomo Luka AI.
@@ -183,7 +183,7 @@ export function BusinessBentoGrid({
           className="rounded-xl px-4 py-2.5 font-bold text-xs shadow-md inline-flex items-center gap-1.5 cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
-          {isCreateBusinessOpen ? 'Ocultar Formulario' : 'Registrar Negocio'}
+          {isCreateBusinessOpen ? 'Ocultar Formulario' : 'Registrar negocio'}
         </Button>
       </div>
 

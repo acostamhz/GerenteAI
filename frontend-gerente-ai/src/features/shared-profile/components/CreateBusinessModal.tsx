@@ -31,7 +31,7 @@ export function CreateBusinessModal({ isOpen, onClose, onSubmit }: CreateBusines
     telefonoContacto: '',
     telefonoSecundario: '',
     contexto: '',
-    nombreSede: 'Sede Principal',
+    nombreSede: 'Sede principal',
     direccionSede: '',
     whatsappPhone: '',
     whatsappUsername: '',
@@ -123,7 +123,7 @@ export function CreateBusinessModal({ isOpen, onClose, onSubmit }: CreateBusines
         telefonoContacto: '',
         telefonoSecundario: '',
         contexto: '',
-        nombreSede: 'Sede Principal',
+        nombreSede: 'Sede principal',
         direccionSede: '',
         whatsappPhone: '',
         whatsappUsername: '',
@@ -308,7 +308,7 @@ export function CreateBusinessModal({ isOpen, onClose, onSubmit }: CreateBusines
                             type="text"
                             name="nombreSede"
                             required
-                            placeholder="Ej: Sede Principal"
+                            placeholder="Ej: Sede principal"
                             value={formData.nombreSede}
                             onChange={handleChange}
                             className="w-full pl-10 pr-3.5 py-2.5 bg-background border border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-sm"

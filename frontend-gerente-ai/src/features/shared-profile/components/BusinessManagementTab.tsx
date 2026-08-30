@@ -171,7 +171,7 @@ export function BusinessManagementTab({
           <div>
             <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
               <Building2 className="w-5 h-5 text-emerald-500" />
-              Negocios y Sedes Administrados ({negocios.length})
+              Negocios y sedes administrados ({negocios.length})
             </h2>
             <p className="text-xs text-muted-foreground mt-1">
               Crea, edita y organiza tus negocios con sus respectivas sucursales y canales de WhatsApp.

@@ -29,7 +29,7 @@ export function InlineCreateBusinessCard({ isOpen, onClose, onSubmit }: InlineCr
     telefonoContacto: '',
     telefonoSecundario: '',
     contexto: '',
-    nombreSede: 'Sede Principal',
+    nombreSede: 'Sede principal',
     direccionSede: '',
     whatsappPhone: '',
     whatsappUsername: '',
@@ -117,7 +117,7 @@ export function InlineCreateBusinessCard({ isOpen, onClose, onSubmit }: InlineCr
         telefonoContacto: '',
         telefonoSecundario: '',
         contexto: '',
-        nombreSede: 'Sede Principal',
+        nombreSede: 'Sede principal',
         direccionSede: '',
         whatsappPhone: '',
         whatsappUsername: '',
@@ -290,7 +290,7 @@ export function InlineCreateBusinessCard({ isOpen, onClose, onSubmit }: InlineCr
                         type="text"
                         name="nombreSede"
                         required
-                        placeholder="Ej: Sede Principal"
+                        placeholder="Ej: Sede principal"
                         value={formData.nombreSede}
                         onChange={handleChange}
                         className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 dark:bg-background border border-slate-300 dark:border-border rounded-xl text-xs sm:text-sm font-medium outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 shadow-xs"

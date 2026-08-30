@@ -62,7 +62,7 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
     return s && s !== 'all' ? s : null;
   });
   const [sedeName, setSedeName] = useState<string>(() => {
-    return localStorage.getItem('active_sede_name') || 'Todas las Sedes';
+    return localStorage.getItem('active_sede_name') || 'Todas las sedes';
   });
   const [hasNoBusiness, setHasNoBusiness] = useState<boolean>(false);
   
@@ -152,7 +152,7 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
         setResolvedSedeId(effectiveSedeId);
 
         const currentSedeName = localStorage.getItem('active_sede_name');
-        setSedeName(effectiveSedeId ? (currentSedeName || 'Sede Seleccionada') : 'Todas las Sedes');
+        setSedeName(effectiveSedeId ? (currentSedeName || 'Sede Seleccionada') : 'Todas las sedes');
 
         if (!targetBusinessId && !effectiveSedeId) {
           setHasNoBusiness(true);

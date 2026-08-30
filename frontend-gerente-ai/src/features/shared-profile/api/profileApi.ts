@@ -182,7 +182,7 @@ export const profileApi = {
 
     // 2. Crear la sede/sucursal inicial
     const sedePayload: CreateSedeDto = {
-      nombre: data.nombreSede.trim() || 'Sede Principal',
+      nombre: data.nombreSede.trim() || 'Sede principal',
       negocioId: negocio.id,
       ...(data.direccionSede?.trim() ? { direccion: data.direccionSede.trim() } : {}),
       ...(data.whatsappPhone?.trim() ? { telefono: data.whatsappPhone.trim() } : {}),

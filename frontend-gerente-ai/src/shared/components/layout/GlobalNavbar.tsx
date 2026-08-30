@@ -66,7 +66,7 @@ export function GlobalNavbar() {
   });
 
   const [activeSedeName, setActiveSedeName] = useState<string>(() => {
-    return localStorage.getItem('active_sede_name') || 'Todas las Sedes';
+    return localStorage.getItem('active_sede_name') || 'Todas las sedes';
   });
   const [activeSedeId, setActiveSedeId] = useState<string>(() => {
     return localStorage.getItem('active_sede_id') || 'all';
@@ -97,7 +97,7 @@ export function GlobalNavbar() {
         setActiveSedeId('all');
         setActiveSedeName('Todas las Sedes');
         localStorage.setItem('active_sede_id', 'all');
-        localStorage.setItem('active_sede_name', 'Todas las Sedes');
+        localStorage.setItem('active_sede_name', 'Todas las sedes');
       } else {
         const found = (data || []).find((s: SedeItem) => s.id === savedSedeId);
         if (found) {
@@ -112,9 +112,9 @@ export function GlobalNavbar() {
           localStorage.setItem('active_sede_name', data[0].nombre);
         } else {
           setActiveSedeId('all');
-          setActiveSedeName('Todas las Sedes');
+          setActiveSedeName('Todas las sedes');
           localStorage.setItem('active_sede_id', 'all');
-          localStorage.setItem('active_sede_name', 'Todas las Sedes');
+          localStorage.setItem('active_sede_name', 'Todas las sedes');
         }
       }
     } catch (err) {
@@ -195,9 +195,9 @@ export function GlobalNavbar() {
 
     // Resetear la sede seleccionada a 'all' por defecto para el nuevo negocio
     setActiveSedeId('all');
-    setActiveSedeName('Todas las Sedes');
+    setActiveSedeName('Todas las sedes');
     localStorage.setItem('active_sede_id', 'all');
-    localStorage.setItem('active_sede_name', 'Todas las Sedes');
+    localStorage.setItem('active_sede_name', 'Todas las sedes');
 
     loadSedesForBusiness(negocio.id).then(() => {
       window.dispatchEvent(new Event('business_changed'));
@@ -384,14 +384,14 @@ export function GlobalNavbar() {
 
                     {/* Opción Consolidado (Todas las Sedes) */}
                     <button
-                      onClick={() => handleSelectSede('all', 'Todas las Sedes')}
+                      onClick={() => handleSelectSede('all', 'Todas las sedes')}
                       className={`w-full flex items-center justify-between px-4 py-2.5 text-xs sm:text-sm font-medium text-left hover:bg-muted transition-colors cursor-pointer border-b border-border/50 ${
                         activeSedeId === 'all' ? 'text-emerald-600 dark:text-emerald-400 font-bold bg-emerald-50/50 dark:bg-emerald-500/5' : 'text-foreground'
                       }`}
                     >
                       <div className="flex items-center gap-2">
                         <Layers className="w-3.5 h-3.5 text-emerald-500" />
-                        <span>Todas las Sedes (Consolidado)</span>
+                        <span>Todas las sedes (Consolidado)</span>
                       </div>
                       {activeSedeId === 'all' && <Check className="w-4 h-4 text-emerald-500" />}
                     </button>
@@ -456,14 +456,14 @@ export function GlobalNavbar() {
                   <Settings className="w-4 h-4" /> Configuración
                 </Link>
                 <Link to="/subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-                  <CreditCard className="w-4 h-4" /> Planes de Suscripción
+                  <CreditCard className="w-4 h-4" /> Planes de suscripción
                 </Link>
                 <Link to="/manage-subscription" onClick={() => setIsDropdownOpen(false)} className="flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors">
-                  <ShieldCheck className="w-4 h-4" /> Administrar Suscripción
+                  <ShieldCheck className="w-4 h-4" /> Administrar suscripción
                 </Link>
                 <div className="h-px bg-border my-2" />
                 <button onClick={handleLogout} className="w-full flex items-center gap-3 px-4 py-2.5 text-sm font-medium text-destructive hover:bg-destructive/10 transition-colors cursor-pointer">
-                  <LogOut className="w-4 h-4" /> Cerrar Sesión
+                  <LogOut className="w-4 h-4" /> Cerrar sesión
                 </button>
               </div>
             )}

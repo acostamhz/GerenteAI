@@ -54,7 +54,7 @@ export function BalanceCard({
       <div>
         <div className="flex items-center gap-4 mb-6">
           <div>
-            <p className="text-sm font-medium text-muted-foreground mb-1">Saldo Total</p>
+            <p className="text-sm font-medium text-muted-foreground mb-1">Saldo total</p>
             <p className="text-3xl font-black text-foreground tracking-tight transition-all">
               {formatNumber(balanceValue)} <span className="text-xl font-bold text-muted-foreground">COP</span>
             </p>
@@ -108,7 +108,7 @@ export function BalanceCard({
         ) : (
           <div className="flex items-center justify-between gap-3">
             <div>
-              <span className="font-bold text-foreground text-xs block">Metas Financieras</span>
+              <span className="font-bold text-foreground text-xs block">Metas financieras</span>
               <p className="text-[11px] text-muted-foreground mt-0.5">
                 No tienes metas configuradas para este comercio.
               </p>
