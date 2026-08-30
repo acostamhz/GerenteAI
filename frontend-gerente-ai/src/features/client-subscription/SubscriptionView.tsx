@@ -106,7 +106,7 @@ export function SubscriptionView() {
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-2">
             <Sparkles className="w-3.5 h-3.5" /> Pasarela Oficial Wompi Bancolombia
           </div>
-          <h1 className="text-3xl font-black text-foreground tracking-tight">Planes y Suscripción</h1>
+          <h1 className="text-3xl font-black text-foreground tracking-tight">Planes y suscripción</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
             Escala la capacidad operativa y automatizaciones con Inteligencia Artificial para <strong className="text-foreground">{negocioNombre}</strong>.
           </p>
@@ -117,7 +117,7 @@ export function SubscriptionView() {
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-bold rounded-xl border border-border transition-colors self-start md:self-auto"
         >
           <Bot className="w-4 h-4 text-emerald-500" />
-          <span>Administrar mi Plan Actual</span>
+          <span>Administrar mi plan actual</span>
         </Link>
       </div>
 
@@ -132,7 +132,7 @@ export function SubscriptionView() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            Facturación Mensual
+            Facturación mensual
           </button>
           <button
             onClick={() => setCiclo("anual")}
@@ -142,7 +142,7 @@ export function SubscriptionView() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <span>Facturación Anual</span>
+            <span>Facturación anual</span>
             <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
               ciclo === "anual" 
                 ? "bg-white/20 text-white" 

@@ -6,7 +6,7 @@ export function CashflowView() {
     <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0">
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-8 pt-1">
         <div>
-          <h1 className="text-3xl font-black text-foreground tracking-tight">Flujo de Caja</h1>
+          <h1 className="text-3xl font-black text-foreground tracking-tight">Flujo de caja</h1>
         </div>
       </div>
 
