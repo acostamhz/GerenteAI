@@ -284,7 +284,7 @@ export function useDashboardMetrics(customBusinessId?: string, customSedeId?: st
       setResolvedBusinessId(bId);
       setBusinessName(bName || 'Mi Negocio');
       setResolvedSedeId(sId && sId !== 'all' ? sId : null);
-      setSedeName(sName || 'Todas las Sedes');
+      setSedeName(sName || 'Todas las sedes');
       
       fetchMetrics(true);
     };

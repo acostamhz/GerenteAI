@@ -95,7 +95,7 @@ export function GlobalNavbar() {
       const savedSedeId = localStorage.getItem('active_sede_id');
       if (savedSedeId === 'all' || !savedSedeId) {
         setActiveSedeId('all');
-        setActiveSedeName('Todas las Sedes');
+        setActiveSedeName('Todas las sedes');
         localStorage.setItem('active_sede_id', 'all');
         localStorage.setItem('active_sede_name', 'Todas las sedes');
       } else {
@@ -429,7 +429,7 @@ export function GlobalNavbar() {
                         className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold text-xs transition-colors cursor-pointer shadow-xs"
                       >
                         <MapPin className="w-3.5 h-3.5" />
-                        <span>Gestionar Sedes en Perfil</span>
+                        <span>Gestionar sedes en perfil</span>
                       </Link>
                     </div>
                   </div>

@@ -41,13 +41,13 @@ export function GlobalFooter() {
                 <Link to="/" className="text-sm hover:text-emerald-400 transition-colors">Resumen</Link>
               </li>
               <li>
-                <Link to="/cashflow" className="text-sm hover:text-emerald-400 transition-colors">Flujo de Caja</Link>
+                <Link to="/cashflow" className="text-sm hover:text-emerald-400 transition-colors">Flujo de caja</Link>
               </li>
               <li>
                 <Link to="/insights" className="text-sm hover:text-emerald-400 transition-colors">Recomendaciones IA</Link>
               </li>
               <li>
-                <Link to="/admin/crm" className="text-sm hover:text-emerald-400 transition-colors">Panel Admin</Link>
+                <Link to="/admin/crm" className="text-sm hover:text-emerald-400 transition-colors">Panel admin</Link>
               </li>
             </ul>
           </div>
