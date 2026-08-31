@@ -21,19 +21,23 @@ import {
   planesApi,
   PlanBackend,
   CicloFacturacion,
+  NegocioPlanInfo,
   MENSAJES_IA_POR_PLAN,
   DESCRIPCIONES_POR_PLAN,
 } from "@/shared/api/planesApi";
 
 import { WompiCheckoutModal } from "./components/WompiCheckoutModal";
 
-const PRECIO_FORMATTER = new Intl.NumberFormat("es-CO");
+const PRECIO_FORMATTER =
+  new Intl.NumberFormat("es-CO");
 
 /* ============================================================
    UTILIDADES
 ============================================================ */
 
-function textoSedes(maxSedes: number): string {
+function textoSedes(
+  maxSedes: number,
+): string {
   if (!Number.isFinite(maxSedes)) {
     return "Sedes ilimitadas";
   }
@@ -48,11 +52,16 @@ function textoSedes(maxSedes: number): string {
 ============================================================ */
 
 export function SubscriptionView() {
-  const [planes, setPlanes] = useState<PlanBackend[]>([]);
-  const [planActual, setPlanActual] = useState<number | null>(null);
+  const [planes, setPlanes] =
+    useState<PlanBackend[]>([]);
+
+  const [planActual, setPlanActual] =
+    useState<number | null>(null);
 
   const [ciclo, setCiclo] =
-    useState<CicloFacturacion>("mensual");
+    useState<CicloFacturacion>(
+      "mensual",
+    );
 
   const [isLoading, setIsLoading] =
     useState(true);
@@ -61,16 +70,30 @@ export function SubscriptionView() {
     useState<string | null>(null);
 
   /* ==========================================================
+     DOWNGRADE
+  ========================================================== */
+
+  const [
+    isChangingToAssistant,
+    setIsChangingToAssistant,
+  ] = useState(false);
+
+  /* ==========================================================
      CHECKOUT
   ========================================================== */
 
   const [
     selectedPlanForCheckout,
     setSelectedPlanForCheckout,
-  ] = useState<PlanBackend | null>(null);
+  ] =
+    useState<PlanBackend | null>(
+      null,
+    );
 
-  const [isCheckoutOpen, setIsCheckoutOpen] =
-    useState(false);
+  const [
+    isCheckoutOpen,
+    setIsCheckoutOpen,
+  ] = useState(false);
 
   /* ==========================================================
      NEGOCIO ACTIVO
@@ -92,139 +115,197 @@ export function SubscriptionView() {
     );
   };
 
-  const negocioId = getNegocioId();
+  const negocioId =
+    getNegocioId();
 
-  const negocioNombre = getNegocioNombre();
+  const negocioNombre =
+    getNegocioNombre();
 
   /* ==========================================================
      CARGAR DATOS
-     
+
      IMPORTANTE:
-     
-     El backend es la FUENTE PRINCIPAL DE VERDAD.
-     
-     NO utilizamos:
-     
-     - business_plan_*
-     - active_business_plan
-     
-     El plan del negocio se obtiene mediante:
-     
-     GET /negocios/:id
+
+     `plan` representa el plan contratado.
+
+     `planVigente` representa el plan que realmente
+     rige actualmente el negocio.
+
+     La interfaz utiliza `planVigente` para determinar
+     cuál es el plan actual.
   ========================================================== */
 
-  const cargarDatos = useCallback(async () => {
-    const currentNegocioId = getNegocioId();
+  const cargarDatos =
+    useCallback(async () => {
+      const currentNegocioId =
+        getNegocioId();
 
-    try {
-      setIsLoading(true);
-      setError(null);
+      try {
+        setIsLoading(true);
+        setError(null);
 
-      /* ======================================================
-         CATÁLOGO
-      ====================================================== */
+        /* ======================================================
+           CATÁLOGO
+        ====================================================== */
 
-      const catalogo =
-        await planesApi.getPlanesCatalogo();
+        const catalogo =
+          await planesApi.getPlanesCatalogo();
 
-      setPlanes(
-        Array.isArray(catalogo)
-          ? catalogo
-          : [],
-      );
+        setPlanes(
+          Array.isArray(catalogo)
+            ? catalogo
+            : [],
+        );
 
-      /* ======================================================
-         PLAN DEL NEGOCIO ACTIVO
-      ====================================================== */
+        /* ======================================================
+           PLAN DEL NEGOCIO ACTIVO
+        ====================================================== */
 
-      let resolvedPlan = 1;
+        let resolvedPlan = 1;
 
-      if (currentNegocioId) {
-        try {
-          const negocio =
-            await planesApi.getNegocioPlan(
-              currentNegocioId,
+        /*
+         * Guardamos el objeto completo para poder utilizar
+         * también plan contratado, vencimiento y estado
+         * en el debug.
+         */
+        let negocio:
+          | NegocioPlanInfo
+          | null = null;
+
+        if (currentNegocioId) {
+          try {
+            negocio =
+              await planesApi.getNegocioPlan(
+                currentNegocioId,
+              );
+
+            /*
+             * La UI debe utilizar el plan VIGENTE.
+             *
+             * Esto permite que un negocio cuyo plan Gerente
+             * haya vencido aparezca visualmente como Asistente,
+             * aunque `negocio.plan` siga siendo 2.
+             */
+            const backendPlanVigente =
+              negocio?.planVigente !== null &&
+              negocio?.planVigente !== undefined
+                ? Number(
+                    negocio.planVigente,
+                  )
+                : NaN;
+
+            if (
+              Number.isFinite(
+                backendPlanVigente,
+              ) &&
+              backendPlanVigente >= 1
+            ) {
+              resolvedPlan =
+                backendPlanVigente;
+            }
+          } catch (error) {
+            console.error(
+              "[SubscriptionView] Error obteniendo plan del negocio:",
+              error,
             );
-
-          const backendPlan =
-            negocio?.plan !== null &&
-            negocio?.plan !== undefined
-              ? Number(negocio.plan)
-              : NaN;
-
-          if (
-            Number.isFinite(backendPlan) &&
-            backendPlan >= 1
-          ) {
-            resolvedPlan = backendPlan;
           }
-        } catch (error) {
-          console.error(
-            "[SubscriptionView] Error obteniendo plan del negocio:",
-            error,
-          );
         }
+
+        /* ======================================================
+           VALIDACIÓN FINAL
+        ====================================================== */
+
+        if (
+          !Number.isFinite(
+            resolvedPlan,
+          ) ||
+          resolvedPlan < 1
+        ) {
+          resolvedPlan = 1;
+        }
+
+        setPlanActual(
+          resolvedPlan,
+        );
+
+        /* ======================================================
+           DEBUG
+        ====================================================== */
+
+        console.info(
+          "[SubscriptionView] Estado de suscripción:",
+          {
+            negocioId:
+              currentNegocioId,
+
+            /*
+             * Plan que originalmente fue contratado.
+             */
+            planContratado:
+              negocio?.plan,
+
+            /*
+             * Plan que realmente está vigente
+             * y que utiliza la interfaz.
+             */
+            planVigente:
+              negocio?.planVigente,
+
+            /*
+             * Indica si el plan contratado está vencido.
+             */
+            planVencido:
+              negocio?.planVencido,
+
+            /*
+             * Fecha de vencimiento del plan contratado.
+             */
+            planVenceEl:
+              negocio?.planVenceEl,
+
+            /*
+             * Plan finalmente resuelto por la UI.
+             */
+            planMostrado:
+              resolvedPlan,
+
+            planNombre: (
+              Array.isArray(
+                catalogo,
+              )
+                ? catalogo
+                : []
+            ).find(
+              (plan) =>
+                plan.id ===
+                resolvedPlan,
+            )?.nombre,
+          },
+        );
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error
+            ? e.message
+            : "No se pudieron cargar los planes.";
+
+        console.error(
+          "[SubscriptionView] Error cargando planes:",
+          e,
+        );
+
+        setError(message);
+
+        /*
+         * Estado seguro.
+         *
+         * Si no podemos consultar el backend,
+         * mostramos Asistente.
+         */
+        setPlanActual(1);
+      } finally {
+        setIsLoading(false);
       }
-
-      /* ======================================================
-         VALIDACIÓN FINAL
-      ====================================================== */
-
-      if (
-        !Number.isFinite(resolvedPlan) ||
-        resolvedPlan < 1
-      ) {
-        resolvedPlan = 1;
-      }
-
-      setPlanActual(resolvedPlan);
-
-      /* ======================================================
-         DEBUG CONTROLADO
-      ====================================================== */
-
-      console.info(
-        "[SubscriptionView] Estado de suscripción:",
-        {
-          negocioId: currentNegocioId,
-          plan: resolvedPlan,
-          planNombre: (
-            Array.isArray(catalogo)
-              ? catalogo
-              : []
-          ).find(
-            (plan) =>
-              plan.id === resolvedPlan,
-          )?.nombre,
-        },
-      );
-    } catch (e: unknown) {
-      const message =
-        e instanceof Error
-          ? e.message
-          : "No se pudieron cargar los planes.";
-
-      console.error(
-        "[SubscriptionView] Error cargando planes:",
-        e,
-      );
-
-      setError(message);
-
-      /*
-       * IMPORTANTE:
-       *
-       * No utilizamos localStorage para recuperar
-       * el plan.
-       *
-       * Si el backend falla, mostramos Plan 1
-       * como estado seguro.
-       */
-      setPlanActual(1);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
+    }, []);
 
   /* ==========================================================
      CARGA INICIAL + EVENTOS
@@ -237,56 +318,59 @@ export function SubscriptionView() {
        EVENTO: PLAN ACTUALIZADO
     ======================================================== */
 
-    const handlePlanUpdated = (
-      event: Event,
-    ) => {
-      const customEvent =
-        event as CustomEvent<{
-          planId?: number;
-        }>;
+    const handlePlanUpdated =
+      (event: Event) => {
+        const customEvent =
+          event as CustomEvent<{
+            planId?: number;
+          }>;
 
-      const planId =
-        customEvent.detail?.planId;
-
-      if (
-        planId !== undefined &&
-        planId !== null
-      ) {
-        const numericPlan =
-          Number(planId);
+        const planId =
+          customEvent.detail?.planId;
 
         if (
-          Number.isFinite(numericPlan) &&
-          numericPlan >= 1
+          planId !== undefined &&
+          planId !== null
         ) {
-          /*
-           * Actualización inmediata de UI.
-           */
-          setPlanActual(
-            numericPlan,
-          );
-        }
-      }
+          const numericPlan =
+            Number(planId);
 
-      /*
-       * Confirmamos siempre con backend.
-       */
-      void cargarDatos();
-    };
+          if (
+            Number.isFinite(
+              numericPlan,
+            ) &&
+            numericPlan >= 1
+          ) {
+            /*
+             * Actualización inmediata de UI.
+             *
+             * La confirmación definitiva
+             * siempre viene del backend.
+             */
+            setPlanActual(
+              numericPlan,
+            );
+          }
+        }
+
+        void cargarDatos();
+      };
 
     /* ========================================================
        EVENTO: NEGOCIO CAMBIADO
     ======================================================== */
 
-    const handleBusinessChanged = () => {
-      /*
-       * Esperamos un tick para asegurarnos de que
-       * active_business_id ya haya sido actualizado.
-       */
-      setTimeout(() => {
-        void cargarDatos();
-      }, 0);
-    };
+    const handleBusinessChanged =
+      () => {
+        /*
+         * Esperamos un tick para asegurarnos
+         * de que active_business_id ya haya
+         * sido actualizado.
+         */
+        setTimeout(() => {
+          void cargarDatos();
+        }, 0);
+      };
 
     window.addEventListener(
       "plan_updated",
@@ -312,6 +396,107 @@ export function SubscriptionView() {
   }, [cargarDatos]);
 
   /* ==========================================================
+     CAMBIAR A ASISTENTE
+  ========================================================== */
+
+  const handleCambiarAAsistente =
+    async () => {
+      if (!negocioId) {
+        setError(
+          "No encontramos el negocio activo.",
+        );
+        return;
+      }
+
+      /*
+       * Si ya estamos en Asistente,
+       * no hacemos nada.
+       */
+      if (
+        planActual === 1
+      ) {
+        return;
+      }
+
+      const confirmar =
+        window.confirm(
+          "¿Quieres cambiar al plan Asistente?\n\n" +
+            "El cambio será inmediato. " +
+            "No se eliminará ninguna información de tu negocio, " +
+            "pero las funciones y sedes que superen los límites " +
+            "del plan Asistente dejarán de estar habilitadas.\n\n" +
+            "El tiempo restante de tu plan actual no se conserva.",
+        );
+
+      if (!confirmar) {
+        return;
+      }
+
+      try {
+        setIsChangingToAssistant(
+          true,
+        );
+
+        setError(null);
+
+        const negocio =
+          await planesApi.cambiarAAsistente(
+            negocioId,
+          );
+
+        const nuevoPlan =
+          Number(
+            negocio.plan,
+          );
+
+        setPlanActual(
+          Number.isFinite(
+            nuevoPlan,
+          )
+            ? nuevoPlan
+            : 1,
+        );
+
+        /*
+         * Avisamos al resto de la aplicación
+         * que el plan cambió.
+         */
+        window.dispatchEvent(
+          new CustomEvent(
+            "plan_updated",
+            {
+              detail: {
+                planId: 1,
+              },
+            },
+          ),
+        );
+
+        /*
+         * Confirmamos nuevamente
+         * contra el backend.
+         */
+        await cargarDatos();
+      } catch (e: unknown) {
+        const message =
+          e instanceof Error
+            ? e.message
+            : "No pudimos cambiar el plan.";
+
+        console.error(
+          "[SubscriptionView] Error cambiando al plan Asistente:",
+          e,
+        );
+
+        setError(message);
+      } finally {
+        setIsChangingToAssistant(
+          false,
+        );
+      }
+    };
+
+  /* ==========================================================
      SELECCIONAR PLAN
   ========================================================== */
 
@@ -322,20 +507,26 @@ export function SubscriptionView() {
      * No hacer nada si ya es el plan actual.
      */
     if (
-      planActual === plan.id
+      planActual ===
+      plan.id
     ) {
       return;
     }
 
     /*
-     * El plan gratuito no requiere checkout.
+     * El plan Asistente tiene
+     * un flujo específico de downgrade.
      */
     if (
-      plan.precioMensual === 0
+      plan.id === 1
     ) {
+      void handleCambiarAAsistente();
       return;
     }
 
+    /*
+     * Los planes de pago utilizan Wompi.
+     */
     setSelectedPlanForCheckout(
       plan,
     );
@@ -361,8 +552,11 @@ export function SubscriptionView() {
         <div>
 
           <div className="inline-flex items-center gap-2 px-3 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full text-xs font-bold text-emerald-600 dark:text-emerald-400 mb-2">
+
             <Sparkles className="w-3.5 h-3.5" />
+
             Pasarela Oficial Wompi Bancolombia
+
           </div>
 
           <h1 className="text-3xl font-black text-foreground tracking-tight">
@@ -370,8 +564,9 @@ export function SubscriptionView() {
           </h1>
 
           <p className="text-sm text-muted-foreground mt-0.5">
-            Escala la capacidad operativa y automatizaciones
-            con Inteligencia Artificial para{" "}
+            Escala la capacidad operativa y
+            automatizaciones con Inteligencia
+            Artificial para{" "}
             <strong className="text-foreground">
               {negocioNombre}
             </strong>
@@ -384,11 +579,13 @@ export function SubscriptionView() {
           to="/manage-subscription"
           className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-muted hover:bg-muted/80 text-foreground text-xs font-bold rounded-xl border border-border transition-colors self-start md:self-auto"
         >
+
           <Bot className="w-4 h-4 text-emerald-500" />
 
           <span>
             Administrar mi plan actual
           </span>
+
         </Link>
 
       </div>
@@ -400,8 +597,6 @@ export function SubscriptionView() {
       <div className="flex items-center justify-center mb-10">
 
         <div className="inline-flex items-center p-1.5 bg-muted/60 border border-border rounded-2xl shadow-inner">
-
-          {/* Mensual */}
 
           <button
             type="button"
@@ -416,8 +611,6 @@ export function SubscriptionView() {
           >
             Facturación mensual
           </button>
-
-          {/* Anual */}
 
           <button
             type="button"
@@ -474,29 +667,30 @@ export function SubscriptionView() {
           ERROR
       ====================================================== */}
 
-      {!isLoading && error && (
-        <div className="bg-card border border-destructive/20 rounded-3xl p-8 text-center mb-12">
+      {!isLoading &&
+        error && (
+          <div className="bg-card border border-destructive/20 rounded-3xl p-8 text-center mb-12">
 
-          <p className="text-sm font-bold text-destructive">
-            No pudimos cargar los planes comerciales
-          </p>
+            <p className="text-sm font-bold text-destructive">
+              No pudimos cargar los planes comerciales
+            </p>
 
-          <p className="text-xs mt-1 text-muted-foreground">
-            {error}
-          </p>
+            <p className="text-xs mt-1 text-muted-foreground">
+              {error}
+            </p>
 
-          <button
-            type="button"
-            onClick={() =>
-              void cargarDatos()
-            }
-            className="mt-4 px-4 py-2 rounded-xl bg-foreground text-background text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
-          >
-            Reintentar
-          </button>
+            <button
+              type="button"
+              onClick={() =>
+                void cargarDatos()
+              }
+              className="mt-4 px-4 py-2 rounded-xl bg-foreground text-background text-xs font-bold hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              Reintentar
+            </button>
 
-        </div>
-      )}
+          </div>
+        )}
 
       {/* ======================================================
           GRID DE PLANES
@@ -508,6 +702,7 @@ export function SubscriptionView() {
 
             {planes.map(
               (plan) => {
+
                 const esActual =
                   planActual ===
                   plan.id;
@@ -518,6 +713,11 @@ export function SubscriptionView() {
 
                 const esPopular =
                   plan.id === 2;
+
+                const esDowngrade =
+                  plan.id === 1 &&
+                  planActual !== null &&
+                  planActual !== 1;
 
                 const precioMostrado =
                   esGratuito
@@ -566,7 +766,9 @@ export function SubscriptionView() {
                     }`}
                   >
 
-                    {/* Badge */}
+                    {/* ==================================================
+                        BADGE
+                    ================================================== */}
 
                     {esPopular && (
                       <div className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-gradient-to-r from-emerald-600 to-cyan-600 text-white text-[10px] font-black uppercase tracking-wider rounded-full shadow-md">
@@ -612,7 +814,9 @@ export function SubscriptionView() {
                         <div className="flex items-baseline gap-1.5">
 
                           <span className="text-3xl sm:text-4xl font-black text-foreground tracking-tight">
+
                             {precioMostrado}
+
                           </span>
 
                           {!esGratuito && (
@@ -644,13 +848,17 @@ export function SubscriptionView() {
                       <div className="flex items-start gap-3">
 
                         <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+
                           <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+
                         </div>
 
                         <span className="text-xs font-semibold text-foreground">
+
                           {textoSedes(
                             plan.maxSedes,
                           )}
+
                         </span>
 
                       </div>
@@ -660,14 +868,18 @@ export function SubscriptionView() {
                       <div className="flex items-start gap-3">
 
                         <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+
                           <MessageSquare className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+
                         </div>
 
                         <span className="text-xs font-semibold text-foreground">
+
                           {MENSAJES_IA_POR_PLAN[
                             plan.id
                           ] ||
                             "Mensajes con IA incluidos"}
+
                         </span>
 
                       </div>
@@ -677,15 +889,19 @@ export function SubscriptionView() {
                       <div className="flex items-start gap-3">
 
                         <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+
                           <Building2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+
                         </div>
 
                         <span className="text-xs font-semibold text-foreground">
+
                           {plan.funcionalidades
                             .length >
                           0
                             ? `${plan.funcionalidades.length} módulos y reportes avanzados`
                             : "Módulos financieros esenciales"}
+
                         </span>
 
                       </div>
@@ -698,12 +914,16 @@ export function SubscriptionView() {
                         <div className="flex items-start gap-3">
 
                           <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+
                             <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+
                           </div>
 
                           <span className="text-xs text-muted-foreground">
+
                             Registro de ventas por nota de
                             voz y fotos
+
                           </span>
 
                         </div>
@@ -717,12 +937,16 @@ export function SubscriptionView() {
                         <div className="flex items-start gap-3">
 
                           <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+
                             <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+
                           </div>
 
                           <span className="text-xs text-muted-foreground">
+
                             Recomendaciones y analítica de
                             margen
+
                           </span>
 
                         </div>
@@ -737,42 +961,55 @@ export function SubscriptionView() {
                     <button
                       type="button"
                       disabled={
-                        esActual
+                        esActual ||
+                        isChangingToAssistant
                       }
                       onClick={() =>
                         handleSeleccionarPlan(
                           plan,
                         )
                       }
-                      className={`w-full py-3.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      className={`w-full py-3.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                         esActual
                           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 cursor-default opacity-80"
-                          : esPopular
-                            ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20"
-                            : "bg-foreground text-background hover:opacity-90"
+                          : esDowngrade
+                            ? "bg-muted text-foreground border border-border hover:bg-muted/80"
+                            : esPopular
+                              ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20"
+                              : "bg-foreground text-background hover:opacity-90"
                       }`}
                     >
 
                       {esActual ? (
                         <>
+
                           <Check className="w-4 h-4 text-emerald-500" />
 
                           <span>
                             Plan Actual Activo
                           </span>
+
                         </>
-                      ) : esGratuito ? (
-                        <span>
-                          Plan Básico Gratuito
-                        </span>
+                      ) : esDowngrade ? (
+                        <>
+
+                          <span>
+                            {isChangingToAssistant
+                              ? "Cambiando plan..."
+                              : "Cambiar al plan Asistente"}
+                          </span>
+
+                        </>
                       ) : (
                         <>
+
                           <Sparkles className="w-4 h-4" />
 
                           <span>
                             Mejorar a{" "}
                             {plan.nombre}
                           </span>
+
                         </>
                       )}
 
@@ -795,7 +1032,9 @@ export function SubscriptionView() {
         <div className="flex items-center gap-3">
 
           <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 flex items-center justify-center shrink-0">
+
             <ShieldCheck className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
+
           </div>
 
           <div>
@@ -805,9 +1044,9 @@ export function SubscriptionView() {
             </h4>
 
             <p className="text-xs text-muted-foreground">
-              Cancela o cambia de plan en cualquier
-              momento sin contratos de permanencia ni
-              cobros ocultos.
+              Cambia de plan en cualquier
+              momento sin contratos de permanencia
+              ni cobros ocultos.
             </p>
 
           </div>
@@ -833,7 +1072,7 @@ export function SubscriptionView() {
       </div>
 
       {/* ======================================================
-          CHECKOUT
+          CHECKOUT WOMPI
       ====================================================== */}
 
       {selectedPlanForCheckout && (
@@ -857,10 +1096,6 @@ export function SubscriptionView() {
             negocioNombre
           }
           onPaymentSuccess={() => {
-            /*
-             * Recargamos inmediatamente después
-             * del pago.
-             */
             void cargarDatos();
           }}
         />
