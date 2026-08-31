@@ -27,8 +27,19 @@ export const BANCOS_COLOMBIA_PSE: BancoPse[] = [
   { codigo: '1032', nombre: 'Banco Caja Social' },
 ];
 
-/** Flag para conmutar entre simulación local y backend real */
-export const USE_MOCK_GATEWAY = true;
+/**
+ * Conmuta entre la simulación local y la pasarela real.
+ *
+ * Lo decide el entorno y ya no está fijo en el código: en local se puede seguir
+ * simulando sin tocar nada, y en Vercel basta con definir la variable para que
+ * los pagos salgan de verdad contra Wompi.
+ *
+ *   VITE_USE_MOCK_GATEWAY=false  -> cobra de verdad (sandbox o producción,
+ *                                   según las llaves que tenga el backend)
+ *   sin definir / cualquier otro -> simula, como hasta ahora
+ */
+export const USE_MOCK_GATEWAY =
+  import.meta.env.VITE_USE_MOCK_GATEWAY !== 'false';
 
 export const wompiService = {
   /**

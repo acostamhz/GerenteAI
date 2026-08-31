@@ -34,6 +34,12 @@ const SubscriptionPage = lazy(() =>
   }))
 );
 
+const PagoResultadoPage = lazy(() =>
+  import("@/features/client-subscription").then((m) => ({
+    default: m.PagoResultadoView,
+  }))
+);
+
 const ManageSubscriptionPage = lazy(() =>
   import("@/features/client-manage-subscription").then((m) => ({
     default: m.ManageSubscriptionView,
@@ -262,6 +268,17 @@ export function AppRoutes() {
             element={
               <Suspense fallback={<PageSkeleton />}>
                 <SubscriptionPage />
+              </Suspense>
+            }
+          />
+
+          {/* Vuelta del checkout de Wompi. Va dentro de las rutas protegidas
+              porque consulta el pago con el token del usuario. */}
+          <Route
+            path="pago/resultado"
+            element={
+              <Suspense fallback={<PageSkeleton />}>
+                <PagoResultadoPage />
               </Suspense>
             }
           />
