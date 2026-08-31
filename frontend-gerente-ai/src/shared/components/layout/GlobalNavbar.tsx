@@ -450,8 +450,15 @@ export function GlobalNavbar() {
           ==================================================== */}
           <div className="flex items-center gap-3 sm:gap-6 shrink-0">
             {/* Logo */}
+            {/* Logo */}
             <Link to="/" className="flex items-center gap-2 cursor-pointer">
-              <span className="text-lg sm:text-xl font-black tracking-tighter bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-emerald-400">
+              <img
+                src="/Luka.png"
+                alt="Luka AI"
+                className="w-8 h-8 sm:w-9 sm:h-9 object-contain"
+              />
+
+              <span className="text-lg sm:text-xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">
                 Luka AI
               </span>
             </Link>
