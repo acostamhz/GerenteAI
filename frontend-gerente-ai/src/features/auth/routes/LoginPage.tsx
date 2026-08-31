@@ -40,7 +40,7 @@ export function LoginPage() {
 
           <Link
             to="/home"
-            className="inline-flex items-center group cursor-pointer"
+            className="inline-flex items-center gap-2 shrink-0 group cursor-pointer"
             aria-label="Luka AI - Inicio"
           >
             <img
@@ -57,6 +57,9 @@ export function LoginPage() {
                 group-hover:scale-[1.03]
               "
             />
+            <span className="text-xl sm:text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">
+              Luka AI
+            </span>
           </Link>
 
         </div>
