@@ -5,7 +5,6 @@ import {
 } from "react";
 
 import { useAuth } from "@/features/auth";
-
 import { profileApi } from "@/features/shared-profile/api/profileApi";
 
 import {
@@ -30,7 +29,7 @@ export function usePlanPermissions() {
     useState<boolean>(true);
 
   // ============================================================
-  // ESTADO DEL MODAL PAYWALL
+  // PAYWALL
   // ============================================================
 
   const [isPaywallOpen, setIsPaywallOpen] =
@@ -55,199 +54,125 @@ export function usePlanPermissions() {
     try {
       setIsLoading(true);
 
-      const [planes, perfil] =
-        await Promise.all([
-          planesApi.getPlanesCatalogo(),
-
-          profileApi
-            .getMe()
-            .catch(() => null),
-        ]);
-
       // ========================================================
-      // CATÁLOGO DE PLANES
+      // CATÁLOGO + PERFIL
       // ========================================================
 
-      if (
-        planes &&
-        planes.length > 0
-      ) {
+      const [planes, perfil] = await Promise.all([
+        planesApi.getPlanesCatalogo(),
+
+        profileApi.getMe().catch(() => null),
+      ]);
+
+      if (Array.isArray(planes) && planes.length > 0) {
         setCatalogo(planes);
       }
 
       // ========================================================
-      // DETERMINAR PLAN DEL USUARIO
+      // NEGOCIO ACTIVO
       // ========================================================
 
       const activeNegocioId =
-        localStorage.getItem(
-          "active_business_id",
-        );
+        localStorage.getItem("active_business_id");
 
-      const perBusinessPlan =
-        activeNegocioId
-          ? localStorage.getItem(
-              `business_plan_${activeNegocioId}`,
-            )
-          : null;
-
-      const accountPlan =
-        localStorage.getItem(
-          "active_business_plan",
-        );
-
-      /*
-       * IMPORTANTE:
-       *
-       * El backend debe ser la fuente principal
-       * de verdad.
-       *
-       * localStorage solamente se utiliza como
-       * fallback cuando no tenemos información
-       * del backend.
-       */
+      // ========================================================
+      // MASTER
+      // ========================================================
 
       const isMaster =
         perfil?.rolGlobal === "MASTER" ||
         user?.rolGlobal === "MASTER";
+
+      // ========================================================
+      // DETERMINAR PLAN
+      // ========================================================
 
       let resolvedPlan = 1;
 
       /*
        * MASTER
        *
-       * MASTER tiene permisos equivalentes
+       * Los usuarios MASTER tienen acceso equivalente
        * al Plan Administrador.
-       *
-       * Lo evaluamos primero para evitar que
-       * cualquier valor antiguo del localStorage
-       * pueda degradar sus permisos.
        */
       if (isMaster) {
         resolvedPlan = 3;
       }
 
       /*
-       * Plan informado por el backend.
-       */
-      else if (
-        perfil?.plan !== null &&
-        perfil?.plan !== undefined
-      ) {
-        const backendPlan =
-          Number(perfil.plan);
-
-        if (
-          Number.isFinite(
-            backendPlan,
-          ) &&
-          backendPlan > 0
-        ) {
-          resolvedPlan =
-            backendPlan;
-        }
-      }
-
-      /*
-       * Plan disponible en el usuario
-       * autenticado.
-       */
-      else if (
-        user?.plan !== null &&
-        user?.plan !== undefined
-      ) {
-        const userPlan =
-          Number(user.plan);
-
-        if (
-          Number.isFinite(
-            userPlan,
-          ) &&
-          userPlan > 0
-        ) {
-          resolvedPlan =
-            userPlan;
-        }
-      }
-
-      /*
-       * FALLBACK:
+       * USUARIO NORMAL
        *
-       * Solamente si el backend no informó
-       * el plan, utilizamos localStorage.
+       * El plan se obtiene exclusivamente desde
+       * el negocio activo.
        */
-      else if (
-        perBusinessPlan
-      ) {
-        const storedPlan =
-          Number(perBusinessPlan);
+      else if (activeNegocioId) {
+        try {
+          const negocioPlan =
+            await planesApi.getNegocioPlan(
+              activeNegocioId,
+            );
 
-        if (
-          Number.isFinite(
-            storedPlan,
-          ) &&
-          storedPlan > 0
-        ) {
-          resolvedPlan =
-            storedPlan;
-        }
-      }
+          const backendPlan =
+            negocioPlan?.plan !== null &&
+            negocioPlan?.plan !== undefined
+              ? Number(negocioPlan.plan)
+              : NaN;
 
-      else if (
-        accountPlan
-      ) {
-        const storedPlan =
-          Number(accountPlan);
-
-        if (
-          Number.isFinite(
-            storedPlan,
-          ) &&
-          storedPlan > 0
-        ) {
-          resolvedPlan =
-            storedPlan;
+          if (
+            Number.isFinite(backendPlan) &&
+            backendPlan >= 1
+          ) {
+            resolvedPlan = backendPlan;
+          } else {
+            console.warn(
+              "[usePlanPermissions] El backend no devolvió un plan válido para el negocio activo.",
+              {
+                negocioId: activeNegocioId,
+                negocioPlan,
+              },
+            );
+          }
+        } catch (error) {
+          console.error(
+            "[usePlanPermissions] Error obteniendo el plan del negocio:",
+            error,
+          );
         }
       }
 
       /*
-       * Protección final.
+       * SIN NEGOCIO ACTIVO
        *
-       * Si por alguna razón se obtiene un
-       * número inválido, volvemos al Plan 1.
+       * No usamos localStorage para determinar el plan.
+       *
+       * Si no existe negocio activo, mantenemos Plan 1
+       * como estado seguro.
        */
+
+      // ========================================================
+      // VALIDACIÓN FINAL
+      // ========================================================
+
       if (
-        !Number.isFinite(
-          resolvedPlan,
-        ) ||
+        !Number.isFinite(resolvedPlan) ||
         resolvedPlan < 1
       ) {
         resolvedPlan = 1;
       }
 
-      setPlanUsuarioId(
-        resolvedPlan,
-      );
+      setPlanUsuarioId(resolvedPlan);
 
       // ========================================================
       // CANTIDAD DE NEGOCIOS
       // ========================================================
 
       if (
-        perfil &&
-        (perfil as any).negocios &&
-        Array.isArray(
-          (perfil as any).negocios,
-        )
+        Array.isArray(perfil?.negocios)
       ) {
         setCantidadNegocios(
-          (perfil as any).negocios.length,
+          perfil.negocios.length,
         );
       } else {
-        /*
-         * Fallback:
-         * obtener negocios directamente.
-         */
         const lista =
           await profileApi
             .getNegocios()
@@ -259,11 +184,46 @@ export function usePlanPermissions() {
             : 0,
         );
       }
-    } catch (e) {
-      console.error(
-        "Error al verificar permisos de plan:",
-        e,
+
+      // ========================================================
+      // DEBUG CONTROLADO
+      // ========================================================
+
+      console.info(
+        "[usePlanPermissions] Estado de permisos:",
+        {
+          negocioId: activeNegocioId,
+          plan: resolvedPlan,
+          planNombre:
+            (Array.isArray(planes)
+              ? planes
+              : PLANES_FALLBACK
+            ).find(
+              (p) =>
+                p.id === resolvedPlan,
+            )?.nombre,
+          isMaster,
+          cantidadNegocios:
+            Array.isArray(perfil?.negocios)
+              ? perfil.negocios.length
+              : undefined,
+        },
       );
+    } catch (error) {
+      console.error(
+        "[usePlanPermissions] Error al verificar permisos de plan:",
+        error,
+      );
+
+      /*
+       * IMPORTANTE:
+       *
+       * No recuperamos business_plan_*
+       * ni active_business_plan.
+       *
+       * Esos valores pertenecen a pruebas anteriores
+       * y no deben poder modificar el plan real.
+       */
     } finally {
       setIsLoading(false);
     }
@@ -274,18 +234,17 @@ export function usePlanPermissions() {
   // ============================================================
 
   useEffect(() => {
-    cargarDatos();
+    void cargarDatos();
 
-    /*
-     * Cuando cambia el plan desde otro componente,
-     * actualizamos inmediatamente y después
-     * volvemos a consultar el backend.
-     */
+    // ----------------------------------------------------------
+    // CAMBIO DE PLAN
+    // ----------------------------------------------------------
+
     const handlePlanUpdated = (
-      e: Event,
+      event: Event,
     ) => {
       const customEvent =
-        e as CustomEvent<{
+        event as CustomEvent<{
           planId?: number;
         }>;
 
@@ -300,10 +259,8 @@ export function usePlanPermissions() {
           Number(planId);
 
         if (
-          Number.isFinite(
-            numericPlan,
-          ) &&
-          numericPlan > 0
+          Number.isFinite(numericPlan) &&
+          numericPlan >= 1
         ) {
           setPlanUsuarioId(
             numericPlan,
@@ -311,17 +268,27 @@ export function usePlanPermissions() {
         }
       }
 
+      /*
+       * Confirmamos siempre con backend.
+       */
       void cargarDatos();
     };
 
-    /*
-     * Cuando cambia el negocio activo,
-     * debemos volver a determinar el plan.
-     */
-    const handleBusinessChanged =
-      () => {
+    // ----------------------------------------------------------
+    // CAMBIO DE NEGOCIO
+    // ----------------------------------------------------------
+
+    const handleBusinessChanged = () => {
+      /*
+       * El active_business_id puede actualizarse
+       * justo antes de disparar este evento.
+       *
+       * Esperamos un tick para leer el valor nuevo.
+       */
+      setTimeout(() => {
         void cargarDatos();
-      };
+      }, 0);
+    };
 
     window.addEventListener(
       "plan_updated",
@@ -347,7 +314,7 @@ export function usePlanPermissions() {
   }, [cargarDatos]);
 
   // ============================================================
-  // REGLAS DE NEGOCIO SEGÚN EL PLAN
+  // REGLAS DE NEGOCIO
   // ============================================================
 
   /*
@@ -390,7 +357,7 @@ export function usePlanPermissions() {
         `El Plan ${
           planUsuarioId === 1
             ? "Asistente (Gratis)"
-            : "actual"
+            : planInfo.nombre
         } permite administrar hasta ${
           maxNegociosPermitidos ===
           Number.POSITIVE_INFINITY
@@ -416,10 +383,13 @@ export function usePlanPermissions() {
 
   const planInfo =
     catalogo.find(
-      (p) =>
-        p.id === planUsuarioId,
+      (plan) =>
+        plan.id === planUsuarioId,
     ) ||
-    catalogo[0] ||
+    PLANES_FALLBACK.find(
+      (plan) =>
+        plan.id === planUsuarioId,
+    ) ||
     PLANES_FALLBACK[0];
 
   // ============================================================
@@ -427,7 +397,7 @@ export function usePlanPermissions() {
   // ============================================================
 
   const maxSedesPermitidas =
-    planInfo.maxSedes ||
+    planInfo.maxSedes ??
     (
       planUsuarioId === 1
         ? 1
@@ -443,9 +413,7 @@ export function usePlanPermissions() {
   const verificarCreacionNegocio = (
     onPermitido: () => void,
   ) => {
-    if (
-      puedeCrearNegocio
-    ) {
+    if (puedeCrearNegocio) {
       onPermitido();
     } else {
       abrirPaywall();
