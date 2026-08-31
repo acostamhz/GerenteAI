@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { Mail, Loader2, AlertCircle, CheckCircle2, ArrowLeft, Send, KeyRound } from 'lucide-react';
+import { Mail, Loader2, CheckCircle2, ArrowLeft, Send, KeyRound } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/app/components/ui/button';
 import { authApi } from '../api/authApi';
 import { ApiError } from '@/lib/apiClient';
+import { AuthErrorAlert } from './AuthErrorAlert';
 
 export function ForgotPasswordCard() {
   const [email, setEmail] = useState('');
@@ -14,14 +15,18 @@ export function ForgotPasswordCard() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email) return;
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      setErrorMessage('Por favor ingresa tu correo electrónico.');
+      return;
+    }
 
     setIsLoading(true);
     setErrorMessage(null);
     setSuccessMessage(null);
 
     try {
-      const res = await authApi.forgotPassword({ email });
+      const res = await authApi.forgotPassword({ email: cleanEmail });
       setSuccessMessage(
         res.mensaje || 'Se envió un enlace para restablecer tu contraseña. Revisa tu correo.'
       );
@@ -56,10 +61,10 @@ export function ForgotPasswordCard() {
         {successMessage && (
           <motion.div
             key="success-box"
-            initial={{ opacity: 0, y: -10, scale: 0.98 }}
+            initial={{ opacity: 0, y: -8, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
+            exit={{ opacity: 0, y: -8, scale: 0.98 }}
+            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             className="mb-6 p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-sm font-semibold space-y-3 shadow-sm"
           >
             <div className="flex items-start gap-3">
@@ -67,7 +72,7 @@ export function ForgotPasswordCard() {
               <div>
                 <p className="font-bold text-foreground">¡Enlace enviado con éxito!</p>
                 <p className="text-xs text-muted-foreground mt-1 font-medium leading-relaxed">
-                  Hemos enviado las instrucciones a <span className="font-bold text-foreground">{email}</span>. Revisa tu bandeja de entrada o spam.
+                  Hemos enviado las instrucciones a <span className="font-bold text-foreground">{email.trim().toLowerCase()}</span>. Revisa tu bandeja de entrada o spam.
                 </p>
               </div>
             </div>
@@ -84,22 +89,8 @@ export function ForgotPasswordCard() {
         )}
       </AnimatePresence>
 
-      {/* Alerta de Error */}
-      <AnimatePresence mode="wait">
-        {errorMessage && (
-          <motion.div
-            key="error-box"
-            initial={{ opacity: 0, y: -10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium flex items-center gap-3 shadow-sm"
-          >
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            <span>{errorMessage}</span>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Alerta de Error con Transición Suave */}
+      <AuthErrorAlert error={errorMessage} />
 
       {/* Formulario */}
       {!successMessage && (
@@ -114,20 +105,21 @@ export function ForgotPasswordCard() {
                 type="email"
                 placeholder="tu@empresa.com"
                 required
+                disabled={isLoading}
                 value={email}
                 onChange={(e) => {
                   setEmail(e.target.value);
                   if (errorMessage) setErrorMessage(null);
                 }}
-                className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium"
+                className="w-full pl-11 pr-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium disabled:opacity-60"
               />
             </div>
           </div>
 
           <Button
             type="submit"
-            disabled={isLoading || !email}
-            className="w-full py-5 text-base font-bold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all mt-2 cursor-pointer"
+            disabled={isLoading || !email.trim()}
+            className="w-full py-5 text-base font-bold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all mt-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
           >
             {isLoading ? (
               <>
@@ -141,19 +133,18 @@ export function ForgotPasswordCard() {
               </>
             )}
           </Button>
-
-          <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
-            ¿Recordaste tu contraseña?{' '}
-            <Link
-              to="/login"
-              className="font-bold text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 inline" />
-              Regresar al login
-            </Link>
-          </div>
         </form>
       )}
+
+      <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
+        <Link
+          to="/login"
+          className="font-bold text-primary hover:text-primary/80 transition-colors inline-flex items-center gap-1.5 cursor-pointer"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Volver a iniciar sesión
+        </Link>
+      </div>
     </div>
   );
 }
