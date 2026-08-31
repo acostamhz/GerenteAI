@@ -256,3 +256,76 @@ describe('WhatsappRoutingService', () => {
     expect(normalizePhone('+57 300 123-4567')).toBe('573001234567');
   });
 });
+
+describe('WhatsappRoutingService · usuario sin negocio', () => {
+  /**
+   * Distinguir "nunca se registró" de "ya tiene cuenta pero no creó su negocio"
+   * es lo que evita mandar a registrarse a alguien que ya se registró: esa
+   * persona repite el registro, ve que no cambia nada y abandona.
+   */
+  function prismaConUsuario(
+    usuario: { nombre: string; telefono: string } | null,
+  ) {
+    return {
+      sede: {
+        findFirst: jest.fn(() => Promise.resolve(null)),
+        update: jest.fn(),
+      },
+      usuario: {
+        findFirst: jest.fn(({ where }: { where: { telefono: unknown } }) => {
+          if (!usuario) return Promise.resolve(null);
+          const criterio = where.telefono;
+          const coincide =
+            typeof criterio === 'string'
+              ? usuario.telefono === criterio
+              : usuario.telefono.endsWith(
+                  (criterio as { endsWith: string }).endsWith,
+                );
+          return Promise.resolve(coincide ? { nombre: usuario.nombre } : null);
+        }),
+      },
+    } as unknown as PrismaService;
+  }
+
+  function routing(usuario: { nombre: string; telefono: string } | null) {
+    return new WhatsappRoutingService(
+      prismaConUsuario(usuario),
+      new PlanesService(),
+    );
+  }
+
+  it('reconoce a quien ya tiene cuenta aunque no tenga negocio', async () => {
+    const encontrado = await routing({
+      nombre: 'Beto Pérez',
+      telefono: '573107555660',
+    }).findUsuarioSinNegocio({ phone: '573107555660' });
+
+    expect(encontrado?.nombre).toBe('Beto Pérez');
+  });
+
+  it('lo reconoce aunque el prefijo del número no coincida', async () => {
+    const encontrado = await routing({
+      nombre: 'Beto Pérez',
+      telefono: '3107555660',
+    }).findUsuarioSinNegocio({ phone: '573107555660' });
+
+    expect(encontrado?.nombre).toBe('Beto Pérez');
+  });
+
+  it('devuelve null si esa persona no existe', async () => {
+    const encontrado = await routing(null).findUsuarioSinNegocio({
+      phone: '573999999999',
+    });
+
+    expect(encontrado).toBeNull();
+  });
+
+  it('no busca cuando solo hay identidad de WhatsApp, porque no hay teléfono que cruzar', async () => {
+    const encontrado = await routing({
+      nombre: 'Beto Pérez',
+      telefono: '573107555660',
+    }).findUsuarioSinNegocio({ userId: 'CO.123' });
+
+    expect(encontrado).toBeNull();
+  });
+});

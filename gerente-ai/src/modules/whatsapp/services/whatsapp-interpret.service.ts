@@ -50,6 +50,7 @@ export type PublicIntentType =
   | 'fuera_de_alcance'
   | 'plan_requerido'
   | 'no_registrado'
+  | 'sin_negocio'
   | 'error';
 
 export interface InterpretResponse {
@@ -128,6 +129,9 @@ const DEFAULT_REGISTER_URL = 'https://luka-gules.vercel.app/home';
 
 /** Pantalla de planes, para cuando piden algo que su plan no incluye. */
 const DEFAULT_PLANS_URL = 'https://luka-gules.vercel.app/subscription';
+
+/** Panel donde se crea el negocio. Quien ya tiene cuenta va directo aqui. */
+const DEFAULT_APP_URL = 'https://luka-gules.vercel.app/';
 
 /** Turnos de conversacion que se le pasan al modelo. 6 = 3 idas y vueltas. */
 const HISTORY_TURNS = 6;
@@ -210,9 +214,17 @@ export class WhatsappInterpretService {
     if (!context) {
       // Sin negocio asociado no se llama al modelo: no se gasta cuota con
       // numeros desconocidos (y ahi es donde llega el spam).
+      //
+      // Pero hay dos casos distintos y al usuario le importan: quien nunca se
+      // registro, y quien ya tiene cuenta pero no creo su negocio. A este
+      // segundo, mandarlo a registrarse lo deja dando vueltas.
+      const registrado = await this.routing.findUsuarioSinNegocio(sender);
+
       return this.emptyResponse({
-        type: 'no_registrado',
-        reply: this.unregisteredReply(dto.name, sender),
+        type: registrado ? 'sin_negocio' : 'no_registrado',
+        reply: registrado
+          ? this.noBusinessReply(registrado.nombre)
+          : this.unregisteredReply(dto.name, sender),
         durationMs: Date.now() - startedAt,
         duplicate: false,
       });
@@ -393,6 +405,28 @@ export class WhatsappInterpretService {
       );
       return [];
     }
+  }
+
+  /**
+   * Ya tiene cuenta, pero ningun negocio: no hay donde imputar un movimiento.
+   *
+   * Se le dice explicitamente que su cuenta si existe, para que no crea que el
+   * registro no funciono y lo repita.
+   */
+  private noBusinessReply(nombre: string): string {
+    const url =
+      this.config.get<string>('FRONTEND_APP_URL')?.trim() || DEFAULT_APP_URL;
+
+    return [
+      SALUDO_CON_NOMBRE(nombre) + ' Soy Luka, tu asistente financiero con IA.',
+      '',
+      'Veo que ya tienes tu cuenta creada 🎉 pero todavía no has registrado tu negocio, y sin él no puedo llevarte las cuentas.',
+      '',
+      'Créalo aquí, toma menos de un minuto:',
+      url,
+      '',
+      'Cuando lo tengas listo, escríbeme y empezamos 🚀',
+    ].join('\n');
   }
 
   /** Pidio algo que su plan no incluye. Se le dice con que plan si lo tendria. */

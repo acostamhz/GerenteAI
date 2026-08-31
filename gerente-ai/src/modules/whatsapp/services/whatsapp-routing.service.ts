@@ -143,6 +143,37 @@ export class WhatsappRoutingService {
     return null;
   }
 
+  /**
+   * ¿Existe la persona, aunque no tenga negocio?
+   *
+   * Se usa solo cuando `resolve` no encontro sede, para poder distinguir dos
+   * situaciones que al usuario le importan mucho y antes se respondian igual:
+   * quien nunca se registro, y quien ya tiene cuenta pero todavia no creo su
+   * negocio. Decirle "registrate" a alguien que ya se registro lo deja sin
+   * saber que hacer.
+   */
+  async findUsuarioSinNegocio(
+    sender: WhatsappSender | string,
+  ): Promise<{ nombre: string } | null> {
+    const raw = typeof sender === 'string' ? sender : sender.phone;
+    if (!raw) return null;
+
+    const phone = normalizePhone(raw);
+    if (!phone) return null;
+
+    const usuario =
+      (await this.prisma.usuario.findFirst({
+        where: { telefono: phone },
+        select: { nombre: true },
+      })) ??
+      (await this.prisma.usuario.findFirst({
+        where: { telefono: { endsWith: phone.slice(-10) } },
+        select: { nombre: true },
+      }));
+
+    return usuario;
+  }
+
   // --------------------------------------------------------------- busquedas
 
   /**
