@@ -346,6 +346,95 @@ describe('Pasarela de pagos (contra Postgres real)', () => {
     });
   });
 
+  /**
+   * Lo que el cliente compró es lo que tiene que durar. Un error aquí no lo
+   * detecta nadie hasta que a alguien que pagó el año le vence en un mes, y para
+   * entonces ya es un problema de plata y de confianza.
+   */
+  describe('duración de lo que se paga', () => {
+    const diasDeVigencia = (venceEl: Date) =>
+      (venceEl.getTime() - Date.now()) / 86_400_000;
+
+    const pagar = async (plan: number, ciclo: 'mensual' | 'anual') => {
+      const checkout = await ctx.pagos.crearCheckout(s.duenoId, 'CLIENTE', {
+        negocioId: s.negocioId,
+        plan,
+        ciclo,
+      });
+      await ctx.pagos.procesarEvento(
+        eventoDeWompi({
+          referencia: checkout.referencia,
+          estado: 'APPROVED',
+          montoEnCentavos: checkout.montoEnCentavos,
+        }),
+      );
+      return checkout;
+    };
+
+    it('pagar el año da 365 días, no 30', async () => {
+      // Se parte de un plan distinto para que sea alta y no renovación.
+      await ctx.prisma.negocio.update({
+        where: { id: s.negocioId },
+        data: { plan: PLAN_ASISTENTE, planVenceEl: null },
+      });
+
+      await pagar(PLAN_ADMINISTRADOR, 'anual');
+
+      const dias = diasDeVigencia((await planDelNegocio()).planVenceEl!);
+      expect(Math.round(dias)).toBe(365);
+    });
+
+    it('pagar el mes da 30 días', async () => {
+      await ctx.prisma.negocio.update({
+        where: { id: s.negocioId },
+        data: { plan: PLAN_ASISTENTE, planVenceEl: null },
+      });
+
+      await pagar(PLAN_ADMINISTRADOR, 'mensual');
+
+      const dias = diasDeVigencia((await planDelNegocio()).planVenceEl!);
+      expect(Math.round(dias)).toBe(30);
+    });
+
+    // El ciclo se guarda en el pago y de ahí lo lee el webhook. Si se perdiera
+    // por el camino, un pago anual se activaría como mensual.
+    it('el ciclo anual queda guardado en el pago', async () => {
+      const checkout = await pagar(PLAN_GERENTE, 'anual');
+
+      expect((await pagoDe(checkout.referencia)).ciclo).toBe(CicloPago.ANUAL);
+    });
+
+    it('renovar el año suma otros 365 días', async () => {
+      await ctx.prisma.negocio.update({
+        where: { id: s.negocioId },
+        data: { plan: PLAN_ASISTENTE, planVenceEl: null },
+      });
+
+      await pagar(PLAN_GERENTE, 'anual');
+      const primero = (await planDelNegocio()).planVenceEl!.getTime();
+
+      await pagar(PLAN_GERENTE, 'anual');
+      const segundo = (await planDelNegocio()).planVenceEl!.getTime();
+
+      expect(Math.round((segundo - primero) / 86_400_000)).toBe(365);
+    });
+
+    // Subir de plan a mitad de ciclo no arrastra el vencimiento anterior: es
+    // otro producto y empieza a contar desde el pago.
+    it('cambiar de plan cuenta desde hoy, no desde el vencimiento viejo', async () => {
+      await ctx.prisma.negocio.update({
+        where: { id: s.negocioId },
+        data: { plan: PLAN_ASISTENTE, planVenceEl: null },
+      });
+
+      await pagar(PLAN_GERENTE, 'anual');
+      await pagar(PLAN_ADMINISTRADOR, 'mensual');
+
+      const dias = diasDeVigencia((await planDelNegocio()).planVenceEl!);
+      expect(Math.round(dias)).toBe(30);
+    });
+  });
+
   describe('consulta', () => {
     it('el dueño ve sus pagos y no los de otros', async () => {
       const checkout = await checkoutGerente();
