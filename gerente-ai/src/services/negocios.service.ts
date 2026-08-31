@@ -155,6 +155,7 @@ export class NegociosService {
     rolGlobal: string,
     plan: number,
     ciclo: Ciclo = 'mensual',
+    venceEl?: Date,
   ) {
     // Mientras no exista la pasarela, cambiar de plan es una operación de la
     // plataforma: si lo pudiera hacer el dueño, cualquiera se daría Administrador
@@ -167,7 +168,7 @@ export class NegociosService {
 
     // Sin `renovacion`: un MASTER que fija un plan a mano quiere exactamente ese
     // periodo, no sumárselo a lo que hubiera.
-    return this.activarPlan(negocioId, plan, ciclo);
+    return this.activarPlan(negocioId, plan, ciclo, { venceEl });
   }
 
   /**
@@ -189,7 +190,11 @@ export class NegociosService {
     negocioId: string,
     plan: number,
     ciclo: Ciclo = 'mensual',
-    opciones: { renovacion?: boolean; tx?: Prisma.TransactionClient } = {},
+    opciones: {
+      renovacion?: boolean;
+      venceEl?: Date;
+      tx?: Prisma.TransactionClient;
+    } = {},
   ) {
     const tx = opciones.tx ?? this.prisma;
     const negocio = await tx.negocio.findUnique({ where: { id: negocioId } });
@@ -201,12 +206,17 @@ export class NegociosService {
       where: { id: negocioId },
       data: {
         plan,
-        planVenceEl: this.nuevoVencimiento(
-          negocio,
-          plan,
-          ciclo,
-          opciones.renovacion ?? false,
-        ),
+        // Una fecha explícita gana sobre el cálculo del ciclo, salvo en el plan
+        // gratuito, que no vence nunca.
+        planVenceEl:
+          opciones.venceEl && plan !== PLAN_ASISTENTE
+            ? opciones.venceEl
+            : this.nuevoVencimiento(
+                negocio,
+                plan,
+                ciclo,
+                opciones.renovacion ?? false,
+              ),
       },
     });
   }

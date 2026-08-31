@@ -212,6 +212,90 @@ export class MailService {
     });
   }
 
+  /**
+   * Aviso de que el plan está por vencer.
+   *
+   * Los tres correos de suscripción dicen lo mismo con distinto tono, y a
+   * propósito son concretos sobre qué se pierde: "vence tu plan" no le dice nada
+   * a un tendero, "vas a quedarte con una sola sede" sí.
+   */
+  async sendAvisoDeVencimiento(
+    destinatario: string,
+    nombre: string,
+    negocio: string,
+    plan: string,
+    dias: number,
+  ) {
+    const cuando = dias === 1 ? 'mañana' : `en ${dias} días`;
+
+    await this.enviar({
+      destinatario,
+      descripcion: 'el aviso de vencimiento',
+      asunto: `Tu plan ${plan} vence ${cuando}`,
+      html: `
+          <p>Hola ${nombre},</p>
+          <p>El plan <b>${plan}</b> de <b>${negocio}</b> vence ${cuando}.</p>
+          <p>Si no lo renuevas, tu negocio pasa al plan Asistente: conservas toda
+          tu información y sigues registrando ventas en tu primera sede, pero las
+          sedes adicionales quedan en solo lectura y se desactivan los reportes
+          por producto y de fiados.</p>
+          <p><a href="${this.enlaceASuscripcion()}">Renovar mi plan</a></p>
+        `,
+    });
+  }
+
+  /** El plan ya venció: el negocio está operando como Asistente. */
+  async sendPlanVencido(
+    destinatario: string,
+    nombre: string,
+    negocio: string,
+    plan: string,
+  ) {
+    await this.enviar({
+      destinatario,
+      descripcion: 'el aviso de plan vencido',
+      asunto: `El plan ${plan} de ${negocio} venció`,
+      html: `
+          <p>Hola ${nombre},</p>
+          <p>El plan <b>${plan}</b> de <b>${negocio}</b> venció y tu negocio
+          quedó en el plan Asistente.</p>
+          <p><b>No perdiste nada.</b> Tus ventas, tus clientes y tus fiados siguen
+          ahí, y puedes consultarlos todos. Lo que se pausó es registrar
+          movimientos en las sedes adicionales y los reportes Premium.</p>
+          <p>Con volver a pagar se reactiva al instante.</p>
+          <p><a href="${this.enlaceASuscripcion()}">Reactivar mi plan</a></p>
+        `,
+    });
+  }
+
+  /** Último recordatorio, una semana después. Después de este no se insiste más. */
+  async sendSeguimientoDeVencimiento(
+    destinatario: string,
+    nombre: string,
+    negocio: string,
+    plan: string,
+  ) {
+    await this.enviar({
+      destinatario,
+      descripcion: 'el recordatorio de plan vencido',
+      asunto: `${negocio} sigue en el plan Asistente`,
+      html: `
+          <p>Hola ${nombre},</p>
+          <p>Hace una semana venció el plan <b>${plan}</b> de <b>${negocio}</b>.
+          Todo tu historial sigue intacto y disponible.</p>
+          <p>Cuando quieras retomar las sedes adicionales y los reportes, se
+          reactiva desde tu panel.</p>
+          <p><a href="${this.enlaceASuscripcion()}">Ver los planes</a></p>
+          <p style="color:#666;font-size:12px">Este es el último recordatorio que
+          te enviamos sobre este vencimiento.</p>
+        `,
+    });
+  }
+
+  private enlaceASuscripcion() {
+    return `${process.env.FRONTEND_URL}/suscripcion`;
+  }
+
   async sendPasswordResetEmail(
     destinatario: string,
     nombre: string,

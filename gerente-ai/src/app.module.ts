@@ -20,6 +20,8 @@ import { AbonosModule } from './modules/abonos.module';
 import { ReportesModule } from './modules/reportes.module';
 import { PlanesModule } from './modules/planes.module';
 import { PagosModule } from './modules/pagos.module';
+import { RecordatoriosModule } from './modules/recordatorios.module';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -49,6 +51,8 @@ import { AuthModule } from './auth/auth.module';
     ReportesModule,
     PlanesModule,
     PagosModule,
+    RecordatoriosModule,
+    ScheduleModule.forRoot(),
     AuthModule,
   ],
   controllers: [AppController],
