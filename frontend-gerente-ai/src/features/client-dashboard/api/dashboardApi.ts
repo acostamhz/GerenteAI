@@ -155,10 +155,17 @@ export const dashboardApi = {
    */
   getFiados: async (
     sedeId: string,
-  ): Promise<ReporteFiados> => {
-    return apiClient<ReporteFiados>(
-      `/reportes/fiados/${encodeURIComponent(sedeId)}`,
-    );
+  ): Promise<ReporteFiados | null> => {
+    try {
+      return await apiClient<ReporteFiados>(
+        `/reportes/fiados/${encodeURIComponent(sedeId)}`,
+      );
+    } catch (err: any) {
+      if (err?.statusCode === 403) {
+        return null;
+      }
+      throw err;
+    }
   },
 
   /**

@@ -21,10 +21,11 @@ import {
 
 import { DateDropdown } from "@/shared/components/ui/DateDropdown";
 
-import {
-  useDashboardMetrics,
-  type PeriodoTipo,
-} from "@/features/client-dashboard";
+import type {
+  DashboardTransactionItem,
+  PeriodoTipo,
+  ReporteFinanciero,
+} from "@/features/client-dashboard/types";
 
 const PERIODOS = [
   {
@@ -50,16 +51,23 @@ const ETIQUETA_DIA =
     },
   );
 
-export function RealCashflow() {
-  const {
-    metrics,
-    transactions,
-    periodo,
-    setPeriodo,
-    isLoading,
-    isChartLoading,
-  } = useDashboardMetrics();
+export interface RealCashflowProps {
+  metrics: ReporteFinanciero | null;
+  transactions: DashboardTransactionItem[];
+  periodo: PeriodoTipo;
+  setPeriodo: (periodo: PeriodoTipo) => void;
+  isLoading: boolean;
+  isChartLoading: boolean;
+}
 
+export function RealCashflow({
+  metrics,
+  transactions,
+  periodo,
+  setPeriodo,
+  isLoading,
+  isChartLoading,
+}: RealCashflowProps) {
   const [busqueda, setBusqueda] =
     useState("");
 
