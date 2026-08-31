@@ -99,12 +99,6 @@ export function GlobalFooter() {
           <p className="text-xs text-zinc-500">
             © {new Date().getFullYear()} Luka AI. Todos los derechos reservados.
           </p>
-          <div className="flex items-center gap-6">
-            <span className="text-xs text-zinc-500 font-medium flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.8)] animate-pulse" />
-              Sistemas Operativos
-            </span>
-          </div>
         </div>
       </div>
     </footer>
