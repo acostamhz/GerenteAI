@@ -148,6 +148,25 @@ export class WhatsAppMessageService {
     };
 
     if (intent.type === 'query') {
+      // Consulta sobre algo concreto ("¿que dia compre jabones?"): se busca por
+      // texto en los movimientos, no se devuelve el resumen del periodo. Antes
+      // cualquier pregunta caia en el resumen y el usuario recibia los mismos
+      // totales sin importar que hubiera preguntado.
+      if (intent.concept) {
+        const encontrados = await this.searchTransactions(
+          request.businessId,
+          intent.concept,
+        );
+
+        return {
+          intent,
+          transaction: null,
+          summary: null,
+          replyText: renderSearch(intent.concept, encontrados, currency),
+          meta,
+        };
+      }
+
       const summary = await this.buildSummary(
         request.businessId,
         intent.queryPeriod ?? 'month',
@@ -280,6 +299,37 @@ export class WhatsAppMessageService {
   }
 
   // -------------------------------------------------------------- consultas
+
+  /**
+   * Movimientos cuyo texto coincide con lo que pregunto el usuario.
+   *
+   * La ventana es amplia a proposito: quien pregunta "¿que dia compre jabones?"
+   * no esta pensando en un periodo, esta buscando un hecho, y suele haber pasado
+   * hace semanas. Se compara sin tildes ni mayusculas para que "jabon" encuentre
+   * "Jabones".
+   */
+  private async searchTransactions(
+    businessId: string,
+    termino: string,
+  ): Promise<Transaction[]> {
+    const { from, to } = periodRange('month');
+    const desde = new Date(`${from}T00:00:00.000Z`);
+    desde.setDate(desde.getDate() - SEARCH_WINDOW_DAYS);
+
+    const rows = await this.financeData.listTransactions({
+      businessId,
+      from: isoDate(desde),
+      to,
+      limit: 1_000,
+    });
+
+    const buscado = normalizeText(termino);
+    if (!buscado) return [];
+
+    return rows
+      .filter((row) => normalizeText(row.description).includes(buscado))
+      .slice(0, SEARCH_MAX_RESULTS);
+  }
 
   private async buildSummary(
     businessId: string,
@@ -498,4 +548,51 @@ export function renderSummary(summary: PeriodSummary): string {
 function formatMoney(value: number, currency: string): string {
   // Formato colombiano (punto para miles). Ajustar si se opera en otro pais.
   return `$${Math.round(value).toLocaleString('es-CO')} ${currency}`;
+}
+
+/** Ventana de busqueda hacia atras. Cuatro meses cubre lo que la gente recuerda. */
+const SEARCH_WINDOW_DAYS = 120;
+/** Mas de esto no se lee comodo en un WhatsApp. */
+const SEARCH_MAX_RESULTS = 8;
+
+/** Sin tildes y en minusculas: "Jabón" y "jabones" deben cruzarse. */
+function normalizeText(value: string): string {
+  return value.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+}
+
+const FECHA_CORTA = new Intl.DateTimeFormat('es-CO', {
+  day: '2-digit',
+  month: 'short',
+});
+
+/**
+ * Respuesta a una busqueda concreta.
+ *
+ * Se listan los movimientos con su fecha, que es justo lo que se pregunta
+ * ("¿que dia fue?"), y el total, que es lo que se pregunta despues.
+ */
+export function renderSearch(
+  termino: string,
+  encontrados: Transaction[],
+  currency: string,
+): string {
+  if (encontrados.length === 0) {
+    return `No encontré movimientos que mencionen "${termino}" en los últimos 4 meses. Si lo registraste con otro nombre, dime cuál y lo busco.`;
+  }
+
+  const total = encontrados.reduce((suma, row) => suma + row.amount, 0);
+  const lineas = encontrados.map((row) => {
+    const signo = row.type === 'income' ? '+' : '-';
+    const fecha = FECHA_CORTA.format(new Date(`${row.date}T12:00:00.000Z`));
+    return `• ${fecha} · ${row.description} · ${signo}${formatMoney(row.amount, currency)}`;
+  });
+
+  const encabezado =
+    encontrados.length === 1
+      ? `🔎 Encontré 1 movimiento con "${termino}":`
+      : `🔎 Encontré ${encontrados.length} movimientos con "${termino}":`;
+
+  return [encabezado, ...lineas, `Total: ${formatMoney(total, currency)}`].join(
+    '\n',
+  );
 }

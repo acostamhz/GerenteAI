@@ -12,6 +12,7 @@ import {
 import {
   Search,
   Filter,
+  FileSpreadsheet,
 } from "lucide-react";
 
 import {
@@ -25,6 +26,8 @@ import {
   useDashboardMetrics,
   type PeriodoTipo,
 } from "@/features/client-dashboard";
+
+import { ExportarContabilidadModal } from "./components/ExportarContabilidadModal";
 
 const PERIODOS = [
   {
@@ -62,6 +65,34 @@ export function RealCashflow() {
 
   const [busqueda, setBusqueda] =
     useState("");
+
+  const [exportando, setExportando] =
+    useState(false);
+
+  /*
+   * Hoy la exportacion esta disponible en todos los planes, incluido el
+   * gratuito, para poder probarla con usuarios reales.
+   *
+   * Para dejarla solo en los planes pagos: poner esta constante en true y
+   * ocultar el boton cuando el negocio este en plan 1 (Asistente). El plan se
+   * lee de GET /negocios/:id, campo "plan", igual que en la pantalla de
+   * suscripcion.
+   */
+  const SOLO_PLANES_PAGOS = false;
+
+  /*
+   * El negocio activo lo deja el dashboard en localStorage: la contabilidad es
+   * del negocio completo, no de la sede que se este mirando.
+   */
+  const negocioId =
+    localStorage.getItem(
+      "active_business_id",
+    ) || "";
+
+  const negocioNombre =
+    localStorage.getItem(
+      "active_business_name",
+    ) || "Mi negocio";
 
   /*
    * Métricas financieras reales.
@@ -239,15 +270,36 @@ export function RealCashflow() {
             Evolución de Caja
           </h2>
 
-          <DateDropdown
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                setExportando(true)
+              }
+              disabled={
+                !negocioId ||
+                SOLO_PLANES_PAGOS
+              }
+              title={
+                negocioId
+                  ? "Descargar la contabilidad en Excel"
+                  : "Primero crea tu negocio"
+              }
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+            >
+              <FileSpreadsheet className="w-4 h-4" />
+              Exportar Excel
+            </button>
+
+            <DateDropdown
             value={periodo}
             options={PERIODOS}
-            onChange={(value) =>
-              setPeriodo(
-                value as PeriodoTipo,
-              )
-            }
-          />
+              onChange={(value) =>
+                setPeriodo(
+                  value as PeriodoTipo,
+                )
+              }
+            />
+          </div>
         </div>
 
         <div className="h-64 w-full">
@@ -554,6 +606,15 @@ export function RealCashflow() {
           </table>
         </div>
       </div>
+      {exportando && (
+        <ExportarContabilidadModal
+          negocioId={negocioId}
+          negocioNombre={negocioNombre}
+          onClose={() =>
+            setExportando(false)
+          }
+        />
+      )}
     </div>
   );
 }
