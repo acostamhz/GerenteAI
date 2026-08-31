@@ -13,7 +13,7 @@ export function AppLayout() {
     >
       <GlobalNavbar />
       <main className="flex-1 overflow-auto">
-        <div key={location.pathname} className="max-w-[1400px] mx-auto w-full p-6 animate-in fade-in zoom-in-95 duration-300">
+        <div key={location.pathname} className="max-w-[1400px] mx-auto w-full p-4 sm:p-6 animate-in fade-in zoom-in-95 duration-300">
           <Suspense fallback={<PageSkeleton />}>
             <Outlet />
           </Suspense>
