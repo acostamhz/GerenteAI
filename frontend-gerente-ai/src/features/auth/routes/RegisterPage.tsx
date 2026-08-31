@@ -1,5 +1,4 @@
 import { Link } from "react-router";
-import { X } from "lucide-react";
 
 import { RegisterForm } from "@/features/auth/components/RegisterForm";
 import { RegisterShowcase } from "@/features/auth/components/RegisterShowcase";
@@ -30,42 +29,10 @@ export function RegisterPage() {
       >
 
         {/* =========================
-            TOP ACTIONS
+            LOGO + THEME TOGGLE
         ========================== */}
-        <div className="absolute top-5 right-6 flex items-center gap-3 z-20">
+        <div className="flex items-start justify-between">
 
-          {/* VOLVER AL HOME */}
-          <Link
-            to="/home"
-            aria-label="Volver al inicio"
-            title="Volver al inicio"
-            className="
-              flex
-              h-10
-              w-10
-              items-center
-              justify-center
-              rounded-xl
-              text-muted-foreground
-              transition-all
-              duration-200
-              hover:bg-muted
-              hover:text-foreground
-              hover:scale-105
-            "
-          >
-            <X className="h-5 w-5" />
-          </Link>
-
-          {/* THEME TOGGLE */}
-          <ThemeToggle />
-
-        </div>
-
-        {/* =========================
-            LOGO
-        ========================== */}
-        <div>
           <Link
             to="/home"
             className="inline-flex items-center gap-2 shrink-0 group"
@@ -90,6 +57,12 @@ export function RegisterPage() {
               Luka AI
             </span>
           </Link>
+
+          {/* THEME TOGGLE */}
+          <div className="flex items-center">
+            <ThemeToggle />
+          </div>
+
         </div>
 
         {/* =========================
