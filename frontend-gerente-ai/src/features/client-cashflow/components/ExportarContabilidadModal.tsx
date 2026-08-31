@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { X, FileSpreadsheet, Loader2, AlertCircle } from "lucide-react";
+import { Link } from "react-router";
+import {
+  X,
+  FileSpreadsheet,
+  Loader2,
+  AlertCircle,
+  Lock,
+  Check,
+  ArrowRight,
+} from "lucide-react";
 import { contabilidadApi } from "../api/contabilidadApi";
 import type { RangoFechas } from "../export/libroContable";
 
@@ -15,8 +24,24 @@ import type { RangoFechas } from "../export/libroContable";
 interface Props {
   negocioId: string;
   negocioNombre: string;
+  /** false = plan gratuito: en vez del selector se muestra qué trae el Excel. */
+  esPago: boolean;
+  planNombre: string;
   onClose: () => void;
 }
+
+/**
+ * Lo que incluye el libro. Se lista tal cual en el panel de los planes pagos:
+ * "exporta a Excel" no le dice nada a nadie; ver las seis hojas, sí.
+ */
+const CONTENIDO = [
+  ["Estado de resultados", "Ingresos, costos, gastos y utilidad del periodo"],
+  ["Libro de movimientos", "Cada venta, compra, gasto y abono con su fecha"],
+  ["Balance", "Inventario y cartera valorizados a la fecha"],
+  ["Cuentas por cobrar", "Cuánto te debe cada cliente, de mayor a menor"],
+  ["Inventario", "Stock, costo y valor, con alertas de reposición"],
+  ["Gastos por categoría", "En qué se te va la plata, en porcentaje"],
+];
 
 type Preset = "mes" | "trimestre" | "anio" | "todo" | "personalizado";
 
@@ -46,7 +71,13 @@ const FORMATO_LARGO = new Intl.DateTimeFormat("es-CO", {
   year: "numeric",
 });
 
-export function ExportarContabilidadModal({ negocioId, negocioNombre, onClose }: Props) {
+export function ExportarContabilidadModal({
+  negocioId,
+  negocioNombre,
+  esPago,
+  planNombre,
+  onClose,
+}: Props) {
   const [preset, setPreset] = useState<Preset>("mes");
   const [desde, setDesde] = useState("");
   const [hasta, setHasta] = useState("");
@@ -169,6 +200,50 @@ export function ExportarContabilidadModal({ negocioId, negocioNombre, onClose }:
           </button>
         </div>
 
+        {!esPago && (
+          <div className="p-6 space-y-5">
+            <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-5">
+              <div className="flex items-center gap-2 mb-1">
+                <Lock className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                <p className="text-sm font-bold text-foreground">
+                  Incluido en los planes Gerente y Administrador
+                </p>
+              </div>
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                Tu plan {planNombre} registra tus movimientos y te da resúmenes por WhatsApp.
+                La contabilidad completa en Excel, lista para tu contador, viene con los planes
+                pagos.
+              </p>
+            </div>
+
+            <div>
+              <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest mb-3">
+                Lo que descargas
+              </p>
+              <div className="space-y-2.5">
+                {CONTENIDO.map(([titulo, detalle]) => (
+                  <div key={titulo} className="flex gap-3">
+                    <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
+                      <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-foreground leading-tight">{titulo}</p>
+                      <p className="text-[11px] text-muted-foreground mt-0.5">{detalle}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <p className="text-[11px] text-muted-foreground leading-relaxed">
+              Un archivo por periodo, con el formato que un contador espera recibir. Sin
+              transcribir nada a mano.
+            </p>
+          </div>
+        )}
+
+        {esPago && (
+        <>
         {/* Periodo */}
         <div className="p-6 space-y-4">
           <p className="text-xs font-bold text-muted-foreground uppercase tracking-widest">
@@ -232,6 +307,9 @@ export function ExportarContabilidadModal({ negocioId, negocioNombre, onClose }:
           )}
         </div>
 
+        </>
+        )}
+
         {/* Acciones */}
         <div className="flex gap-3 p-6 pt-0">
           <button
@@ -239,8 +317,9 @@ export function ExportarContabilidadModal({ negocioId, negocioNombre, onClose }:
             disabled={descargando}
             className="flex-1 py-2.5 rounded-xl text-sm font-bold text-muted-foreground border border-border hover:bg-muted transition-colors disabled:opacity-50 cursor-pointer"
           >
-            Cancelar
+            {esPago ? "Cancelar" : "Ahora no"}
           </button>
+          {esPago ? (
           <button
             onClick={() => void exportar()}
             disabled={descargando}
@@ -258,6 +337,15 @@ export function ExportarContabilidadModal({ negocioId, negocioNombre, onClose }:
               </>
             )}
           </button>
+          ) : (
+            <Link
+              to="/subscription"
+              className="flex-1 py-2.5 rounded-xl text-sm font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition-colors flex items-center justify-center gap-2"
+            >
+              Ver planes
+              <ArrowRight className="w-4 h-4" />
+            </Link>
+          )}
         </div>
       </div>
     </div>
