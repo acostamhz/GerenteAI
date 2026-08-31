@@ -8,7 +8,7 @@ import { PlanesService, PLAN_ASISTENTE } from './planes.service';
 import { CreateNegocioDto } from '../dto/negocios/create-negocio.dto';
 import { UpdateNegocioDto } from '../dto/negocios/update-negocio.dto';
 import type { Ciclo } from '../dto/negocios/cambiar-plan.dto';
-import { Sede } from '@prisma/client';
+import { Prisma, Sede } from '@prisma/client';
 
 /** Lo mínimo que hace falta de una sede para resolver permisos y plan. */
 export type SedeParaAcceso = Pick<Sede, 'id' | 'negocioId' | 'createdAt'>;
@@ -19,10 +19,9 @@ export type SedeParaAcceso = Pick<Sede, 'id' | 'negocioId' | 'createdAt'>;
  */
 export type FiltroDeSede = string | { in: string[] } | undefined;
 
-/** Un ciclo mensual son 30 días y uno anual 365, contados desde el pago. */
-function vencimientoDelCiclo(ciclo: Ciclo): Date {
-  const dias = ciclo === 'anual' ? 365 : 30;
-  return new Date(Date.now() + dias * 86_400_000);
+/** Un ciclo mensual son 30 días y uno anual 365. */
+function diasDelCiclo(ciclo: Ciclo): number {
+  return ciclo === 'anual' ? 365 : 30;
 }
 
 @Injectable()
@@ -166,15 +165,76 @@ export class NegociosService {
       );
     }
 
-    await this.cargar(negocioId);
+    // Sin `renovacion`: un MASTER que fija un plan a mano quiere exactamente ese
+    // periodo, no sumárselo a lo que hubiera.
+    return this.activarPlan(negocioId, plan, ciclo);
+  }
 
-    // El plan gratuito no vence; los pagos, sí.
-    const venceEl = plan === PLAN_ASISTENTE ? null : vencimientoDelCiclo(ciclo);
+  /**
+   * Escritura real del plan. NO comprueba permisos: quien llama ya decidió que
+   * el cambio procede. Hoy la llaman dos sitios, y solo esos dos: `cambiarPlan`
+   * cuando lo hace MASTER a mano, y el webhook de la pasarela cuando confirma un
+   * cobro.
+   *
+   * `renovacion` distingue las dos intenciones. Un cobro confirmado SUMA días a
+   * los que quedaban, porque el cliente ya los había pagado. Un cambio manual
+   * FIJA el periodo, porque quien corrige algo desde el panel quiere el plazo que
+   * escribió y no una suma con lo anterior.
+   *
+   * `tx` permite que el webhook active el plan y marque el pago como procesado
+   * en la misma transacción: por separado, una caída entremedias dejaría un
+   * cobro sin plan.
+   */
+  async activarPlan(
+    negocioId: string,
+    plan: number,
+    ciclo: Ciclo = 'mensual',
+    opciones: { renovacion?: boolean; tx?: Prisma.TransactionClient } = {},
+  ) {
+    const tx = opciones.tx ?? this.prisma;
+    const negocio = await tx.negocio.findUnique({ where: { id: negocioId } });
+    if (!negocio) {
+      throw new NotFoundException(`Negocio con id ${negocioId} no encontrado`);
+    }
 
-    return this.prisma.negocio.update({
+    return tx.negocio.update({
       where: { id: negocioId },
-      data: { plan, planVenceEl: venceEl },
+      data: {
+        plan,
+        planVenceEl: this.nuevoVencimiento(
+          negocio,
+          plan,
+          ciclo,
+          opciones.renovacion ?? false,
+        ),
+      },
     });
+  }
+
+  /**
+   * Renovar el MISMO plan que sigue vigente suma días a los que quedaban; todo
+   * lo demás cuenta desde hoy.
+   *
+   * Si una renovación contara desde hoy, quien paga con una semana por delante
+   * perdería esa semana que ya había comprado. Y al cambiar de plan no tiene
+   * sentido arrastrar el vencimiento del anterior, porque es otro producto.
+   */
+  private nuevoVencimiento(
+    negocio: { plan: number; planVenceEl: Date | null },
+    plan: number,
+    ciclo: Ciclo,
+    renovacion: boolean,
+  ): Date | null {
+    // El plan gratuito no vence; los de pago, sí.
+    if (plan === PLAN_ASISTENTE) return null;
+
+    const ahora = Date.now();
+    const vigente = negocio.planVenceEl?.getTime() ?? 0;
+    const acumula = renovacion && plan === negocio.plan && vigente > ahora;
+
+    return new Date(
+      (acumula ? vigente : ahora) + diasDelCiclo(ciclo) * 86_400_000,
+    );
   }
 
   /** Estado del plan que rige hoy en el negocio (ya resuelto el vencimiento). */

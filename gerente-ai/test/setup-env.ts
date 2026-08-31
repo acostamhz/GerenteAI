@@ -10,3 +10,12 @@ process.env.DATABASE_URL =
 // AuthModule exige JWT_SECRET al construirse. Estas pruebas no validan tokens,
 // pero el valor tiene que existir para que el módulo se pueda instanciar.
 process.env.JWT_SECRET = process.env.JWT_SECRET ?? 'secreto-solo-para-pruebas';
+
+// La pasarela exige sus secretos al firmar y al verificar. Son de mentira: las
+// pruebas firman con estos mismos valores, nunca hablan con Wompi.
+process.env.WOMPI_PUBLIC_KEY =
+  process.env.WOMPI_PUBLIC_KEY ?? 'pub_test_solo_para_pruebas';
+process.env.WOMPI_INTEGRITY_SECRET =
+  process.env.WOMPI_INTEGRITY_SECRET ?? 'test_integrity_solo_para_pruebas';
+process.env.WOMPI_EVENTS_SECRET =
+  process.env.WOMPI_EVENTS_SECRET ?? 'test_events_solo_para_pruebas';

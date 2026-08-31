@@ -19,6 +19,7 @@ import { ComprasModule } from './modules/compras.module';
 import { AbonosModule } from './modules/abonos.module';
 import { ReportesModule } from './modules/reportes.module';
 import { PlanesModule } from './modules/planes.module';
+import { PagosModule } from './modules/pagos.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -47,6 +48,7 @@ import { AuthModule } from './auth/auth.module';
     AbonosModule,
     ReportesModule,
     PlanesModule,
+    PagosModule,
     AuthModule,
   ],
   controllers: [AppController],
