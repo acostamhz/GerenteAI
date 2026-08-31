@@ -1,13 +1,43 @@
 import { Link } from "react-router";
-import { Wallet, Sparkles, ArrowLeft } from "lucide-react";
+import {
+  Wallet,
+  Sparkles,
+  ArrowLeft,
+} from "lucide-react";
+
 import { RealCashflow } from "./RealCashflow";
 import { PendingCashflow } from "./PendingCashflow";
 import { CashflowViewSkeleton } from "./components/CashflowSkeletons";
+
 import { useDashboardMetrics } from "@/features/client-dashboard/hooks/useDashboardMetrics";
 import { apiClient } from "@/lib/apiClient";
+
+import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
+import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywallModal";
 import { NoBusinessRedirectState } from "@/shared/components/states/NoBusinessRedirectState";
 
 export function CashflowView() {
+  /*
+   * ============================================================
+   * PERMISOS DEL PLAN
+   * ============================================================
+   *
+   * Plan 1 → Asistente → BLOQUEADO
+   * Plan 2 → Gerente → PERMITIDO
+   * Plan 3 → Administrador → PERMITIDO
+   * Plan 4 → Socio → PERMITIDO
+   */
+  const {
+    planUsuarioId,
+    planNombre,
+    isPaywallOpen,
+    paywallMotivo,
+    paywallPlanRecomendadoId,
+    abrirPaywall,
+    cerrarPaywall,
+    isLoading: isPlanLoading,
+  } = usePlanPermissions();
+
   const {
     metrics,
     transactions,
@@ -21,6 +51,11 @@ export function CashflowView() {
     refreshFiados,
   } = useDashboardMetrics();
 
+  /*
+   * ============================================================
+   * REGISTRAR PAGO
+   * ============================================================
+   */
   const handleRegisterPayment = async (
     clienteId: string,
     ventaId: string,
@@ -39,14 +74,21 @@ export function CashflowView() {
   };
 
   /*
-   * 1. Estado de Carga con Esqueletos Shimmer de Alta Fidelidad
+   * ============================================================
+   * 1. ESTADO DE CARGA
+   * ============================================================
+   *
+   * Esperamos tanto los permisos del plan como
+   * la información principal del dashboard.
    */
-  if (isLoading) {
+  if (isLoading || isPlanLoading) {
     return <CashflowViewSkeleton />;
   }
 
   /*
-   * 2. Estado cuando el usuario aún no tiene un negocio registrado
+   * ============================================================
+   * 2. SIN NEGOCIO
+   * ============================================================
    */
   if (hasNoBusiness) {
     return (
@@ -60,61 +102,173 @@ export function CashflowView() {
   }
 
   /*
-   * 3. Evaluación de si el negocio no tiene transacciones registradas aún
+   * ============================================================
+   * 3. PLAN 1 → BLOQUEAR FLUJO DE CAJA
+   * ============================================================
+   *
+   * Exactamente la misma lógica utilizada en
+   * Recomendaciones de IA.
+   */
+  if (planUsuarioId === 1) {
+    return (
+      <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0 animate-in fade-in duration-300">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-8 pt-1">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+                Flujo de caja
+              </h1>
+            </div>
+
+            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+              Monitorea los ingresos reales, egresos operativos y
+              cuentas pendientes de cobro en tiempo real.
+            </p>
+          </div>
+        </div>
+
+        {/* ======================================================
+            PAYWALL
+        ======================================================= */}
+        <div className="max-w-3xl">
+          <div className="bg-card border border-border rounded-2xl shadow-sm p-8 sm:p-10 text-center">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-5">
+              <Wallet className="w-7 h-7 text-emerald-500" />
+            </div>
+
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold mb-4">
+              <Sparkles className="w-3.5 h-3.5" />
+              Disponible desde Plan Gerente
+            </div>
+
+            <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
+              Lleva el control de tu dinero
+            </h2>
+
+            <p className="text-sm text-muted-foreground mt-2 max-w-xl mx-auto leading-relaxed">
+              Con el Flujo de caja puedes monitorear tus ingresos,
+              egresos y cuentas por cobrar para entender cómo se
+              mueve realmente el dinero de tu negocio.
+            </p>
+
+            <button
+              type="button"
+              onClick={() =>
+                abrirPaywall(
+                  "El Flujo de caja está disponible a partir del Plan Gerente ($79.900/mes). Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
+                  2,
+                )
+              }
+              className="mt-6 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-slate-950 font-black text-sm shadow-md shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all cursor-pointer"
+            >
+              <Sparkles className="w-4 h-4" />
+              Mejorar a Plan Gerente
+            </button>
+          </div>
+        </div>
+
+        {/* ======================================================
+            MODAL GLOBAL DE PAYWALL
+        ======================================================= */}
+        <PlanLimitPaywallModal
+          isOpen={isPaywallOpen}
+          onClose={cerrarPaywall}
+          motivo={paywallMotivo}
+          planRecomendadoId={paywallPlanRecomendadoId}
+        />
+      </div>
+    );
+  }
+
+  /*
+   * ============================================================
+   * 4. PLAN 2+ → FLUJO DE CAJA DISPONIBLE
+   * ============================================================
+   */
+
+  /*
+   * Evaluación de si el negocio no tiene transacciones
+   * registradas todavía.
    */
   const hasNoData =
     (!transactions || transactions.length === 0) &&
-    (!metrics || (
-      (metrics.ingresos?.total ?? 0) === 0 &&
-      (metrics.egresos?.total ?? 0) === 0 &&
-      (fiados?.totales?.porCobrar ?? 0) === 0
-    ));
+    (!metrics ||
+      (
+        (metrics.ingresos?.total ?? 0) === 0 &&
+        (metrics.egresos?.total ?? 0) === 0 &&
+        (fiados?.totales?.porCobrar ?? 0) === 0
+      ));
 
   return (
     <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0 animate-in fade-in duration-300">
+      {/* ======================================================
+          CABECERA
+      ======================================================= */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-6 pt-1">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
-            Flujo de caja
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+              Flujo de caja
+            </h1>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold shadow-xs">
+              <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+              Plan {planNombre}
+            </span>
+          </div>
+
           <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Monitorea los ingresos reales, egresos operativos y cuentas pendientes de cobro en tiempo real.
+            Monitorea los ingresos reales, egresos operativos y
+            cuentas pendientes de cobro en tiempo real.
           </p>
         </div>
       </div>
 
-      {/* Aviso Inteligente cuando aún no hay datos ni transacciones */}
+      {/* ======================================================
+          AVISO SIN DATOS
+      ======================================================= */}
       {hasNoData && (
         <div className="mb-8 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-card border border-emerald-500/25 shadow-sm relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/10 dark:bg-emerald-500/15 rounded-full blur-2xl pointer-events-none" />
-          
+
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5 relative z-10">
             <div className="flex items-start gap-4 sm:gap-5">
               <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-tr from-emerald-600 via-emerald-500 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-md shadow-emerald-500/20 ring-4 ring-emerald-500/10">
                 <Wallet className="w-6 h-6 sm:w-7 sm:h-7" />
               </div>
+
               <div>
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-800 dark:text-emerald-300 text-xs font-bold mb-2 shadow-xs">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   Control de Liquidez y Cartera
                 </div>
+
                 <h2 className="text-lg sm:text-xl font-black text-foreground tracking-tight">
                   Aún no tienes movimientos de caja registrados
                 </h2>
+
                 <p className="text-xs sm:text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-                  Registra tus primeras ventas o compras por WhatsApp con tu copiloto <strong className="text-foreground">Luka</strong>, o añade transacciones desde el panel para visualizar la evolución de tu saldo disponible y cuentas por cobrar.
+                  Registra tus primeras ventas o compras por
+                  WhatsApp con tu copiloto{" "}
+                  <strong className="text-foreground">
+                    Luka
+                  </strong>
+                  , o añade transacciones desde el panel para
+                  visualizar la evolución de tu saldo disponible y
+                  cuentas por cobrar.
                 </p>
 
-                {/* Chips informativos */}
                 <div className="flex flex-wrap items-center gap-2 mt-3.5">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/80 border border-border text-[11px] font-semibold text-muted-foreground">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
                     Ventas contado y abonos = Ingresos
                   </span>
+
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/80 border border-border text-[11px] font-semibold text-muted-foreground">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
                     Compras y gastos = Egresos
                   </span>
+
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/80 border border-border text-[11px] font-semibold text-muted-foreground">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                     Ventas fiadas = Cuentas por cobrar
@@ -125,7 +279,7 @@ export function CashflowView() {
 
             <Link
               to="/"
-              className="shrink-0 flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-98 text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-md shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all cursor-pointer"
+              className="shrink-0 flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-md shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Ir al Resumen</span>
@@ -134,6 +288,9 @@ export function CashflowView() {
         </div>
       )}
 
+      {/* ======================================================
+          CONTENIDO PRINCIPAL
+      ======================================================= */}
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <div className="xl:col-span-7">
           <RealCashflow
@@ -154,6 +311,16 @@ export function CashflowView() {
           />
         </div>
       </div>
+
+      {/* ======================================================
+          MODAL GLOBAL DE PAYWALL
+      ======================================================= */}
+      <PlanLimitPaywallModal
+        isOpen={isPaywallOpen}
+        onClose={cerrarPaywall}
+        motivo={paywallMotivo}
+        planRecomendadoId={paywallPlanRecomendadoId}
+      />
     </div>
   );
 }

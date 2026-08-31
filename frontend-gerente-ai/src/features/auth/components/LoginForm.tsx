@@ -26,6 +26,7 @@ export function LoginForm() {
     clearError();
     setLocalError(null);
     setResendMsg(null);
+
     return () => {
       clearError();
     };
@@ -46,37 +47,71 @@ export function LoginForm() {
     clearError();
 
     try {
-      const loggedUser = await login({ email: cleanEmail, password });
-      
+      const loggedUser = await login({
+        email: cleanEmail,
+        password,
+      });
+
       // Redirección inteligente según rol del backend
-      const from = (location.state as { from?: { pathname?: string } })?.from?.pathname;
-      if (from && from !== '/login') {
-        navigate(from, { replace: true });
-      } else if (loggedUser.rolGlobal === 'MASTER') {
-        navigate('/admin', { replace: true });
+      const from = (
+        location.state as {
+          from?: {
+            pathname?: string;
+          };
+        }
+      )?.from?.pathname;
+
+      if (from && from !== "/login") {
+        navigate(from, {
+          replace: true,
+        });
+      } else if (loggedUser.rolGlobal === "MASTER") {
+        navigate("/admin", {
+          replace: true,
+        });
       } else {
-        navigate('/', { replace: true });
+        navigate("/", {
+          replace: true,
+        });
       }
     } catch (err) {
-      console.error("❌ [LoginForm] Error en handleSubmit:", err);
+      console.error(
+        "❌ [LoginForm] Error en handleSubmit:",
+        err,
+      );
     }
   };
 
   const handleQuickResend = async () => {
     const cleanEmail = email.trim().toLowerCase();
+
     if (!cleanEmail) {
-      setLocalError("Por favor ingresa tu correo electrónico para reenviarte el enlace de activación.");
+      setLocalError(
+        "Por favor ingresa tu correo electrónico para reenviarte el enlace de activación.",
+      );
       return;
     }
 
     setIsResending(true);
+
     try {
-      const res = await authApi.reenviarVerificacion(cleanEmail);
-      setResendMsg(res.mensaje || "Correo de verificación reenviado con éxito. Revisa tu bandeja de entrada.");
+      const res =
+        await authApi.reenviarVerificacion(
+          cleanEmail,
+        );
+
+      setResendMsg(
+        res.mensaje ||
+          "Correo de verificación reenviado con éxito. Revisa tu bandeja de entrada.",
+      );
+
       setLocalError(null);
       clearError();
     } catch (err: any) {
-      setLocalError(err?.message || "No se pudo reenviar el correo. Verifica que el email sea el correcto.");
+      setLocalError(
+        err?.message ||
+          "No se pudo reenviar el correo. Verifica que el email sea el correcto.",
+      );
     } finally {
       setIsResending(false);
     }
@@ -86,47 +121,111 @@ export function LoginForm() {
 
   return (
     <div className="w-full max-w-md mx-auto px-8 sm:px-0">
-      <div className="mb-8 text-center sm:text-left">
-        <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">Bienvenido de nuevo</h1>
-        <p className="text-muted-foreground font-medium text-sm">Ingresa tus credenciales para acceder a tu cuenta.</p>
+
+      {/* =====================================================
+          LOGO LUKA AI
+      ====================================================== */}
+      <div className="flex items-center gap-3 mb-10">
+        <img
+          src="/Luka.png"
+          alt="Luka AI"
+          className="w-11 h-11 object-contain shrink-0"
+        />
+
+        <span className="text-2xl font-black tracking-tight">
+          <span className="text-[#5CE1E6]">
+            Luka
+          </span>
+
+          <span className="text-foreground">
+            {" "}AI
+          </span>
+        </span>
       </div>
 
-      {/* Alerta de Éxito en Reenvío con Animación Suave */}
+      {/* =====================================================
+          CABECERA
+      ====================================================== */}
+      <div className="mb-8 text-center sm:text-left">
+        <h1 className="text-3xl font-black text-foreground tracking-tight mb-2">
+          Bienvenido de nuevo
+        </h1>
+
+        <p className="text-muted-foreground font-medium text-sm">
+          Ingresa tus credenciales para acceder a tu cuenta.
+        </p>
+      </div>
+
+      {/* =====================================================
+          ALERTA DE ÉXITO EN REENVÍO
+      ====================================================== */}
       <AnimatePresence mode="wait">
         {resendMsg && (
           <motion.div
             key="resend-success"
-            initial={{ opacity: 0, y: -8, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -8, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+            initial={{
+              opacity: 0,
+              y: -8,
+              scale: 0.98,
+            }}
+            animate={{
+              opacity: 1,
+              y: 0,
+              scale: 1,
+            }}
+            exit={{
+              opacity: 0,
+              y: -8,
+              scale: 0.98,
+            }}
+            transition={{
+              duration: 0.25,
+              ease: [0.16, 1, 0.3, 1],
+            }}
             className="mb-5 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-sm font-semibold flex items-center gap-3 shadow-sm"
           >
             <CheckCircle2 className="w-5 h-5 flex-shrink-0" />
-            <span className="leading-relaxed">{resendMsg}</span>
+
+            <span className="leading-relaxed">
+              {resendMsg}
+            </span>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Alerta de Error con Transición Suave y Botón de Reenvío */}
+      {/* =====================================================
+          ALERTA DE ERROR
+      ====================================================== */}
       <AuthErrorAlert
         error={displayError}
         onResendVerification={handleQuickResend}
         isResending={isResending}
       />
 
-      <form onSubmit={handleSubmit} className="space-y-5">
+      {/* =====================================================
+          FORMULARIO
+      ====================================================== */}
+      <form
+        onSubmit={handleSubmit}
+        className="space-y-5"
+      >
         <div className="space-y-4">
+
+          {/* Correo */}
           <div className="space-y-2">
-            <label className="text-xs font-bold text-foreground uppercase tracking-wider">Correo electrónico</label>
-            <input 
-              type="email" 
-              placeholder="tu@empresa.com" 
+            <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+              Correo electrónico
+            </label>
+
+            <input
+              type="email"
+              placeholder="tu@empresa.com"
               required
               disabled={isLoading}
               value={email}
               onChange={(e) => {
                 setEmail(e.target.value);
+
                 if (displayError) {
                   setLocalError(null);
                   clearError();
@@ -136,26 +235,36 @@ export function LoginForm() {
             />
           </div>
 
+          {/* Contraseña */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-foreground uppercase tracking-wider">Contraseña</label>
-              <Link 
-                to="/forgot-password" 
+              <label className="text-xs font-bold text-foreground uppercase tracking-wider">
+                Contraseña
+              </label>
+
+              <Link
+                to="/forgot-password"
                 onClick={() => clearError()}
                 className="text-xs font-bold text-primary hover:text-primary/80 transition-colors cursor-pointer"
               >
                 ¿Olvidaste tu contraseña?
               </Link>
             </div>
+
             <div className="relative">
-              <input 
-                type={showPassword ? "text" : "password"} 
-                placeholder="••••••••" 
+              <input
+                type={
+                  showPassword
+                    ? "text"
+                    : "password"
+                }
+                placeholder="••••••••"
                 required
                 disabled={isLoading}
                 value={password}
                 onChange={(e) => {
                   setPassword(e.target.value);
+
                   if (displayError) {
                     setLocalError(null);
                     clearError();
@@ -163,20 +272,37 @@ export function LoginForm() {
                 }}
                 className="w-full px-4 py-3 bg-card border border-border rounded-xl outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-sm shadow-sm font-medium disabled:opacity-60"
               />
-              <button 
-                type="button" 
+
+              <button
+                type="button"
                 disabled={isLoading}
-                onClick={() => setShowPassword(!showPassword)}
+                onClick={() =>
+                  setShowPassword(
+                    !showPassword,
+                  )
+                }
                 className="absolute right-4 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-1 cursor-pointer"
+                aria-label={
+                  showPassword
+                    ? "Ocultar contraseña"
+                    : "Mostrar contraseña"
+                }
               >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                {showPassword ? (
+                  <EyeOff className="w-4 h-4" />
+                ) : (
+                  <Eye className="w-4 h-4" />
+                )}
               </button>
             </div>
           </div>
         </div>
 
-        <Button 
-          type="submit" 
+        {/* =================================================
+            BOTÓN LOGIN
+        ================================================== */}
+        <Button
+          type="submit"
           disabled={isLoading}
           className="w-full py-5 text-base font-bold rounded-xl shadow-md hover:shadow-lg hover:-translate-y-0.5 transition-all mt-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
         >
@@ -191,10 +317,14 @@ export function LoginForm() {
         </Button>
       </form>
 
+      {/* =====================================================
+          REGISTRO
+      ====================================================== */}
       <div className="mt-8 text-center text-sm font-medium text-muted-foreground">
         ¿No tienes una cuenta?{" "}
-        <Link 
-          to="/register" 
+
+        <Link
+          to="/register"
           onClick={() => clearError()}
           className="font-bold text-primary hover:text-primary/80 transition-colors"
         >
