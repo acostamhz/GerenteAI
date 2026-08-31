@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { X } from "lucide-react";
 
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import { LoginShowcase } from "@/features/auth/components/LoginShowcase";
@@ -27,10 +28,36 @@ export function LoginPage() {
       >
 
         {/* =========================
-            THEME TOGGLE
+            TOP ACTIONS
         ========================== */}
-        <div className="absolute top-6 right-6 flex items-center gap-4 z-10">
+        <div className="absolute top-6 right-6 flex items-center gap-3 z-20">
+
+          {/* VOLVER AL HOME */}
+          <Link
+            to="/home"
+            aria-label="Volver al inicio"
+            title="Volver al inicio"
+            className="
+              flex
+              h-10
+              w-10
+              items-center
+              justify-center
+              rounded-xl
+              text-muted-foreground
+              transition-all
+              duration-200
+              hover:bg-muted
+              hover:text-foreground
+              hover:scale-105
+            "
+          >
+            <X className="h-5 w-5" />
+          </Link>
+
+          {/* THEME TOGGLE */}
           <ThemeToggle />
+
         </div>
 
         {/* =========================
@@ -57,6 +84,7 @@ export function LoginPage() {
                 group-hover:scale-[1.03]
               "
             />
+
             <span className="text-xl sm:text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">
               Luka AI
             </span>
