@@ -12,16 +12,16 @@ import {
   Sparkles,
   ShieldCheck,
   Bot,
+  X,
 } from "lucide-react";
 
-import { motion } from "motion/react";
+import { motion, AnimatePresence } from "motion/react";
 import { Link } from "react-router";
 
 import {
   planesApi,
   PlanBackend,
   CicloFacturacion,
-  NegocioPlanInfo,
   MENSAJES_IA_POR_PLAN,
   DESCRIPCIONES_POR_PLAN,
 } from "@/shared/api/planesApi";
@@ -78,6 +78,11 @@ export function SubscriptionView() {
     setIsChangingToAssistant,
   ] = useState(false);
 
+  const [
+    isDowngradeModalOpen,
+    setIsDowngradeModalOpen,
+  ] = useState(false);
+
   /* ==========================================================
      CHECKOUT
   ========================================================== */
@@ -123,16 +128,6 @@ export function SubscriptionView() {
 
   /* ==========================================================
      CARGAR DATOS
-
-     IMPORTANTE:
-
-     `plan` representa el plan contratado.
-
-     `planVigente` representa el plan que realmente
-     rige actualmente el negocio.
-
-     La interfaz utiliza `planVigente` para determinar
-     cuál es el plan actual.
   ========================================================== */
 
   const cargarDatos =
@@ -163,29 +158,13 @@ export function SubscriptionView() {
 
         let resolvedPlan = 1;
 
-        /*
-         * Guardamos el objeto completo para poder utilizar
-         * también plan contratado, vencimiento y estado
-         * en el debug.
-         */
-        let negocio:
-          | NegocioPlanInfo
-          | null = null;
-
         if (currentNegocioId) {
           try {
-            negocio =
+            const negocio =
               await planesApi.getNegocioPlan(
                 currentNegocioId,
               );
 
-            /*
-             * La UI debe utilizar el plan VIGENTE.
-             *
-             * Esto permite que un negocio cuyo plan Gerente
-             * haya vencido aparezca visualmente como Asistente,
-             * aunque `negocio.plan` siga siendo 2.
-             */
             const backendPlanVigente =
               negocio?.planVigente !== null &&
               negocio?.planVigente !== undefined
@@ -237,38 +216,8 @@ export function SubscriptionView() {
           {
             negocioId:
               currentNegocioId,
-
-            /*
-             * Plan que originalmente fue contratado.
-             */
-            planContratado:
-              negocio?.plan,
-
-            /*
-             * Plan que realmente está vigente
-             * y que utiliza la interfaz.
-             */
             planVigente:
-              negocio?.planVigente,
-
-            /*
-             * Indica si el plan contratado está vencido.
-             */
-            planVencido:
-              negocio?.planVencido,
-
-            /*
-             * Fecha de vencimiento del plan contratado.
-             */
-            planVenceEl:
-              negocio?.planVenceEl,
-
-            /*
-             * Plan finalmente resuelto por la UI.
-             */
-            planMostrado:
               resolvedPlan,
-
             planNombre: (
               Array.isArray(
                 catalogo,
@@ -294,13 +243,6 @@ export function SubscriptionView() {
         );
 
         setError(message);
-
-        /*
-         * Estado seguro.
-         *
-         * Si no podemos consultar el backend,
-         * mostramos Asistente.
-         */
         setPlanActual(1);
       } finally {
         setIsLoading(false);
@@ -341,12 +283,6 @@ export function SubscriptionView() {
             ) &&
             numericPlan >= 1
           ) {
-            /*
-             * Actualización inmediata de UI.
-             *
-             * La confirmación definitiva
-             * siempre viene del backend.
-             */
             setPlanActual(
               numericPlan,
             );
@@ -362,11 +298,6 @@ export function SubscriptionView() {
 
     const handleBusinessChanged =
       () => {
-        /*
-         * Esperamos un tick para asegurarnos
-         * de que active_business_id ya haya
-         * sido actualizado.
-         */
         setTimeout(() => {
           void cargarDatos();
         }, 0);
@@ -396,11 +327,11 @@ export function SubscriptionView() {
   }, [cargarDatos]);
 
   /* ==========================================================
-     CAMBIAR A ASISTENTE
+     ABRIR MODAL DE DOWNGRADE
   ========================================================== */
 
   const handleCambiarAAsistente =
-    async () => {
+    () => {
       if (!negocioId) {
         setError(
           "No encontramos el negocio activo.",
@@ -408,27 +339,27 @@ export function SubscriptionView() {
         return;
       }
 
-      /*
-       * Si ya estamos en Asistente,
-       * no hacemos nada.
-       */
       if (
         planActual === 1
       ) {
         return;
       }
 
-      const confirmar =
-        window.confirm(
-          "¿Quieres cambiar al plan Asistente?\n\n" +
-            "El cambio será inmediato. " +
-            "No se eliminará ninguna información de tu negocio, " +
-            "pero las funciones y sedes que superen los límites " +
-            "del plan Asistente dejarán de estar habilitadas.\n\n" +
-            "El tiempo restante de tu plan actual no se conserva.",
-        );
+      setIsDowngradeModalOpen(
+        true,
+      );
+    };
 
-      if (!confirmar) {
+  /* ==========================================================
+     CONFIRMAR DOWNGRADE
+  ========================================================== */
+
+  const confirmarCambioAAsistente =
+    async () => {
+      if (!negocioId) {
+        setError(
+          "No encontramos el negocio activo.",
+        );
         return;
       }
 
@@ -457,10 +388,10 @@ export function SubscriptionView() {
             : 1,
         );
 
-        /*
-         * Avisamos al resto de la aplicación
-         * que el plan cambió.
-         */
+        /* ======================================================
+           AVISAR AL RESTO DE LA APLICACIÓN
+        ====================================================== */
+
         window.dispatchEvent(
           new CustomEvent(
             "plan_updated",
@@ -472,10 +403,18 @@ export function SubscriptionView() {
           ),
         );
 
-        /*
-         * Confirmamos nuevamente
-         * contra el backend.
-         */
+        /* ======================================================
+           CERRAR MODAL
+        ====================================================== */
+
+        setIsDowngradeModalOpen(
+          false,
+        );
+
+        /* ======================================================
+           CONFIRMAR CONTRA BACKEND
+        ====================================================== */
+
         await cargarDatos();
       } catch (e: unknown) {
         const message =
@@ -503,9 +442,10 @@ export function SubscriptionView() {
   const handleSeleccionarPlan = (
     plan: PlanBackend,
   ) => {
-    /*
-     * No hacer nada si ya es el plan actual.
-     */
+    /* ========================================================
+       PLAN ACTUAL
+    ======================================================== */
+
     if (
       planActual ===
       plan.id
@@ -513,20 +453,21 @@ export function SubscriptionView() {
       return;
     }
 
-    /*
-     * El plan Asistente tiene
-     * un flujo específico de downgrade.
-     */
+    /* ========================================================
+       DOWNGRADE A ASISTENTE
+    ======================================================== */
+
     if (
       plan.id === 1
     ) {
-      void handleCambiarAAsistente();
+      handleCambiarAAsistente();
       return;
     }
 
-    /*
-     * Los planes de pago utilizan Wompi.
-     */
+    /* ========================================================
+       PLANES DE PAGO
+    ======================================================== */
+
     setSelectedPlanForCheckout(
       plan,
     );
@@ -564,13 +505,16 @@ export function SubscriptionView() {
           </h1>
 
           <p className="text-sm text-muted-foreground mt-0.5">
+
             Escala la capacidad operativa y
             automatizaciones con Inteligencia
             Artificial para{" "}
+
             <strong className="text-foreground">
               {negocioNombre}
             </strong>
             .
+
           </p>
 
         </div>
@@ -598,6 +542,8 @@ export function SubscriptionView() {
 
         <div className="inline-flex items-center p-1.5 bg-muted/60 border border-border rounded-2xl shadow-inner">
 
+          {/* Mensual */}
+
           <button
             type="button"
             onClick={() =>
@@ -611,6 +557,8 @@ export function SubscriptionView() {
           >
             Facturación mensual
           </button>
+
+          {/* Anual */}
 
           <button
             type="button"
@@ -814,9 +762,7 @@ export function SubscriptionView() {
                         <div className="flex items-baseline gap-1.5">
 
                           <span className="text-3xl sm:text-4xl font-black text-foreground tracking-tight">
-
                             {precioMostrado}
-
                           </span>
 
                           {!esGratuito && (
@@ -906,7 +852,7 @@ export function SubscriptionView() {
 
                       </div>
 
-                      {/* Audio / Fotos */}
+                      {/* Audio */}
 
                       {plan.funcionalidades.includes(
                         "anotaciones_por_audio",
@@ -973,43 +919,39 @@ export function SubscriptionView() {
                         esActual
                           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 cursor-default opacity-80"
                           : esDowngrade
-                            ? "bg-muted text-foreground border border-border hover:bg-muted/80"
+                            ? "bg-muted text-foreground border border-border hover:bg-muted/80 cursor-pointer"
                             : esPopular
-                              ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20"
-                              : "bg-foreground text-background hover:opacity-90"
+                              ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20 cursor-pointer"
+                              : "bg-foreground text-background hover:opacity-90 cursor-pointer"
                       }`}
                     >
 
                       {esActual ? (
                         <>
-
                           <Check className="w-4 h-4 text-emerald-500" />
 
                           <span>
                             Plan Actual Activo
                           </span>
-
                         </>
                       ) : esDowngrade ? (
                         <>
+                          <Bot className="w-4 h-4" />
 
                           <span>
                             {isChangingToAssistant
                               ? "Cambiando plan..."
                               : "Cambiar al plan Asistente"}
                           </span>
-
                         </>
                       ) : (
                         <>
-
                           <Sparkles className="w-4 h-4" />
 
                           <span>
                             Mejorar a{" "}
                             {plan.nombre}
                           </span>
-
                         </>
                       )}
 
@@ -1070,6 +1012,246 @@ export function SubscriptionView() {
         </div>
 
       </div>
+
+      {/* ======================================================
+          MODAL DOWNGRADE
+      ====================================================== */}
+
+      <AnimatePresence>
+        {isDowngradeModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+
+            {/* ==================================================
+                BACKDROP
+            ================================================== */}
+
+            <motion.div
+              initial={{
+                opacity: 0,
+              }}
+              animate={{
+                opacity: 1,
+              }}
+              exit={{
+                opacity: 0,
+              }}
+              transition={{
+                duration: 0.2,
+              }}
+              className="absolute inset-0 bg-slate-950/80 backdrop-blur-md"
+              onClick={() => {
+                if (
+                  !isChangingToAssistant
+                ) {
+                  setIsDowngradeModalOpen(
+                    false,
+                  );
+                }
+              }}
+            />
+
+            {/* ==================================================
+                MODAL
+            ================================================== */}
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                scale: 0.96,
+                y: 16,
+              }}
+              animate={{
+                opacity: 1,
+                scale: 1,
+                y: 0,
+              }}
+              exit={{
+                opacity: 0,
+                scale: 0.96,
+                y: 16,
+              }}
+              transition={{
+                duration: 0.22,
+                ease: "easeOut",
+              }}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="downgrade-title"
+              className="relative w-full max-w-lg overflow-hidden rounded-3xl border border-emerald-500/20 bg-gradient-to-b from-slate-900 via-slate-950 to-black shadow-2xl shadow-emerald-500/10"
+            >
+
+              {/* ==================================================
+                  GLOW SUPERIOR
+              ================================================== */}
+
+              <div className="absolute inset-x-0 top-0 h-40 bg-gradient-to-b from-emerald-500/10 via-cyan-500/[0.03] to-transparent pointer-events-none" />
+
+              {/* ==================================================
+                  BOTÓN CERRAR
+              ================================================== */}
+
+              <button
+                type="button"
+                aria-label="Cerrar"
+                disabled={
+                  isChangingToAssistant
+                }
+                onClick={() =>
+                  setIsDowngradeModalOpen(
+                    false,
+                  )
+                }
+                className="absolute right-5 top-5 z-10 flex h-9 w-9 items-center justify-center rounded-xl border border-white/10 bg-white/[0.04] text-slate-400 transition-all hover:bg-white/[0.08] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <X className="h-4 w-4" />
+              </button>
+
+              {/* ==================================================
+                  CONTENIDO
+              ================================================== */}
+
+              <div className="relative p-7 sm:p-8">
+
+                {/* ==================================================
+                    ICONO
+                ================================================== */}
+
+                <div className="flex justify-center mb-6">
+
+                  <div className="relative flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 shadow-lg shadow-emerald-500/10">
+
+                    <div className="absolute inset-0 rounded-2xl bg-emerald-400/10 blur-xl" />
+
+                    <Bot className="relative w-8 h-8 text-emerald-400" />
+
+                  </div>
+
+                </div>
+
+                {/* ==================================================
+                    TÍTULO
+                ================================================== */}
+
+                <div className="text-center">
+
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-400 mb-2">
+                    Cambio de plan
+                  </p>
+
+                  <h2
+                    id="downgrade-title"
+                    className="text-xl sm:text-2xl font-black text-white tracking-tight"
+                  >
+                    ¿Cambiar al plan Asistente?
+                  </h2>
+
+                  <p className="mt-3 text-sm leading-6 text-slate-400">
+                    El cambio será inmediato y tu
+                    negocio continuará funcionando
+                    con las capacidades del plan
+                    Asistente.
+                  </p>
+
+                </div>
+
+                {/* ==================================================
+                    INFORMACIÓN
+                ================================================== */}
+
+                <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+
+                  <div className="flex items-start gap-3">
+
+                    <div className="flex items-center justify-center w-9 h-9 rounded-xl bg-emerald-500/10 shrink-0">
+
+                      <ShieldCheck className="w-4 h-4 text-emerald-400" />
+
+                    </div>
+
+                    <div>
+
+                      <p className="text-xs font-bold text-white">
+                        Tu información está segura
+                      </p>
+
+                      <p className="mt-1 text-xs leading-5 text-slate-400">
+                        No se eliminarán ventas,
+                        clientes, productos ni ningún
+                        otro dato de tu negocio.
+                      </p>
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+                {/* ==================================================
+                    ADVERTENCIA
+                ================================================== */}
+
+                <div className="mt-3 rounded-2xl border border-amber-500/20 bg-amber-500/[0.05] p-4">
+
+                  <p className="text-xs leading-5 text-amber-200/80">
+                    El cambio será inmediato. Las
+                    funciones y sedes que superen
+                    los límites del plan Asistente
+                    dejarán de estar habilitadas.
+                    El tiempo restante del plan
+                    actual no se conserva.
+                  </p>
+
+                </div>
+
+                {/* ==================================================
+                    BOTONES
+                ================================================== */}
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-7">
+
+                  {/* Mantener plan */}
+
+                  <button
+                    type="button"
+                    disabled={
+                      isChangingToAssistant
+                    }
+                    onClick={() =>
+                      setIsDowngradeModalOpen(
+                        false,
+                      )
+                    }
+                    className="w-full py-3.5 rounded-2xl border border-white/10 bg-white/[0.04] hover:bg-white/[0.08] text-sm font-bold text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Mantener mi plan
+                  </button>
+
+                  {/* Confirmar */}
+
+                  <button
+                    type="button"
+                    disabled={
+                      isChangingToAssistant
+                    }
+                    onClick={() =>
+                      void confirmarCambioAAsistente()
+                    }
+                    className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-400 hover:to-cyan-400 text-sm font-black text-slate-950 shadow-lg shadow-emerald-500/20 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    {isChangingToAssistant
+                      ? "Cambiando plan..."
+                      : "Cambiar al plan Asistente"}
+                  </button>
+
+                </div>
+
+              </div>
+
+            </motion.div>
+
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ======================================================
           CHECKOUT WOMPI
