@@ -39,8 +39,60 @@ export class NegociosService {
       await tx.usuarioNegocio.create({
         data: { usuarioId: userId, negocioId: negocio.id },
       });
+
+      // Todo negocio nace con una sede. Sin ella el negocio existe pero no
+      // opera: las ventas, compras y gastos cuelgan de la sede, y el bot de
+      // WhatsApp identifica a quien escribe por `Sede.telefono`. Quien se
+      // registraba y creaba su negocio quedaba invisible para Luka, que le
+      // respondia "este numero no esta registrado" sin que nada fallara.
+      const duenno = await tx.usuario.findUnique({
+        where: { id: userId },
+        select: { telefono: true },
+      });
+
+      const telefono = await this.telefonoLibre(tx, duenno?.telefono);
+
+      const sede = await tx.sede.create({
+        data: { nombre: 'Sede principal', negocioId: negocio.id, telefono },
+      });
+
+      // El duenno queda tambien como administrador de esa sede.
+      await tx.usuarioSede.create({
+        data: { usuarioId: userId, sedeId: sede.id },
+      });
+
       return negocio;
     });
+  }
+
+  /**
+   * Telefono con el que dar de alta la sede, o null si no se puede usar.
+   *
+   * `Sede.telefono` es unico en todo el sistema: si el numero del duenno ya
+   * esta en otra sede (por ejemplo, porque creo un segundo negocio), reutilizarlo
+   * haria fallar la creacion entera. En ese caso la sede nace sin telefono y se
+   * asigna despues desde el panel.
+   *
+   * ASUNCION COLOMBIA: un movil local llega como 10 digitos empezando por 3, y
+   * Meta exige formato internacional. Sin el 57, el mensaje se acepta y nunca se
+   * entrega. Cuando el producto salga del pais, esto se resuelve pidiendo el
+   * indicativo en el registro.
+   */
+  private async telefonoLibre(
+    tx: Pick<PrismaService, 'sede'>,
+    telefono: string | null | undefined,
+  ): Promise<string | null> {
+    const digitos = (telefono ?? '').replace(/D/g, '');
+    if (!digitos) return null;
+
+    const normalizado = /^3d{9}$/.test(digitos) ? `57${digitos}` : digitos;
+
+    const ocupado = await tx.sede.findUnique({
+      where: { telefono: normalizado },
+      select: { id: true },
+    });
+
+    return ocupado ? null : normalizado;
   }
 
   /** Solo los negocios del usuario. MASTER los ve todos. */

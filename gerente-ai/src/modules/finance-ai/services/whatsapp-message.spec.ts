@@ -424,3 +424,57 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
     expect(result.transaction).toBeNull();
   });
 });
+
+describe('WhatsAppMessageService · búsqueda por concepto', () => {
+  it('busca movimientos por texto en vez de devolver el resumen', async () => {
+    // "¿Qué día compré harina?" antes caía en el resumen del mes y el usuario
+    // recibía los mismos totales sin importar qué hubiera preguntado.
+    const { service } = buildService({
+      type: 'query',
+      concept: 'harina',
+      responseText: 'Déjame buscar.',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.summary).toBeNull();
+    expect(result.replyText).toContain('Compra de harina');
+    expect(result.replyText).toContain('$700.000');
+  });
+
+  it('encuentra sin importar tildes ni mayúsculas', async () => {
+    const { service } = buildService({
+      type: 'query',
+      concept: 'HARÍNA',
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.replyText).toContain('Compra de harina');
+  });
+
+  it('lo dice claro cuando no encuentra nada, sin inventar', async () => {
+    const { service } = buildService({
+      type: 'query',
+      concept: 'jabones',
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.replyText).toContain('No encontré movimientos');
+    expect(result.replyText).toContain('jabones');
+    expect(result.replyText).not.toContain('$');
+  });
+
+  it('sin concepto sigue devolviendo el resumen del periodo', async () => {
+    const { service } = buildService({
+      type: 'query',
+      queryPeriod: 'week',
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.summary).not.toBeNull();
+  });
+});
