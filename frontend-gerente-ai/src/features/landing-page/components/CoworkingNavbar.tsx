@@ -69,31 +69,58 @@ export function CoworkingNavbar() {
 
   return (
     <header className="fixed top-4 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-50">
-      <div className="relative bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border border-gray-200/80 dark:border-white/10 rounded-2xl px-6 py-3.5 shadow-lg shadow-black/5 dark:shadow-slate-950/50 transition-colors duration-300">
-
-        {/* Contenedor principal */}
+      <div
+        className="
+          relative
+          bg-white/80
+          dark:bg-slate-900/80
+          backdrop-blur-md
+          border
+          border-gray-200/80
+          dark:border-white/10
+          rounded-2xl
+          px-6
+          py-3.5
+          shadow-lg
+          shadow-black/5
+          dark:shadow-slate-950/50
+          transition-colors
+          duration-300
+        "
+      >
         <div className="flex items-center justify-between">
 
-          {/* Brand */}
+          {/* =========================
+              BRAND
+          ========================== */}
           <Link
             to="/home"
-            className="flex items-center gap-2.5 group shrink-0"
+            className="flex items-center shrink-0 group"
+            aria-label="Luka AI - Inicio"
           >
             <img
-              src="/logo.png"
+              src="/Luka.png"
               alt="Luka AI"
-              className="w-10 h-10 object-contain group-hover:scale-105 transition-transform"
+              className="
+                h-10
+                w-auto
+                max-w-[150px]
+                object-contain
+                object-left
+                transition-transform
+                duration-200
+                group-hover:scale-[1.03]
+              "
             />
-
-            <span className="text-xl font-black tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
-              Luka AI
-            </span>
           </Link>
 
-          {/* Desktop Nav - ABSOLUTAMENTE CENTRADO */}
+          {/* =========================
+              DESKTOP NAV
+          ========================== */}
           <nav
             className="
-              hidden lg:flex
+              hidden
+              lg:flex
               absolute
               left-1/2
               -translate-x-1/2
@@ -134,17 +161,39 @@ export function CoworkingNavbar() {
             ))}
           </nav>
 
-          {/* Right Actions */}
+          {/* =========================
+              DESKTOP ACTIONS
+          ========================== */}
           <div className="hidden sm:flex items-center gap-2 shrink-0">
 
-            {/* Theme Toggle */}
+            {/* Theme Toggle — SE MANTIENE */}
             <ThemeToggle />
 
-            {/* Iniciar Sesión vs Dashboard según estado de autenticación */}
             {isAuthenticated ? (
               <div className="flex items-center gap-2">
-                <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-gray-200/80 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200">
+
+                <span
+                  className="
+                    hidden
+                    md:inline-flex
+                    items-center
+                    gap-1.5
+                    px-3
+                    py-1.5
+                    rounded-xl
+                    bg-slate-100
+                    dark:bg-slate-800/80
+                    border
+                    border-gray-200/80
+                    dark:border-slate-700
+                    text-xs
+                    font-bold
+                    text-slate-800
+                    dark:text-slate-200
+                  "
+                >
                   <User className="w-3.5 h-3.5 text-emerald-500" />
+
                   <span className="max-w-[130px] truncate">
                     {user?.nombre || "Usuario"}
                   </span>
@@ -152,7 +201,25 @@ export function CoworkingNavbar() {
 
                 <Link
                   to="/dashboard"
-                  className="flex items-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-3.5 py-2 rounded-xl shadow-sm hover:shadow-md transition-all"
+                  className="
+                    flex
+                    items-center
+                    gap-1.5
+                    text-xs
+                    font-bold
+                    text-white
+                    bg-gradient-to-r
+                    from-emerald-600
+                    to-emerald-500
+                    hover:from-emerald-500
+                    hover:to-emerald-400
+                    px-3.5
+                    py-2
+                    rounded-xl
+                    shadow-sm
+                    hover:shadow-md
+                    transition-all
+                  "
                 >
                   <span>Ir al Dashboard</span>
                   <ArrowRight className="w-3.5 h-3.5" />
@@ -188,14 +255,26 @@ export function CoworkingNavbar() {
             )}
           </div>
 
-          {/* Mobile */}
+          {/* =========================
+              MOBILE
+          ========================== */}
           <div className="flex sm:hidden items-center gap-2">
+
+            {/* Theme Toggle — SE MANTIENE */}
             <ThemeToggle />
 
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 text-slate-700 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white"
-              aria-label="Abrir menú"
+              className="
+                p-2
+                text-slate-700
+                dark:text-slate-300
+                hover:text-slate-900
+                dark:hover:text-white
+              "
+              aria-label={
+                mobileMenuOpen ? "Cerrar menú" : "Abrir menú"
+              }
             >
               {mobileMenuOpen ? (
                 <X className="w-6 h-6" />
@@ -207,10 +286,30 @@ export function CoworkingNavbar() {
         </div>
       </div>
 
-      {/* Mobile Menu */}
+      {/* =========================
+          MOBILE MENU
+      ========================== */}
       {mobileMenuOpen && (
-        <div className="sm:hidden mt-2 bg-white/95 dark:bg-slate-900/95 border border-gray-200 dark:border-white/10 rounded-2xl p-6 space-y-4 shadow-xl backdrop-blur-xl animate-in fade-in slide-in-from-top-2 duration-200">
-
+        <div
+          className="
+            sm:hidden
+            mt-2
+            bg-white/95
+            dark:bg-slate-900/95
+            border
+            border-gray-200
+            dark:border-white/10
+            rounded-2xl
+            p-6
+            space-y-4
+            shadow-xl
+            backdrop-blur-xl
+            animate-in
+            fade-in
+            slide-in-from-top-2
+            duration-200
+          "
+        >
           <div className="space-y-2">
             {navLinks.map((link) => (
               <a
@@ -234,11 +333,30 @@ export function CoworkingNavbar() {
           </div>
 
           <div className="pt-4 border-t border-gray-200 dark:border-slate-800">
+
             {isAuthenticated ? (
               <div className="space-y-2">
-                <div className="flex items-center gap-2 px-3 py-2 bg-slate-100 dark:bg-slate-800 rounded-xl text-xs font-bold text-slate-800 dark:text-slate-200">
+
+                <div
+                  className="
+                    flex
+                    items-center
+                    gap-2
+                    px-3
+                    py-2
+                    bg-slate-100
+                    dark:bg-slate-800
+                    rounded-xl
+                    text-xs
+                    font-bold
+                    text-slate-800
+                    dark:text-slate-200
+                  "
+                >
                   <User className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Hola, {user?.nombre || "Usuario"}</span>
+                  <span>
+                    Hola, {user?.nombre || "Usuario"}
+                  </span>
                 </div>
 
                 <Link
@@ -264,6 +382,7 @@ export function CoworkingNavbar() {
                   <span>Ir al Dashboard</span>
                   <ArrowRight className="w-4 h-4" />
                 </Link>
+
               </div>
             ) : (
               <Link
@@ -289,6 +408,7 @@ export function CoworkingNavbar() {
                 Iniciar Sesión
               </Link>
             )}
+
           </div>
         </div>
       )}
