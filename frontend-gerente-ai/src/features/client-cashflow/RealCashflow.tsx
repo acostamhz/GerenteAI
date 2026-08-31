@@ -13,6 +13,7 @@ import {
   Search,
   Filter,
   FileSpreadsheet,
+  Lock,
 } from "lucide-react";
 
 import {
@@ -28,6 +29,8 @@ import {
 } from "@/features/client-dashboard";
 
 import { ExportarContabilidadModal } from "./components/ExportarContabilidadModal";
+
+import { usePlanNegocio } from "./hooks/usePlanNegocio";
 
 const PERIODOS = [
   {
@@ -69,16 +72,6 @@ export function RealCashflow() {
   const [exportando, setExportando] =
     useState(false);
 
-  /*
-   * Hoy la exportacion esta disponible en todos los planes, incluido el
-   * gratuito, para poder probarla con usuarios reales.
-   *
-   * Para dejarla solo en los planes pagos: poner esta constante en true y
-   * ocultar el boton cuando el negocio este en plan 1 (Asistente). El plan se
-   * lee de GET /negocios/:id, campo "plan", igual que en la pantalla de
-   * suscripcion.
-   */
-  const SOLO_PLANES_PAGOS = false;
 
   /*
    * El negocio activo lo deja el dashboard en localStorage: la contabilidad es
@@ -93,6 +86,15 @@ export function RealCashflow() {
     localStorage.getItem(
       "active_business_name",
     ) || "Mi negocio";
+
+  /*
+   * La exportacion es una funcion de los planes pagos.
+   *
+   * El boton se muestra igual en el plan gratuito, con candado: esconderla no
+   * la vende, y quien no sabe que existe nunca la va a pedir. Al abrirla se ve
+   * que trae el Excel y el camino a los planes.
+   */
+  const plan = usePlanNegocio(negocioId);
 
   /*
    * Métricas financieras reales.
@@ -277,17 +279,33 @@ export function RealCashflow() {
               }
               disabled={
                 !negocioId ||
-                SOLO_PLANES_PAGOS
+                plan.cargando
               }
               title={
-                negocioId
-                  ? "Descargar la contabilidad en Excel"
-                  : "Primero crea tu negocio"
+                !negocioId
+                  ? "Primero crea tu negocio"
+                  : plan.esPago
+                    ? "Descargar la contabilidad en Excel"
+                    : "Disponible en los planes Gerente y Administrador"
               }
-              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+              className={`inline-flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer ${
+                plan.esPago
+                  ? "text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 hover:bg-emerald-500/20"
+                  : "text-muted-foreground bg-muted/60 border border-border hover:bg-muted hover:text-foreground"
+              }`}
             >
-              <FileSpreadsheet className="w-4 h-4" />
+              {plan.esPago ? (
+                <FileSpreadsheet className="w-4 h-4" />
+              ) : (
+                <Lock className="w-3.5 h-3.5" />
+              )}
               Exportar Excel
+              {!plan.cargando &&
+                !plan.esPago && (
+                  <span className="ml-0.5 px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wide bg-gradient-to-r from-emerald-600 to-emerald-500 text-white">
+                    Pro
+                  </span>
+                )}
             </button>
 
             <DateDropdown
@@ -610,6 +628,8 @@ export function RealCashflow() {
         <ExportarContabilidadModal
           negocioId={negocioId}
           negocioNombre={negocioNombre}
+          esPago={plan.esPago}
+          planNombre={plan.nombre}
           onClose={() =>
             setExportando(false)
           }
