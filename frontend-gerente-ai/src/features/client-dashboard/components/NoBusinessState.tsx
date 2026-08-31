@@ -50,14 +50,21 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
   const [inviteStatus, setInviteStatus] = useState<string | null>(null);
 
   const inputNameRef = useRef<HTMLInputElement>(null);
+  const formSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setUsernamePlaceholder(getRandomUsernamePlaceholder());
   }, []);
 
   const handleFocusForm = () => {
-    inputNameRef.current?.focus();
-    inputNameRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if (formSectionRef.current) {
+      formSectionRef.current.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else if (inputNameRef.current) {
+      inputNameRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setTimeout(() => {
+      inputNameRef.current?.focus({ preventScroll: true });
+    }, 450);
   };
 
   const handleCreateBusiness = async (e: React.FormEvent) => {
@@ -232,7 +239,11 @@ export function NoBusinessState({ onBusinessCreated }: NoBusinessStateProps) {
         className="grid grid-cols-1 lg:grid-cols-12 gap-6"
       >
         {/* Bento 1: FORMULARIO EMBEBIDO DIRECTAMENTE EN LA TARJETA (7 columnas) */}
-        <div className="lg:col-span-7 bg-card rounded-3xl p-6 sm:p-8 border border-emerald-500/30 shadow-sm flex flex-col justify-between relative overflow-hidden ring-1 ring-emerald-500/15 min-h-[380px]">
+        <div
+          ref={formSectionRef}
+          id="register-business-section"
+          className="lg:col-span-7 bg-card rounded-3xl p-6 sm:p-8 border border-emerald-500/30 shadow-sm flex flex-col justify-between relative overflow-hidden ring-1 ring-emerald-500/15 min-h-[380px] scroll-mt-24"
+        >
           <div className="absolute top-0 right-0 p-8 opacity-5 pointer-events-none">
             <Building2 className="w-40 h-40 text-emerald-500" />
           </div>

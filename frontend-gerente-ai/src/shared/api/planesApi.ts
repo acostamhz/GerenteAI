@@ -75,18 +75,35 @@ export const DESCRIPCIONES_POR_PLAN: Record<number, string> = {
   4: 'Soluciones enterprise y alianzas estratégicas a la medida.',
 };
 
+let cachedPlanesPromise: Promise<PlanBackend[]> | null = null;
+let cachedPlanes: PlanBackend[] | null = null;
+
 export const planesApi = {
-  /** Obtiene el catálogo comercial oficial de planes */
-  async getPlanesCatalogo(): Promise<PlanBackend[]> {
-    try {
-      const catalogo = await apiClient<PlanBackend[]>('/planes');
-      if (Array.isArray(catalogo) && catalogo.length > 0) {
-        return catalogo;
-      }
-      return PLANES_FALLBACK;
-    } catch {
-      return PLANES_FALLBACK;
+  /** Obtiene el catálogo comercial oficial de planes con deduplicación y caché en memoria */
+  async getPlanesCatalogo(forceRefresh = false): Promise<PlanBackend[]> {
+    if (!forceRefresh && cachedPlanes) {
+      return cachedPlanes;
     }
+    if (!forceRefresh && cachedPlanesPromise) {
+      return cachedPlanesPromise;
+    }
+    cachedPlanesPromise = (async () => {
+      try {
+        const catalogo = await apiClient<PlanBackend[]>('/planes');
+        if (Array.isArray(catalogo) && catalogo.length > 0) {
+          cachedPlanes = catalogo;
+          return catalogo;
+        }
+        cachedPlanes = PLANES_FALLBACK;
+        return PLANES_FALLBACK;
+      } catch {
+        cachedPlanes = PLANES_FALLBACK;
+        return PLANES_FALLBACK;
+      } finally {
+        cachedPlanesPromise = null;
+      }
+    })();
+    return cachedPlanesPromise;
   },
 
   /** Obtiene la información del plan del negocio actual */

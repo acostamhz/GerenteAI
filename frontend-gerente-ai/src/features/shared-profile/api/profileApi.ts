@@ -14,17 +14,29 @@ import {
   UserProfileResponse,
 } from '../types';
 
+let cachedGetMePromise: Promise<UserProfileResponse> | null = null;
+
 export const profileApi = {
   /**
    * Obtener perfil completo del usuario autenticado actual
    * con sus negocios y sedes.
    *
-   * Llama a GET /auth/usuarios/me
+   * Llama a GET /auth/usuarios/me con deduplicación de peticiones concurrentes
    */
-  async getMe(): Promise<UserProfileResponse> {
-    return apiClient<UserProfileResponse>('/auth/usuarios/me', {
+  async getMe(forceRefresh = false): Promise<UserProfileResponse> {
+    if (!forceRefresh && cachedGetMePromise) {
+      return cachedGetMePromise;
+    }
+
+    cachedGetMePromise = apiClient<UserProfileResponse>('/auth/usuarios/me', {
       method: 'GET',
+    }).finally(() => {
+      setTimeout(() => {
+        cachedGetMePromise = null;
+      }, 500);
     });
+
+    return cachedGetMePromise;
   },
 
   /**
@@ -73,13 +85,13 @@ export const profileApi = {
       '/auth/forgot-password',
       {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       },
     );
   },
 
   /**
-   * Listar todos los negocios (CRM/Admin).
+   * Listar todos los negocios en los que el usuario es dueño/socio.
    *
    * Llama a GET /negocios
    */
@@ -90,7 +102,7 @@ export const profileApi = {
   },
 
   /**
-   * Obtener detalle de un negocio específico.
+   * Obtener detalle de un negocio por ID.
    *
    * Llama a GET /negocios/:id
    */
@@ -120,7 +132,7 @@ export const profileApi = {
   },
 
   /**
-   * Actualizar un negocio.
+   * Actualizar información de un negocio existente.
    *
    * Llama a PATCH /negocios/:id
    */
@@ -236,11 +248,11 @@ export const profileApi = {
   },
 
   /**
-   * Orquesta la creación de un negocio
-   * y su primera sede/sucursal.
+   * Orquesta la creación de un negocio y su primera sede.
    *
-   * 1. Crea el negocio matriz.
-   * 2. Crea la primera sede asociada.
+   * 1. Crea el negocio matriz (El backend crea automáticamente la sede inicial en la transacción).
+   * 2. Consulta y actualiza la sede inicial con los datos personalizados provistos por el usuario
+   *    sin violar el límite de 1 sede del Plan Asistente (Plan 1).
    */
   async createNegocioConSede(
     data: CreateNegocioConSedeDto,
@@ -255,74 +267,72 @@ export const profileApi = {
      */
     const negocioPayload: CreateNegocioDto = {
       nombre: data.nombre.trim(),
-
       ...(data.telefonoContacto?.trim()
-        ? {
-            telefonoContacto:
-              data.telefonoContacto.trim(),
-          }
+        ? { telefonoContacto: data.telefonoContacto.trim() }
         : {}),
-
       ...(data.telefonoSecundario?.trim()
-        ? {
-            telefonoSecundario:
-              data.telefonoSecundario.trim(),
-          }
+        ? { telefonoSecundario: data.telefonoSecundario.trim() }
         : {}),
-
       ...(data.contexto?.trim()
-        ? {
-            contexto:
-              data.contexto.trim(),
-          }
+        ? { contexto: data.contexto.trim() }
         : {}),
     };
 
-    const negocio =
-      await this.createNegocio(
-        negocioPayload,
-      );
+    const negocio = await this.createNegocio(negocioPayload);
 
     /*
      * ============================================
-     * 2. CREAR PRIMERA SEDE
+     * 2. OBTENER Y ACTUALIZAR LA SEDE INICIAL
      * ============================================
      */
-    const sedePayload: CreateSedeDto = {
-      nombre:
-        data.nombreSede.trim() ||
-        'Sede principal',
+    let sede: Sede;
 
-      negocioId: negocio.id,
+    try {
+      // El backend en NegociosService.create ya crea la primera sede ('Sede principal')
+      const sedesExistentes = await this.getSedes(negocio.id);
 
-      ...(data.direccionSede?.trim()
-        ? {
-            direccion:
-              data.direccionSede.trim(),
-          }
-        : {}),
+      if (sedesExistentes && sedesExistentes.length > 0) {
+        const sedeInicial = sedesExistentes[0];
 
-      ...(data.whatsappPhone?.trim()
-        ? {
-            telefono:
-              data.whatsappPhone.trim(),
-          }
-        : {}),
+        const updatePayload: UpdateSedeDto = {
+          ...(data.nombreSede?.trim() ? { nombre: data.nombreSede.trim() } : {}),
+          ...(data.direccionSede?.trim() ? { direccion: data.direccionSede.trim() } : {}),
+          ...(data.whatsappPhone?.trim() ? { telefono: data.whatsappPhone.trim() } : {}),
+          ...(data.whatsappUsername?.trim()
+            ? { whatsappUsername: data.whatsappUsername.trim().replace(/^@+/, '') }
+            : {}),
+        };
 
-      ...(data.whatsappUsername?.trim()
-        ? {
-            whatsappUsername:
-              data.whatsappUsername
-                .trim()
-                .replace(/^@/, ''),
-          }
-        : {}),
-    };
-
-    const sede =
-      await this.createSede(
-        sedePayload,
-      );
+        if (Object.keys(updatePayload).length > 0) {
+          sede = await this.updateSede(sedeInicial.id, updatePayload);
+        } else {
+          sede = sedeInicial;
+        }
+      } else {
+        // Fallback: si por alguna razón no existiera sede inicial
+        const sedePayload: CreateSedeDto = {
+          nombre: data.nombreSede?.trim() || 'Sede principal',
+          negocioId: negocio.id,
+          ...(data.direccionSede?.trim() ? { direccion: data.direccionSede.trim() } : {}),
+          ...(data.whatsappPhone?.trim() ? { telefono: data.whatsappPhone.trim() } : {}),
+          ...(data.whatsappUsername?.trim()
+            ? { whatsappUsername: data.whatsappUsername.trim().replace(/^@+/, '') }
+            : {}),
+        };
+        sede = await this.createSede(sedePayload);
+      }
+    } catch (error) {
+      console.warn('⚠️ [createNegocioConSede] Fallback en resolución de sede inicial:', error);
+      sede = {
+        id: '',
+        nombre: data.nombreSede?.trim() || 'Sede principal',
+        negocioId: negocio.id,
+        telefono: data.whatsappPhone?.trim() || null,
+        direccion: data.direccionSede?.trim() || null,
+        whatsappUsername: data.whatsappUsername?.trim()?.replace(/^@+/, '') || null,
+        createdAt: new Date().toISOString(),
+      };
+    }
 
     return {
       negocio,

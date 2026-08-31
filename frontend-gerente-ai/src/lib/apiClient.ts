@@ -11,6 +11,57 @@ export class ApiError extends Error {
 
 const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
+function translateErrorMessage(msg: string): string {
+  if (!msg || typeof msg !== 'string') return 'Ocurrió un error inesperado.';
+  const lower = msg.toLowerCase();
+
+  if (lower.includes('email must be an email')) {
+    return 'Debes ingresar un correo electrónico válido.';
+  }
+  if (
+    lower.includes('password must be longer than or equal to 8 characters') ||
+    lower.includes('must be longer than or equal to 8')
+  ) {
+    return 'La contraseña debe tener al menos 8 caracteres.';
+  }
+  if (lower.includes('password must match') || lower.includes('password should contain')) {
+    return 'La contraseña debe incluir mayúscula, minúscula, número y un carácter especial.';
+  }
+  if (lower.includes('nombre should not be empty') || lower.includes('nombre must be a string')) {
+    return 'El nombre completo es obligatorio.';
+  }
+  if (lower.includes('whatsappusername solo admite') || lower.includes('whatsappusername')) {
+    return 'El usuario de WhatsApp solo admite letras, números, punto, guion y guion bajo (sin @).';
+  }
+  if (
+    lower.includes('failed to fetch') ||
+    lower.includes('network error') ||
+    lower.includes('err_failed') ||
+    lower.includes('bad gateway') ||
+    lower.includes('502')
+  ) {
+    return 'No pudimos conectar con el servidor. Por favor verifica tu conexión o intenta nuevamente en unos momentos.';
+  }
+  return msg;
+}
+
+function formatErrorMessage(data: any, statusText: string, status: number): string {
+  if (Array.isArray(data?.message) && data.message.length > 0) {
+    const translated = data.message.map((m: string) => translateErrorMessage(m));
+    return translated.join(' · ');
+  }
+  if (typeof data?.message === 'string' && data.message.trim()) {
+    return translateErrorMessage(data.message);
+  }
+  if (data?.error && typeof data.error === 'string') {
+    return translateErrorMessage(data.error);
+  }
+  if (status === 502 || status === 504) {
+    return 'El servidor se está iniciando. Por favor intenta de nuevo en unos segundos.';
+  }
+  return `Error ${status}: ${statusText || 'Ocurrió un problema inesperado'}`;
+}
+
 export async function apiClient<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -25,7 +76,10 @@ export async function apiClient<T>(
 
   const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
 
-  console.log(`📡 [API Request] ${options.method || 'GET'} ${url}`, options.body ? JSON.parse(options.body as string) : '');
+  console.log(
+    `📡 [API Request] ${options.method || 'GET'} ${url}`,
+    options.body ? JSON.parse(options.body as string) : ''
+  );
 
   try {
     const response = await fetch(url, {
@@ -59,9 +113,7 @@ export async function apiClient<T>(
         window.location.href = '/login';
       }
 
-      const errorMessage = Array.isArray(data.message)
-        ? data.message.join(', ')
-        : data.message || `Error ${response.status}: ${response.statusText}`;
+      const errorMessage = formatErrorMessage(data, response.statusText, response.status);
 
       throw new ApiError(
         response.status,
@@ -77,9 +129,13 @@ export async function apiClient<T>(
       throw error;
     }
     console.error(`🚨 [API Connection Error] ${url}:`, error);
+    const rawMsg = (error as Error).message || '';
+    const cleanMsg = translateErrorMessage(rawMsg);
     throw new ApiError(
       500,
-      (error as Error).message || 'No se pudo conectar con el servidor. Revisa que el backend esté corriendo en http://localhost:3000.'
+      cleanMsg.toLowerCase().includes('fetch') || cleanMsg.toLowerCase().includes('failed')
+        ? 'No pudimos conectar con el servidor. Por favor verifica tu conexión a internet o intenta en unos momentos.'
+        : cleanMsg || 'No pudimos conectar con el servidor.'
     );
   }
 }

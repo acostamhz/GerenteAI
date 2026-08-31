@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { ThemeToggle } from "./ThemeToggle";
 import { useAuth } from "@/features/auth/hooks/useAuth";
+import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
 import { apiClient } from "@/lib/apiClient";
 import { profileApi } from "@/features/shared-profile/api/profileApi";
 
@@ -48,6 +49,7 @@ export function GlobalNavbar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, token } = useAuth();
+  const { planUsuarioId } = usePlanPermissions();
 
   const isAdmin =
     location.pathname.startsWith("/admin") ||
@@ -407,7 +409,7 @@ export function GlobalNavbar() {
       id: "/insights",
       Icon: Bot,
       label: "Recomendaciones de IA",
-      badge: 2,
+      badge: planUsuarioId >= 2 ? 2 : undefined,
     },
     {
       id: "/cashflow",

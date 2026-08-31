@@ -457,6 +457,16 @@ export function useDashboardMetrics(
         );
 
         try {
+          const activeNegocioId = businessId || localStorage.getItem('active_business_id');
+          const businessPlan = activeNegocioId ? localStorage.getItem(`business_plan_${activeNegocioId}`) : null;
+          const activePlan = businessPlan || localStorage.getItem('active_business_plan') || (user as any)?.plan || 1;
+          const isPlanAsistente = Number(activePlan) === 1 && (user as any)?.rolGlobal !== 'MASTER';
+
+          if (isPlanAsistente) {
+            setFiados(null);
+            return;
+          }
+
           const targetSedeIds =
             await resolveSedeIds(
               businessId,
@@ -471,7 +481,7 @@ export function useDashboardMetrics(
             return;
           }
 
-          const reportes =
+          const reportesRaw =
             await Promise.all(
               targetSedeIds.map(
                 (id) =>
@@ -480,6 +490,10 @@ export function useDashboardMetrics(
                   ),
               ),
             );
+
+          const reportes = reportesRaw.filter(
+            (r): r is ReporteFiados => r !== null,
+          );
 
           if (
             reportes.length === 0
@@ -611,11 +625,13 @@ export function useDashboardMetrics(
 
             clientes,
           });
-        } catch (err) {
-          console.warn(
-            "No se pudo cargar la cartera:",
-            err,
-          );
+        } catch (err: any) {
+          if (err?.statusCode !== 403) {
+            console.warn(
+              "No se pudo cargar la cartera:",
+              err,
+            );
+          }
 
           setFiados(null);
         } finally {
@@ -871,22 +887,20 @@ export function useDashboardMetrics(
           );
 
           /*
-           * Movimientos.
+           * Cargar movimientos y cartera en paralelo para máxima velocidad.
            */
-          await loadTransactions(
-            targetBusinessId,
-            effectiveSedeId,
-            safeReport,
-          );
-
-          /*
-           * Cartera.
-           */
-          await loadFiados(
-            targetBusinessId,
-            effectiveSedeId,
-            safeReport,
-          );
+          await Promise.all([
+            loadTransactions(
+              targetBusinessId,
+              effectiveSedeId,
+              safeReport,
+            ),
+            loadFiados(
+              targetBusinessId,
+              effectiveSedeId,
+              safeReport,
+            ),
+          ]);
         } catch (err: any) {
           console.error(
             "Error al obtener métricas del dashboard:",

@@ -35,6 +35,19 @@ enum RolMensaje {
   SYSTEM
 }
 
+enum EstadoPago {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+  ANULADO
+  ERROR
+}
+
+enum CicloPago {
+  MENSUAL
+  ANUAL
+}
+
 model Usuario {
   id              String    @id @default(uuid())
   nombre          String
@@ -48,6 +61,7 @@ model Usuario {
 
   negocios UsuarioNegocio[] // Para dueños/socios del negocio
   sedes    UsuarioSede[]    // Para administradores/empleados de sede
+  pagos    Pago[]
 }
 
 model Negocio {
@@ -64,22 +78,15 @@ model Negocio {
   usuariosNegocio UsuarioNegocio[]
   sedes           Sede[]
   reportes        Reporte[]
+  pagos           Pago[]
 }
 
 model Sede {
   id        String   @id @default(uuid())
   nombre    String
   telefono  String?  @unique // Línea de WhatsApp independiente para el bot de esta sede
-
-  // Identidad de WhatsApp del usuario, para quienes activaron nombre de usuario.
-  // Meta oculta el teléfono de esas cuentas y las identifica con un id propio
-  // (ej. "CO.1710763673557397"): sin esto el bot no puede saber quién escribe.
   whatsappUserId String? @unique
-
-  // Nombre de usuario de WhatsApp ("jdar0423"). Es el dato que la persona SI
-  // conoce y puede escribir en el panel; el whatsappUserId de arriba se captura
-  // solo, del primer mensaje que envie.
-  whatsappUsername String? @unique
+  whatsappUsername String?
   direccion String?
   contexto  String?  @db.Text // Contexto de IA individual para la sede
   createdAt DateTime @default(now())
@@ -289,4 +296,27 @@ model Abono {
 
   @@index([sedeId, fecha])
   @@index([clienteId])
+}
+
+model Pago {
+  id                 String     @id @default(uuid())
+  referencia         String     @unique   // la que viaja a Wompi; es la llave con la que el webhook encuentra el pago
+  plan               Int                  // 1..4, el mismo número que Negocio.plan
+  ciclo              CicloPago
+  montoEnCentavos    Int                  // Wompi trabaja en centavos, no en pesos
+  moneda             String     @default("COP")
+  estado             EstadoPago @default(PENDIENTE)
+  wompiTransaccionId String?    @unique   // lo devuelve Wompi; único para que un evento repetido no se procese dos veces
+  datosWompi         Json?                // el evento crudo, para depurar cuando algo no cuadre
+  procesadoEl        DateTime?
+  createdAt          DateTime   @default(now())
+  updatedAt          DateTime   @updatedAt
+
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  usuarioId String
+  usuario   Usuario @relation(fields: [usuarioId], references: [id])
+
+  @@index([negocioId, createdAt])
 }
