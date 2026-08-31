@@ -12,6 +12,7 @@ import { ReportesService } from '../../src/services/reportes.service';
 import { ClientesService } from '../../src/services/clientes.service';
 import { ProveedoresService } from '../../src/services/proveedores.service';
 import { GastosService } from '../../src/services/gastos.service';
+import { PagosService } from '../../src/services/pagos.service';
 
 export interface Contexto {
   moduleRef: TestingModule;
@@ -27,6 +28,7 @@ export interface Contexto {
   clientes: ClientesService;
   proveedores: ProveedoresService;
   gastos: GastosService;
+  pagos: PagosService;
 }
 
 // Se instancian los servicios sueltos en vez de levantar AppModule entero:
@@ -48,6 +50,7 @@ export async function crearContexto(): Promise<Contexto> {
       ClientesService,
       ProveedoresService,
       GastosService,
+      PagosService,
     ],
   }).compile();
 
@@ -68,6 +71,7 @@ export async function crearContexto(): Promise<Contexto> {
     clientes: moduleRef.get(ClientesService),
     proveedores: moduleRef.get(ProveedoresService),
     gastos: moduleRef.get(GastosService),
+    pagos: moduleRef.get(PagosService),
   };
 }
 
@@ -92,6 +96,7 @@ export async function limpiar(prisma: PrismaService) {
   await prisma.usuarioNegocio.deleteMany();
   await prisma.mensaje.deleteMany();
   await prisma.reporte.deleteMany();
+  await prisma.pago.deleteMany();
   await prisma.sede.deleteMany();
   await prisma.negocio.deleteMany();
   await prisma.usuario.deleteMany();
