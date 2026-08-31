@@ -61,6 +61,7 @@ export class NegociosController {
       user.rolGlobal,
       dto.plan,
       dto.ciclo,
+      dto.venceEl ? new Date(dto.venceEl) : undefined,
     );
   }
 

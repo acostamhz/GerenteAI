@@ -1,4 +1,4 @@
-import { IsIn, IsInt, IsOptional } from 'class-validator';
+import { IsDateString, IsIn, IsInt, IsOptional } from 'class-validator';
 import {
   PLAN_ADMINISTRADOR,
   PLAN_ASISTENTE,
@@ -18,4 +18,14 @@ export class CambiarPlanDto {
   @IsIn(CICLOS)
   @IsOptional()
   ciclo?: Ciclo;
+
+  /**
+   * Vencimiento exacto, en vez del que saldría del ciclo. Solo MASTER llega
+   * aquí, y lo necesita para lo que un ciclo fijo no cubre: regalar un mes,
+   * corregir una fecha mal puesta, o extenderle a un cliente. También es lo que
+   * permite ensayar los recordatorios sin esperar a que pasen 27 días.
+   */
+  @IsDateString()
+  @IsOptional()
+  venceEl?: string;
 }

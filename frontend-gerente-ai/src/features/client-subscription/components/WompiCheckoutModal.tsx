@@ -26,7 +26,8 @@ import {
   DatosNequi, 
   ResultadoTransaccionWompi 
 } from '../types';
-import { wompiService } from '../services/wompiService';
+import { iniciarPago } from '../services/pagosApi';
+import { wompiService, USE_MOCK_GATEWAY } from '../services/wompiService';
 import { InteractiveCreditCard } from './InteractiveCreditCard';
 import { WompiPseForm } from './WompiPseForm';
 import { WompiNequiForm } from './WompiNequiForm';
@@ -118,6 +119,26 @@ export function WompiCheckoutModal({
 
   const handlePagar = async () => {
     setFormError(null);
+
+    /**
+     * Con la pasarela real no se cobra desde aquí: se pide el cobro al backend y
+     * se manda a la persona al checkout de Wompi, que es quien recibe los datos
+     * de la tarjeta. Por eso este desvío va ANTES de validar el formulario —los
+     * campos de tarjeta no se usan en este camino— y por eso el navegador se va
+     * de la aplicación. Vuelve a /pago/resultado.
+     */
+    if (!USE_MOCK_GATEWAY) {
+      setPaso('PROCESANDO');
+      setProgresoTexto('Conectando de forma segura con Wompi...');
+      try {
+        await iniciarPago(negocioId, plan.id, ciclo);
+        return;
+      } catch (err: any) {
+        setPaso('ERROR');
+        setFormError(err.message || 'No pudimos iniciar el pago.');
+        return;
+      }
+    }
 
     // Validaciones básicas
     if (metodo === 'CARD') {

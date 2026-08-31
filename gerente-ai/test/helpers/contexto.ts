@@ -96,6 +96,7 @@ export async function limpiar(prisma: PrismaService) {
   await prisma.usuarioNegocio.deleteMany();
   await prisma.mensaje.deleteMany();
   await prisma.reporte.deleteMany();
+  await prisma.notificacionPlan.deleteMany();
   await prisma.pago.deleteMany();
   await prisma.sede.deleteMany();
   await prisma.negocio.deleteMany();

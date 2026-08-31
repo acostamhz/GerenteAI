@@ -79,6 +79,7 @@ model Negocio {
   sedes           Sede[]
   reportes        Reporte[]
   pagos           Pago[]
+  notificaciones  NotificacionPlan[]
 }
 
 model Sede {
@@ -319,4 +320,17 @@ model Pago {
   usuario   Usuario @relation(fields: [usuarioId], references: [id])
 
   @@index([negocioId, createdAt])
+}
+
+model NotificacionPlan {
+  id        String   @id @default(uuid())
+  tipo      String   // "previo" | "vencido" | "vencido_seguimiento"
+  venceEl   DateTime // el vencimiento al que corresponde este aviso
+  enviadoEl DateTime @default(now())
+
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  @@unique([negocioId, tipo, venceEl])
+  @@index([negocioId])
 }
