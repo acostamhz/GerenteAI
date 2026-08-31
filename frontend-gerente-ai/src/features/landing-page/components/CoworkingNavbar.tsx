@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link } from "react-router";
-import { Bot, Menu, X, LogIn, User, ArrowRight } from "lucide-react";
+import { Menu, X, LogIn, User, ArrowRight } from "lucide-react";
 import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
 import { useAuth } from "@/features/auth";
 
@@ -77,13 +77,15 @@ export function CoworkingNavbar() {
           {/* Brand */}
           <Link
             to="/home"
-            className="flex items-center gap-3 group shrink-0"
+            className="flex items-center gap-2.5 group shrink-0"
           >
-            <div className="w-10 h-10 rounded-xl bg-emerald-500/10 dark:bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-600 dark:text-emerald-400 group-hover:scale-105 transition-transform">
-              <Bot className="w-5 h-5" />
-            </div>
+            <img
+              src="/logo.png"
+              alt="Luka AI"
+              className="w-10 h-10 object-contain group-hover:scale-105 transition-transform"
+            />
 
-            <span className="text-xl font-bold text-slate-900 dark:text-white tracking-tight">
+            <span className="text-xl font-black tracking-tight bg-gradient-to-r from-emerald-400 via-teal-400 to-cyan-400 bg-clip-text text-transparent">
               Luka AI
             </span>
           </Link>
@@ -143,8 +145,11 @@ export function CoworkingNavbar() {
               <div className="flex items-center gap-2">
                 <span className="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800/80 border border-gray-200/80 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200">
                   <User className="w-3.5 h-3.5 text-emerald-500" />
-                  <span className="max-w-[130px] truncate">{user?.nombre || "Usuario"}</span>
+                  <span className="max-w-[130px] truncate">
+                    {user?.nombre || "Usuario"}
+                  </span>
                 </span>
+
                 <Link
                   to="/dashboard"
                   className="flex items-center gap-1.5 text-xs font-bold text-white bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 px-3.5 py-2 rounded-xl shadow-sm hover:shadow-md transition-all"
@@ -235,6 +240,7 @@ export function CoworkingNavbar() {
                   <User className="w-3.5 h-3.5 text-emerald-500" />
                   <span>Hola, {user?.nombre || "Usuario"}</span>
                 </div>
+
                 <Link
                   to="/dashboard"
                   onClick={() => setMobileMenuOpen(false)}
