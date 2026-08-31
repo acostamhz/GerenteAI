@@ -4,6 +4,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { LlmService } from '../../../ai/services/llm.service';
 import type { AiCallContext } from '../../../ai/usage/usage.service';
+import { partesDelDia, sumarDias } from '../domain/dia-colombia';
 import {
   CATEGORIES_BY_TYPE,
   CATEGORY_LABELS,
@@ -313,12 +314,10 @@ export class WhatsAppMessageService {
     termino: string,
   ): Promise<Transaction[]> {
     const { from, to } = periodRange('month');
-    const desde = new Date(`${from}T00:00:00.000Z`);
-    desde.setDate(desde.getDate() - SEARCH_WINDOW_DAYS);
 
     const rows = await this.financeData.listTransactions({
       businessId,
-      from: isoDate(desde),
+      from: sumarDias(from, -SEARCH_WINDOW_DAYS),
       to,
       limit: 1_000,
     });
@@ -477,28 +476,19 @@ export function periodRange(
   period: QueryPeriod,
   now: Date = new Date(),
 ): { from: string; to: string } {
-  const to = isoDate(now);
+  // Todo se calcula sobre el dia colombiano, no sobre la hora del contenedor:
+  // asi el periodo es el mismo corra donde corra el proceso.
+  const { fecha: to, diaDeLaSemana, primeroDelMes } = partesDelDia(now);
 
   if (period === 'day') return { from: to, to };
 
   if (period === 'week') {
-    const day = now.getDay();
-    // getDay(): 0 = domingo. La semana laboral arranca el lunes.
-    const daysSinceMonday = day === 0 ? 6 : day - 1;
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - daysSinceMonday);
-    return { from: isoDate(monday), to };
+    // 0 = domingo. La semana laboral arranca el lunes.
+    const desdeElLunes = diaDeLaSemana === 0 ? 6 : diaDeLaSemana - 1;
+    return { from: sumarDias(to, -desdeElLunes), to };
   }
 
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  return { from: isoDate(first), to };
-}
-
-function isoDate(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return { from: primeroDelMes, to };
 }
 
 const PERIOD_LABELS: Record<QueryPeriod, string> = {

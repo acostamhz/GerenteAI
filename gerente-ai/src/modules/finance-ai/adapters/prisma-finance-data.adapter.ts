@@ -3,6 +3,11 @@ import { CategoriaGasto, Prisma } from '@prisma/client';
 
 import { PrismaService } from '../../../services/prisma.service';
 import {
+  fechaColombiana,
+  finDelDia,
+  inicioDelDia,
+} from '../domain/dia-colombia';
+import {
   CATEGORY_LABELS,
   type BusinessSnapshot,
   type CategoryTotal,
@@ -244,9 +249,10 @@ function buildDescription(transaction: Transaction): string {
 /**
  * Rango de fechas para Prisma.
  *
- * Se interpreta en UTC a proposito: el contenedor debe correr con TZ fija
- * (ver docs/INTEGRACIONES.md, se recomienda TZ=America/Bogota en Railway) para
- * que "hoy" signifique lo mismo aqui, en los crons de n8n y en el dashboard.
+ * `from` y `to` son dias COLOMBIANOS, y aqui se convierten a los instantes UTC
+ * que los delimitan: el 30 de agosto va de las 05:00Z de ese dia a las 04:59Z
+ * del siguiente. Antes se interpretaban como dias UTC, y entonces todo lo
+ * registrado despues de las 7 p.m. hora local caia fuera de "hoy".
  */
 function dateRange(
   from?: string,
@@ -255,13 +261,17 @@ function dateRange(
   if (!from && !to) return undefined;
 
   return {
-    gte: from ? new Date(`${from}T00:00:00.000Z`) : undefined,
-    lte: to ? new Date(`${to}T23:59:59.999Z`) : undefined,
+    gte: from ? inicioDelDia(from) : undefined,
+    lte: to ? finDelDia(to) : undefined,
   };
 }
 
+/**
+ * El dia que se le muestra al usuario. Es el colombiano y no el UTC: a quien
+ * registro un gasto a las 11 p.m. del 30 hay que responderle "30", no "31".
+ */
 function isoDate(date: Date): string {
-  return date.toISOString().slice(0, 10);
+  return fechaColombiana(date);
 }
 
 function toNumber(value: Prisma.Decimal | number): number {
