@@ -57,14 +57,15 @@ export function VerifyEmailCard() {
   // Reenviar correo de verificación
   const handleResend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!resendEmail) return;
+    const cleanEmail = resendEmail.trim().toLowerCase();
+    if (!cleanEmail) return;
 
     setIsResending(true);
     setResendSuccess(null);
     setResendError(null);
 
     try {
-      const res = await authApi.reenviarVerificacion(resendEmail);
+      const res = await authApi.reenviarVerificacion(cleanEmail);
       setResendSuccess(res.mensaje || 'Correo de verificación reenviado. Revisa tu bandeja de entrada.');
       setResendEmail('');
     } catch (err) {

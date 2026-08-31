@@ -16,16 +16,17 @@ export const authApi = {
   /**
    * Iniciar sesión con email y password.
    *
-   * Normaliza la respuesta del backend:
-   * - accessToken
-   * - access_token
-   * - usuario
-   * - user
+   * Normaliza la respuesta del backend y sanitiza email.
    */
   async login(credentials: LoginCredentials): Promise<AuthResponse> {
+    const payload = {
+      email: credentials.email.trim().toLowerCase(),
+      password: credentials.password,
+    };
+
     const raw = await apiClient<BackendAuthResponse>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify(credentials),
+      body: JSON.stringify(payload),
     });
 
     const token = raw.accessToken || raw.access_token || '';
@@ -50,13 +51,17 @@ export const authApi = {
    * activación previa mediante el correo de verificación.
    */
   async register(credentials: RegisterCredentials): Promise<AuthUser> {
+    const cleanUsername = credentials.whatsappUsername
+      ? credentials.whatsappUsername.trim().replace(/^@+/, '')
+      : undefined;
+
     const payload = {
       nombre: credentials.nombre.trim(),
       email: credentials.email.trim().toLowerCase(),
       password: credentials.password,
-      ...(credentials.telefono ? { telefono: credentials.telefono.trim() } : {}),
+      ...(credentials.telefono?.trim() ? { telefono: credentials.telefono.trim() } : {}),
       nombreNegocio: credentials.nombreNegocio?.trim() || `Negocio de ${credentials.nombre.trim()}`,
-      ...(credentials.whatsappUsername ? { whatsappUsername: credentials.whatsappUsername.trim() } : {}),
+      ...(cleanUsername ? { whatsappUsername: cleanUsername } : {}),
     };
 
     const raw = await apiClient<BackendAuthResponse | AuthUser>(
@@ -97,7 +102,7 @@ export const authApi = {
    */
   async verificarEmail(token: string): Promise<VerifyEmailResponse> {
     return apiClient<VerifyEmailResponse>(
-      `/auth/verificar-email?token=${encodeURIComponent(token)}`,
+      `/auth/verificar-email?token=${encodeURIComponent(token.trim())}`,
       {
         method: 'GET',
       },
@@ -116,7 +121,7 @@ export const authApi = {
       '/auth/reenviar-verificacion',
       {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email: email.trim().toLowerCase() }),
       },
     );
   },
@@ -131,7 +136,7 @@ export const authApi = {
   ): Promise<{ mensaje: string }> {
     return apiClient<{ mensaje: string }>('/auth/forgot-password', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({ email: data.email.trim().toLowerCase() }),
     });
   },
 
@@ -145,7 +150,10 @@ export const authApi = {
   ): Promise<{ mensaje: string }> {
     return apiClient<{ mensaje: string }>('/auth/reset-password', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify({
+        token: data.token.trim(),
+        newPassword: data.newPassword,
+      }),
     });
   },
 };

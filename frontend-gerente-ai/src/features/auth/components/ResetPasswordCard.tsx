@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Button } from '@/app/components/ui/button';
 import { authApi } from '../api/authApi';
 import { ApiError } from '@/lib/apiClient';
+import { AuthErrorAlert } from './AuthErrorAlert';
 
 export function ResetPasswordCard() {
   const [searchParams] = useSearchParams();
@@ -158,35 +159,8 @@ export function ResetPasswordCard() {
         </p>
       </div>
 
-      {/* Alerta de Error con Animación Suave */}
-      <AnimatePresence mode="wait">
-        {errorMessage && (
-          <motion.div
-            key="reset-error-box"
-            initial={{ opacity: 0, y: -10, scale: 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -10, scale: 0.98 }}
-            transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
-            className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-sm font-medium space-y-3 shadow-sm"
-          >
-            <div className="flex items-center gap-3">
-              <AlertCircle className="w-5 h-5 flex-shrink-0" />
-              <span>{errorMessage}</span>
-            </div>
-
-            {/* Opción de reintentar si el token expiró */}
-            <div className="pt-2 border-t border-destructive/20">
-              <Link
-                to="/forgot-password"
-                className="text-xs font-bold text-emerald-600 dark:text-emerald-400 hover:underline inline-flex items-center gap-1.5 cursor-pointer"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                ¿Solicitar un nuevo enlace de recuperación?
-              </Link>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* Alerta de Error con Transición Suave */}
+      <AuthErrorAlert error={errorMessage} />
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Nueva Contraseña */}

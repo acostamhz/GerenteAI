@@ -8,7 +8,6 @@ import {
   Mail,
   Phone,
   Lock,
-  AlertCircle,
   MailCheck,
   Send,
   MessageCircle,
@@ -16,6 +15,7 @@ import {
 import { Button } from "@/app/components/ui/button";
 import { authApi } from "../api/authApi";
 import { useAuth } from "../hooks/useAuth";
+import { AuthErrorAlert } from "./AuthErrorAlert";
 
 export function RegisterForm() {
   const navigate = useNavigate();
@@ -43,7 +43,10 @@ export function RegisterForm() {
   useEffect(() => {
     clearError();
     setLocalError(null);
-  }, []);
+    return () => {
+      clearError();
+    };
+  }, [clearError]);
 
   const calculatePasswordStrength = (pass: string) => {
     if (!pass) return { score: 0, label: "", color: "bg-border" };
@@ -90,10 +93,23 @@ export function RegisterForm() {
     setLocalError(null);
     clearError();
 
+    const cleanFullName = formData.fullName.trim();
+    const cleanEmail = formData.email.trim().toLowerCase();
     const cleanPhone = formData.phone.replace(/\D/g, "");
+    const cleanWhatsappUsername = formData.whatsappUsername.trim().replace(/^@+/, "");
+
+    if (!cleanFullName) {
+      setLocalError("Por favor ingresa tu nombre completo.");
+      return;
+    }
+
+    if (!cleanEmail) {
+      setLocalError("Por favor ingresa un correo electrónico válido.");
+      return;
+    }
 
     if (cleanPhone.length < 10) {
-      setLocalError("El número de celular debe tener al menos 10 dígitos.");
+      setLocalError("El número de celular debe tener al menos 10 dígitos (incluyendo indicativo).");
       return;
     }
 
@@ -107,8 +123,23 @@ export function RegisterForm() {
       return;
     }
 
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*(),.?":{}|<>])/.test(formData.password)) {
-      setLocalError("La contraseña debe incluir mayúscula, minúscula, número y carácter especial.");
+    if (!/(?=.*[a-z])/.test(formData.password)) {
+      setLocalError("La contraseña debe contener al menos una letra minúscula.");
+      return;
+    }
+
+    if (!/(?=.*[A-Z])/.test(formData.password)) {
+      setLocalError("La contraseña debe contener al menos una letra mayúscula.");
+      return;
+    }
+
+    if (!/(?=.*\d)/.test(formData.password)) {
+      setLocalError("La contraseña debe contener al menos un número.");
+      return;
+    }
+
+    if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(formData.password)) {
+      setLocalError("La contraseña debe contener al menos un carácter especial (!@#$%...).");
       return;
     }
 
@@ -118,14 +149,12 @@ export function RegisterForm() {
     }
 
     try {
-      const whatsappUsername = formData.whatsappUsername.trim().replace(/^@+/, "");
-
       await register({
-        nombre: formData.fullName,
-        email: formData.email,
+        nombre: cleanFullName,
+        email: cleanEmail,
         password: formData.password,
-        telefono: formData.phone,
-        whatsappUsername,
+        telefono: formData.phone.trim(),
+        whatsappUsername: cleanWhatsappUsername || undefined,
       });
 
       setIsSuccess(true);
@@ -138,11 +167,12 @@ export function RegisterForm() {
   };
 
   const handleResendVerification = async () => {
-    if (!formData.email) return;
+    const cleanEmail = formData.email.trim().toLowerCase();
+    if (!cleanEmail) return;
     setIsResending(true);
     setResendMessage(null);
     try {
-      const res = await authApi.reenviarVerificacion(formData.email);
+      const res = await authApi.reenviarVerificacion(cleanEmail);
       setResendMessage(res.mensaje || "Correo de verificación reenviado con éxito.");
     } catch (err: any) {
       setResendMessage(err?.message || "No se pudo reenviar el correo.");
@@ -172,7 +202,7 @@ export function RegisterForm() {
             Hemos enviado un enlace de verificación a:
           </p>
           <div className="inline-block px-3 py-1 bg-muted rounded-md text-xs font-bold text-foreground">
-            {formData.email}
+            {formData.email.trim().toLowerCase()}
           </div>
           <p className="text-muted-foreground text-[11px] leading-relaxed pt-1">
             Haz clic en el enlace del correo para activar tu cuenta antes de iniciar sesión.
@@ -180,7 +210,7 @@ export function RegisterForm() {
         </div>
 
         {resendMessage && (
-          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs font-medium text-emerald-600 dark:text-emerald-400">
+          <div className="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-xs font-medium text-emerald-600 dark:text-emerald-400 leading-relaxed">
             {resendMessage}
           </div>
         )}
@@ -188,7 +218,7 @@ export function RegisterForm() {
         <div className="space-y-2.5 pt-2">
           <Button
             onClick={() => navigate("/login", { replace: true })}
-            className="w-full py-2.5 text-xs font-bold rounded-xl"
+            className="w-full py-2.5 text-xs font-bold rounded-xl cursor-pointer"
           >
             Ir a Iniciar Sesión
           </Button>
@@ -222,25 +252,8 @@ export function RegisterForm() {
         </p>
       </div>
 
-      {displayError && (
-        <div
-          role="alert"
-          className="mb-4 p-3.5 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs font-medium flex items-center justify-between gap-3 shadow-sm animate-in fade-in slide-in-from-top-2 duration-300"
-        >
-          <div className="flex items-center gap-2.5">
-            <AlertCircle className="w-4 h-4 shrink-0" />
-            <span>{displayError}</span>
-          </div>
-          {displayError.toLowerCase().includes("iniciar sesión") && (
-            <Link
-              to="/login"
-              className="text-xs font-bold underline hover:opacity-80 shrink-0 cursor-pointer text-destructive"
-            >
-              Iniciar Sesión →
-            </Link>
-          )}
-        </div>
-      )}
+      {/* Alerta de Error con Transición Suave */}
+      <AuthErrorAlert error={displayError} />
 
       <form onSubmit={handleSubmit} className="space-y-3">
         {/* Fila 1: Nombre completo y Correo */}
@@ -256,9 +269,10 @@ export function RegisterForm() {
                 name="fullName"
                 placeholder="María Rodríguez"
                 required
+                disabled={isLoading}
                 value={formData.fullName}
                 onChange={handleChange}
-                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium disabled:opacity-60"
               />
             </div>
           </div>
@@ -274,9 +288,10 @@ export function RegisterForm() {
                 name="email"
                 placeholder="tu@empresa.com"
                 required
+                disabled={isLoading}
                 value={formData.email}
                 onChange={handleChange}
-                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium disabled:opacity-60"
               />
             </div>
           </div>
@@ -295,10 +310,11 @@ export function RegisterForm() {
                 name="phone"
                 placeholder="+57 300 000 0000"
                 required
+                disabled={isLoading}
                 minLength={10}
                 value={formData.phone}
                 onChange={handleChange}
-                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium disabled:opacity-60"
               />
             </div>
             <p className="text-[10px] text-muted-foreground">
@@ -316,9 +332,10 @@ export function RegisterForm() {
                 type="text"
                 name="whatsappUsername"
                 placeholder="@usuario"
+                disabled={isLoading}
                 value={formData.whatsappUsername}
                 onChange={handleChange}
-                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+                className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium disabled:opacity-60"
               />
             </div>
             <p className="text-[10px] text-muted-foreground">
@@ -340,15 +357,17 @@ export function RegisterForm() {
                 name="password"
                 placeholder="Mín. 8 caracteres (A-Z, 0-9)"
                 required
+                disabled={isLoading}
                 minLength={8}
                 value={formData.password}
                 onChange={handleChange}
-                className="w-full pl-9 pr-8 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+                className="w-full pl-9 pr-8 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium disabled:opacity-60"
               />
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5 cursor-pointer"
               >
                 {showPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
@@ -378,14 +397,16 @@ export function RegisterForm() {
                 name="confirmPassword"
                 placeholder="Repite la contraseña"
                 required
+                disabled={isLoading}
                 value={formData.confirmPassword}
                 onChange={handleChange}
-                className="w-full pl-9 pr-8 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium"
+                className="w-full pl-9 pr-8 py-2 bg-card border border-border rounded-lg outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all text-xs shadow-sm font-medium disabled:opacity-60"
               />
               <button
                 type="button"
+                disabled={isLoading}
                 onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors p-0.5 cursor-pointer"
               >
                 {showConfirmPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
               </button>
@@ -399,6 +420,7 @@ export function RegisterForm() {
             <input
               type="checkbox"
               name="termsAccepted"
+              disabled={isLoading}
               checked={formData.termsAccepted}
               onChange={handleChange}
               className="h-3.5 w-3.5 rounded border-border text-primary focus:ring-primary/20"
@@ -421,7 +443,7 @@ export function RegisterForm() {
         <Button
           type="submit"
           disabled={isLoading}
-          className="w-full py-3 text-xs font-bold rounded-xl shadow-sm hover:shadow transition-all mt-2"
+          className="w-full py-3 text-xs font-bold rounded-xl shadow-sm hover:shadow transition-all mt-2 cursor-pointer disabled:opacity-70 disabled:cursor-not-allowed"
         >
           {isLoading ? (
             <>
