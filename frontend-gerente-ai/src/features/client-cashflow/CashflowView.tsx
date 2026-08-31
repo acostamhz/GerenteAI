@@ -9,6 +9,8 @@ import { RealCashflow } from "./RealCashflow";
 import { PendingCashflow } from "./PendingCashflow";
 import { CashflowViewSkeleton } from "./components/CashflowSkeletons";
 
+import { InsightsPaywallState } from "@/features/client-insights/components/InsightsPaywallState";
+
 import { useDashboardMetrics } from "@/features/client-dashboard/hooks/useDashboardMetrics";
 import { apiClient } from "@/lib/apiClient";
 
@@ -106,66 +108,41 @@ export function CashflowView() {
    * 3. PLAN 1 → BLOQUEAR FLUJO DE CAJA
    * ============================================================
    *
-   * Exactamente la misma lógica utilizada en
+   * IMPORTANTE:
+   *
+   * Utilizamos exactamente el mismo componente visual que
    * Recomendaciones de IA.
+   *
+   * De esta manera ambos paywalls son visualmente idénticos
+   * y no mantenemos dos implementaciones diferentes.
    */
   if (planUsuarioId === 1) {
     return (
       <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0 animate-in fade-in duration-300">
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-8 pt-1">
-          <div>
-            <div className="flex items-center gap-3">
-              <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
-                Flujo de caja
-              </h1>
-            </div>
-
-            <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-              Monitorea los ingresos reales, egresos operativos y
-              cuentas pendientes de cobro en tiempo real.
-            </p>
+        <div className="mb-6">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
+              Flujo de caja
+            </h1>
           </div>
+
+          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
+            Monitorea los ingresos reales, egresos operativos y
+            cuentas pendientes de cobro en tiempo real.
+          </p>
         </div>
 
         {/* ======================================================
             PAYWALL
         ======================================================= */}
-        <div className="max-w-3xl">
-          <div className="bg-card border border-border rounded-2xl shadow-sm p-8 sm:p-10 text-center">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center mb-5">
-              <Wallet className="w-7 h-7 text-emerald-500" />
-            </div>
-
-            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-400 text-xs font-bold mb-4">
-              <Sparkles className="w-3.5 h-3.5" />
-              Disponible desde Plan Gerente
-            </div>
-
-            <h2 className="text-xl sm:text-2xl font-black text-foreground tracking-tight">
-              Lleva el control de tu dinero
-            </h2>
-
-            <p className="text-sm text-muted-foreground mt-2 max-w-xl mx-auto leading-relaxed">
-              Con el Flujo de caja puedes monitorear tus ingresos,
-              egresos y cuentas por cobrar para entender cómo se
-              mueve realmente el dinero de tu negocio.
-            </p>
-
-            <button
-              type="button"
-              onClick={() =>
-                abrirPaywall(
-                  "El Flujo de caja está disponible a partir del Plan Gerente ($79.900/mes). Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
-                  2,
-                )
-              }
-              className="mt-6 inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-slate-950 font-black text-sm shadow-md shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all cursor-pointer"
-            >
-              <Sparkles className="w-4 h-4" />
-              Mejorar a Plan Gerente
-            </button>
-          </div>
-        </div>
+        <InsightsPaywallState
+          onUpgrade={() =>
+            abrirPaywall(
+              "El Flujo de caja está disponible a partir del Plan Gerente ($79.900/mes) y Plan Administrador. Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
+              2,
+            )
+          }
+        />
 
         {/* ======================================================
             MODAL GLOBAL DE PAYWALL
