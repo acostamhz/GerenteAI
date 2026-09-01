@@ -17,7 +17,7 @@ import {
 
 import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
 
-import { InsightsPaywallState } from "./components/InsightsPaywallState";
+import { FeaturePaywallState } from "@/shared/components/paywalls/FeaturePaywallState";
 import { QuotaExceededCard } from "./components/QuotaExceededCard";
 
 import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywallModal";
@@ -56,22 +56,10 @@ export function InsightsView() {
   // ============================================================
   // PLANES
   // ============================================================
-  //
-  // Plan 1 → Asistente → BLOQUEADO
-  // Plan 2 → Gerente → PERMITIDO
-  // Plan 3 → Administrador → PERMITIDO
-  // Plan 4 → Socio → PERMITIDO
-  //
-  // IMPORTANTE:
-  // No usamos `planNombre` para decidir permisos.
-  // El permiso depende exclusivamente del ID numérico.
-  // ============================================================
 
-  const tieneAccesoInsights =
-    planUsuarioId >= 2;
+  const tieneAccesoInsights = planUsuarioId >= 2;
 
-  const estaEnPlanGratuito =
-    planUsuarioId === 1;
+  const estaEnPlanGratuito = planUsuarioId === 1;
 
   // ============================================================
   // GENERAR RECOMENDACIONES
@@ -82,6 +70,7 @@ export function InsightsView() {
      * Plan Asistente:
      * no hacemos llamadas costosas al backend.
      */
+
     if (planUsuarioId === 1) {
       setItems([]);
       setIsQuotaExceeded(false);
@@ -94,13 +83,13 @@ export function InsightsView() {
     /*
      * Cualquier plan 2+ tiene acceso.
      */
+
     setIsLoading(true);
     setError(null);
     setIsQuotaExceeded(false);
 
     try {
-      const insights =
-        await insightsApi.generate();
+      const insights = await insightsApi.generate();
 
       setItems(insights);
     } catch (e: unknown) {
@@ -109,13 +98,13 @@ export function InsightsView() {
           ? e.message
           : String(e);
 
-      const lowerMsg =
-        msg.toLowerCase();
+      const lowerMsg = msg.toLowerCase();
 
       /*
        * La API puede devolver 402/429
        * cuando se agotó la cuota.
        */
+
       if (
         msg.includes("402") ||
         msg.includes("429") ||
@@ -210,17 +199,16 @@ export function InsightsView() {
   // CONTADORES
   // ============================================================
 
-  const unread =
-    items.filter(
-      (item) => !item.read,
-    ).length;
+  const unread = items.filter(
+    (item) => !item.read,
+  ).length;
 
   // ============================================================
   // RENDER
   // ============================================================
 
   return (
-    <div className="flex-1 overflow-auto pb-8 pr-4">
+    <div className="flex-1 min-w-0 overflow-auto pb-8 pr-4">
       {/* ======================================================
           CABECERA
       ======================================================= */}
@@ -281,13 +269,6 @@ export function InsightsView() {
 
       {!isPlanLoading &&
       cantidadNegocios === 0 ? (
-        /*
-         * ====================================================
-         * CASO 0
-         * SIN NEGOCIOS
-         * ====================================================
-         */
-
         <NoBusinessRedirectState
           title="Configura tu negocio para ver Recomendaciones de IA"
           description="Aún no tienes un comercio registrado. Registra tu negocio en la página de resumen para empezar a recibir análisis prescriptivos y alertas inteligentes."
@@ -295,28 +276,83 @@ export function InsightsView() {
       ) : !isPlanLoading &&
         estaEnPlanGratuito ? (
         /*
-         * ====================================================
-         * CASO 1
-         * PLAN ASISTENTE
-         * ====================================================
+         * ======================================================
+         * PLAN GRATUITO
+         *
+         * El paywall ocupa todo el ancho disponible y se centra
+         * horizontalmente, especialmente importante en móvil.
+         * ======================================================
          */
 
-        <InsightsPaywallState
-          onUpgrade={() =>
-            abrirPaywall(
-              "Las Recomendaciones de IA están disponibles a partir del Plan Gerente ($79.900/mes). Mejora tu plan para acceder a análisis predictivo y alertas en tiempo real.",
-              2,
-            )
-          }
-        />
+        <div className="w-full flex justify-center">
+          <FeaturePaywallState
+            onUpgrade={() =>
+              abrirPaywall(
+                "Las Recomendaciones de IA están disponibles a partir del Plan Gerente ($79.900/mes). Mejora tu plan para acceder a análisis predictivo y alertas en tiempo real.",
+                2,
+              )
+            }
+            badge="Exclusivo para Planes Gerente y Administrador"
+            title={
+              <>
+                Toma decisiones estratégicas con{" "}
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-400">
+                  Recomendaciones de IA
+                </span>
+              </>
+            }
+            description="Luka analiza continuamente tus ventas, gastos y movimientos para entregarte alertas inteligentes y oportunidades de ahorro en tiempo real."
+            previewCards={[
+              {
+                label: "Alerta de Margen",
+                title: "Producto líder con bajo margen",
+                description:
+                  "Tus ventas aumentaron 24%, pero el costo de adquisición redujo el margen neto al 8%.",
+                icon: "warning",
+                color: "amber",
+              },
+              {
+                label: "Oportunidad de Flujo",
+                title: "Proyección de liquidez positiva",
+                description:
+                  "El flujo estimado para los próximos 15 días permite liquidar compras con descuento.",
+                icon: "success",
+                color: "emerald",
+              },
+              {
+                label: "Acción Sugerida",
+                title: "Optimización de inventario",
+                description:
+                  "3 productos presentan rotación lenta. Activa una promoción para liberar capital.",
+                icon: "info",
+                color: "cyan",
+              },
+            ]}
+            features={[
+              {
+                title: "Alertas Prescriptivas",
+                description:
+                  "Sugerencias concretas con 1 clic.",
+              },
+              {
+                title: "Márgenes y Costos",
+                description:
+                  "Detección automática de fugas.",
+              },
+              {
+                title: "Cuota 500+ Mensajes",
+                description:
+                  "Auditorías financieras continuas.",
+              },
+              {
+                title: "Múltiples Sedes",
+                description:
+                  "Análisis individual o total.",
+              },
+            ]}
+          />
+        </div>
       ) : (
-        /*
-         * ====================================================
-         * CASO 2
-         * PLAN GERENTE / ADMINISTRADOR / SOCIO
-         * ====================================================
-         */
-
         <div className="max-w-3xl flex flex-col gap-3">
           {/* ==================================================
               LOADING
@@ -372,8 +408,7 @@ export function InsightsView() {
                 />
 
                 <p className="text-sm font-bold text-foreground">
-                  No pudimos generar tus
-                  recomendaciones
+                  No pudimos generar tus recomendaciones
                 </p>
 
                 <p className="text-xs mt-1 text-muted-foreground">
@@ -382,9 +417,7 @@ export function InsightsView() {
 
                 <button
                   type="button"
-                  onClick={() =>
-                    void cargar()
-                  }
+                  onClick={() => void cargar()}
                   className="mt-4 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-foreground border border-border hover:bg-muted transition-all cursor-pointer"
                 >
                   Reintentar
@@ -399,125 +432,104 @@ export function InsightsView() {
           {!isLoading &&
             !isQuotaExceeded &&
             !error &&
-            items.map(
-              (item, index) => {
-                const {
-                  Icon,
-                  bg,
-                  iconColor,
-                  border,
-                } =
-                  iconCfg[
-                    item.type
-                  ] ??
-                  iconCfg.info;
+            items.map((item, index) => {
+              const {
+                Icon,
+                bg,
+                iconColor,
+                border,
+              } =
+                iconCfg[item.type] ??
+                iconCfg.info;
 
-                return (
-                  <div
-                    key={item.id}
-                    className={`bg-card border border-border rounded-2xl shadow-sm p-5 sm:p-6 transition-all duration-300 animate-cascade ${
-                      item.read
-                        ? "opacity-65"
-                        : "hover:bg-muted/30"
-                    }`}
-                    style={{
-                      animationDelay: `${index * 75}ms`,
-                    }}
-                  >
-                    <div className="flex gap-4">
-                      {/* ICONO */}
+              return (
+                <div
+                  key={item.id}
+                  className={`bg-card border border-border rounded-2xl shadow-sm p-5 sm:p-6 transition-all duration-300 animate-cascade ${
+                    item.read
+                      ? "opacity-65"
+                      : "hover:bg-muted/30"
+                  }`}
+                  style={{
+                    animationDelay: `${index * 75}ms`,
+                  }}
+                >
+                  <div className="flex gap-4">
+                    <div
+                      className={`w-9 h-9 rounded-xl ${bg} border ${border} flex items-center justify-center shrink-0 mt-0.5`}
+                    >
+                      <Icon
+                        className={`w-4 h-4 ${iconColor}`}
+                        strokeWidth={1.5}
+                      />
+                    </div>
 
-                      <div
-                        className={`w-9 h-9 rounded-xl ${bg} border ${border} flex items-center justify-center shrink-0 mt-0.5`}
-                      >
-                        <Icon
-                          className={`w-4 h-4 ${iconColor}`}
-                          strokeWidth={1.5}
-                        />
-                      </div>
-
-                      {/* CUERPO */}
-
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-start gap-2 mb-2">
-                          <p className="text-base font-bold text-foreground tracking-tight flex-1">
-                            {item.title}
-                          </p>
-
-                          <div className="flex items-center gap-1.5 shrink-0 mt-1">
-                            {!item.read && (
-                              <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm" />
-                            )}
-
-                            <span className="text-[11px] text-muted-foreground font-medium">
-                              {tiempoRelativo(
-                                item.generatedAt,
-                              )}
-                            </span>
-                          </div>
-                        </div>
-
-                        <p className="text-sm text-muted-foreground leading-relaxed mb-2">
-                          {item.body}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start gap-2 mb-2">
+                        <p className="text-base font-bold text-foreground tracking-tight flex-1">
+                          {item.title}
                         </p>
 
-                        {item.action && (
-                          <p className="text-sm text-foreground font-semibold leading-relaxed mb-5">
-                            👉{" "}
-                            {item.action}
-                          </p>
-                        )}
+                        <div className="flex items-center gap-1.5 shrink-0 mt-1">
+                          {!item.read && (
+                            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-sm" />
+                          )}
 
-                        {/* ACCIONES */}
-
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              apply(
-                                item.id,
-                              )
-                            }
-                            disabled={
-                              item.read
-                            }
-                            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all disabled:opacity-40 cursor-pointer"
-                          >
-                            <CheckCircle
-                              className="w-4 h-4"
-                              strokeWidth={
-                                2
-                              }
-                            />
-
-                            Aplicar
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() =>
-                              dismiss(
-                                item.id,
-                              )
-                            }
-                            className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-muted-foreground border border-border hover:bg-muted hover:text-foreground transition-all cursor-pointer"
-                          >
-                            <X
-                              className="w-4 h-4"
-                              strokeWidth={
-                                2
-                              }
-                            />
-
-                            Descartar
-                          </button>
+                          <span className="text-[11px] text-muted-foreground font-medium">
+                            {tiempoRelativo(
+                              item.generatedAt,
+                            )}
+                          </span>
                         </div>
+                      </div>
+
+                      <p className="text-sm text-muted-foreground leading-relaxed mb-2">
+                        {item.body}
+                      </p>
+
+                      {item.action && (
+                        <p className="text-sm text-foreground font-semibold leading-relaxed mb-5">
+                          👉 {item.action}
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-3">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            apply(item.id)
+                          }
+                          disabled={item.read}
+                          className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all disabled:opacity-40 cursor-pointer"
+                        >
+                          <CheckCircle
+                            className="w-4 h-4"
+                            strokeWidth={2}
+                          />
+
+                          Aplicar
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            dismiss(item.id)
+                          }
+                          className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-muted-foreground border border-border hover:bg-muted hover:text-foreground transition-all cursor-pointer"
+                        >
+                          <X
+                            className="w-4 h-4"
+                            strokeWidth={2}
+                          />
+
+                          Descartar
+                        </button>
                       </div>
                     </div>
                   </div>
-                );
-              },
-            )}
+                </div>
+              );
+            })}
 
           {/* ==================================================
               SIN INSIGHTS
@@ -538,13 +550,10 @@ export function InsightsView() {
                 </p>
 
                 <p className="text-xs mt-1 text-muted-foreground max-w-sm mx-auto">
-                  Registra algunos
-                  movimientos en tu
-                  negocio y Luka
-                  generará
-                  recomendaciones
-                  para optimizar tus
-                  finanzas.
+                  Registra algunos movimientos
+                  en tu negocio y Luka generará
+                  recomendaciones para optimizar
+                  tus finanzas.
                 </p>
               </div>
             )}

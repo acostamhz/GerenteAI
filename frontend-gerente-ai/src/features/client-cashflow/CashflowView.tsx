@@ -9,7 +9,7 @@ import { RealCashflow } from "./RealCashflow";
 import { PendingCashflow } from "./PendingCashflow";
 import { CashflowViewSkeleton } from "./components/CashflowSkeletons";
 
-import { InsightsPaywallState } from "@/features/client-insights/components/InsightsPaywallState";
+import { FeaturePaywallState } from "@/shared/components/paywalls/FeaturePaywallState";
 
 import { useDashboardMetrics } from "@/features/client-dashboard/hooks/useDashboardMetrics";
 import { apiClient } from "@/lib/apiClient";
@@ -19,16 +19,10 @@ import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywa
 import { NoBusinessRedirectState } from "@/shared/components/states/NoBusinessRedirectState";
 
 export function CashflowView() {
-  /*
-   * ============================================================
-   * PERMISOS DEL PLAN
-   * ============================================================
-   *
-   * Plan 1 → Asistente → BLOQUEADO
-   * Plan 2 → Gerente → PERMITIDO
-   * Plan 3 → Administrador → PERMITIDO
-   * Plan 4 → Socio → PERMITIDO
-   */
+  // ============================================================
+  // PERMISOS DEL PLAN
+  // ============================================================
+
   const {
     planUsuarioId,
     planNombre,
@@ -53,11 +47,10 @@ export function CashflowView() {
     refreshFiados,
   } = useDashboardMetrics();
 
-  /*
-   * ============================================================
-   * REGISTRAR PAGO
-   * ============================================================
-   */
+  // ============================================================
+  // REGISTRAR PAGO
+  // ============================================================
+
   const handleRegisterPayment = async (
     clienteId: string,
     ventaId: string,
@@ -75,26 +68,21 @@ export function CashflowView() {
     await refreshFiados();
   };
 
-  /*
-   * ============================================================
-   * 1. ESTADO DE CARGA
-   * ============================================================
-   *
-   * Esperamos tanto los permisos del plan como
-   * la información principal del dashboard.
-   */
+  // ============================================================
+  // 1. ESTADO DE CARGA
+  // ============================================================
+
   if (isLoading || isPlanLoading) {
     return <CashflowViewSkeleton />;
   }
 
-  /*
-   * ============================================================
-   * 2. SIN NEGOCIO
-   * ============================================================
-   */
+  // ============================================================
+  // 2. SIN NEGOCIO
+  // ============================================================
+
   if (hasNoBusiness) {
     return (
-      <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0">
+      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-4">
         <NoBusinessRedirectState
           title="Configura tu negocio para ver tu Flujo de Caja"
           description="Aún no tienes un comercio registrado. Registra tu negocio en la página principal para empezar a monitorear tus ingresos, egresos y cuentas por cobrar."
@@ -103,22 +91,17 @@ export function CashflowView() {
     );
   }
 
-  /*
-   * ============================================================
-   * 3. PLAN 1 → BLOQUEAR FLUJO DE CAJA
-   * ============================================================
-   *
-   * IMPORTANTE:
-   *
-   * Utilizamos exactamente el mismo componente visual que
-   * Recomendaciones de IA.
-   *
-   * De esta manera ambos paywalls son visualmente idénticos
-   * y no mantenemos dos implementaciones diferentes.
-   */
+  // ============================================================
+  // 3. PLAN 1 → BLOQUEAR FLUJO DE CAJA
+  // ============================================================
+
   if (planUsuarioId === 1) {
     return (
-      <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0 animate-in fade-in duration-300">
+      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-4 animate-in fade-in duration-300">
+        {/* ======================================================
+            CABECERA
+        ======================================================= */}
+
         <div className="mb-6">
           <div className="flex items-center gap-3">
             <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
@@ -133,42 +116,101 @@ export function CashflowView() {
         </div>
 
         {/* ======================================================
-            PAYWALL
+            PAYWALL CENTRADO
         ======================================================= */}
-        <InsightsPaywallState
-          onUpgrade={() =>
-            abrirPaywall(
-              "El Flujo de caja está disponible a partir del Plan Gerente ($79.900/mes) y Plan Administrador. Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
-              2,
-            )
-          }
-        />
+
+        <div className="w-full flex justify-center">
+          <FeaturePaywallState
+            onUpgrade={() =>
+              abrirPaywall(
+                "El Flujo de caja está disponible a partir del Plan Gerente ($79.900/mes) y Plan Administrador. Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
+                2,
+              )
+            }
+            badge="Exclusivo para Planes Gerente y Administrador"
+            title={
+              <>
+                Ten el control financiero de{" "}
+                <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-400">
+                  tu negocio
+                </span>
+              </>
+            }
+            description="Luka organiza tus ingresos, egresos y cuentas por cobrar para que conozcas en todo momento cuánto dinero tienes disponible y cómo se mueve tu negocio."
+            previewCards={[
+              {
+                label: "Ingresos",
+                title: "Dinero disponible",
+                description:
+                  "Visualiza tus ventas de contado y abonos recibidos durante el período.",
+                icon: "wallet",
+                color: "emerald",
+              },
+              {
+                label: "Egresos",
+                title: "Control de gastos",
+                description:
+                  "Identifica cuánto dinero sale de tu negocio por compras y gastos operativos.",
+                icon: "receipt",
+                color: "amber",
+              },
+              {
+                label: "Cuentas por cobrar",
+                title: "Ventas pendientes",
+                description:
+                  "Controla las ventas fiadas y los abonos pendientes de tus clientes.",
+                icon: "credit",
+                color: "cyan",
+              },
+            ]}
+            features={[
+              {
+                title: "Ingresos en tiempo real",
+                description:
+                  "Visualiza cuánto dinero está entrando.",
+              },
+              {
+                title: "Control de egresos",
+                description:
+                  "Identifica cuánto dinero está saliendo.",
+              },
+              {
+                title: "Cuentas por cobrar",
+                description:
+                  "Controla ventas fiadas y abonos.",
+              },
+              {
+                title: "Evolución financiera",
+                description:
+                  "Analiza el comportamiento de tu caja.",
+              },
+            ]}
+          />
+        </div>
 
         {/* ======================================================
             MODAL GLOBAL DE PAYWALL
         ======================================================= */}
+
         <PlanLimitPaywallModal
           isOpen={isPaywallOpen}
           onClose={cerrarPaywall}
           motivo={paywallMotivo}
-          planRecomendadoId={paywallPlanRecomendadoId}
+          planRecomendadoId={
+            paywallPlanRecomendadoId
+          }
         />
       </div>
     );
   }
 
-  /*
-   * ============================================================
-   * 4. PLAN 2+ → FLUJO DE CAJA DISPONIBLE
-   * ============================================================
-   */
+  // ============================================================
+  // 4. PLAN 2+ → FLUJO DE CAJA DISPONIBLE
+  // ============================================================
 
-  /*
-   * Evaluación de si el negocio no tiene transacciones
-   * registradas todavía.
-   */
   const hasNoData =
-    (!transactions || transactions.length === 0) &&
+    (!transactions ||
+      transactions.length === 0) &&
     (!metrics ||
       (
         (metrics.ingresos?.total ?? 0) === 0 &&
@@ -177,10 +219,11 @@ export function CashflowView() {
       ));
 
   return (
-    <div className="flex-1 overflow-auto pb-12 pr-4 min-w-0 animate-in fade-in duration-300">
+    <div className="flex-1 min-w-0 overflow-auto pb-12 pr-4 animate-in fade-in duration-300">
       {/* ======================================================
           CABECERA
       ======================================================= */}
+
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-6 mb-6 pt-1">
         <div>
           <div className="flex items-center gap-3">
@@ -190,6 +233,7 @@ export function CashflowView() {
 
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 text-xs font-bold shadow-xs">
               <Sparkles className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+
               Plan {planNombre}
             </span>
           </div>
@@ -204,6 +248,7 @@ export function CashflowView() {
       {/* ======================================================
           AVISO SIN DATOS
       ======================================================= */}
+
       {hasNoData && (
         <div className="mb-8 p-5 sm:p-6 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/5 to-card border border-emerald-500/25 shadow-sm relative overflow-hidden animate-in fade-in slide-in-from-top-2 duration-300">
           <div className="absolute -top-12 -right-12 w-48 h-48 bg-emerald-500/10 dark:bg-emerald-500/15 rounded-full blur-2xl pointer-events-none" />
@@ -217,6 +262,7 @@ export function CashflowView() {
               <div>
                 <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/25 text-emerald-800 dark:text-emerald-300 text-xs font-bold mb-2 shadow-xs">
                   <Sparkles className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+
                   Control de Liquidez y Cartera
                 </div>
 
@@ -238,16 +284,19 @@ export function CashflowView() {
                 <div className="flex flex-wrap items-center gap-2 mt-3.5">
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/80 border border-border text-[11px] font-semibold text-muted-foreground">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+
                     Ventas contado y abonos = Ingresos
                   </span>
 
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/80 border border-border text-[11px] font-semibold text-muted-foreground">
                     <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+
                     Compras y gastos = Egresos
                   </span>
 
                   <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-background/80 border border-border text-[11px] font-semibold text-muted-foreground">
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+
                     Ventas fiadas = Cuentas por cobrar
                   </span>
                 </div>
@@ -259,6 +308,7 @@ export function CashflowView() {
               className="shrink-0 flex items-center gap-2 px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 active:scale-[0.98] text-slate-950 font-black text-xs sm:text-sm rounded-xl shadow-md shadow-emerald-500/20 hover:shadow-emerald-500/30 transition-all cursor-pointer"
             >
               <ArrowLeft className="w-4 h-4" />
+
               <span>Ir al Resumen</span>
             </Link>
           </div>
@@ -268,6 +318,7 @@ export function CashflowView() {
       {/* ======================================================
           CONTENIDO PRINCIPAL
       ======================================================= */}
+
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <div className="xl:col-span-7">
           <RealCashflow
@@ -292,11 +343,14 @@ export function CashflowView() {
       {/* ======================================================
           MODAL GLOBAL DE PAYWALL
       ======================================================= */}
+
       <PlanLimitPaywallModal
         isOpen={isPaywallOpen}
         onClose={cerrarPaywall}
         motivo={paywallMotivo}
-        planRecomendadoId={paywallPlanRecomendadoId}
+        planRecomendadoId={
+          paywallPlanRecomendadoId
+        }
       />
     </div>
   );
