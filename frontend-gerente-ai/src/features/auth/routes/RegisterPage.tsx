@@ -8,7 +8,6 @@ import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
 export function RegisterPage() {
   return (
     <div className="min-h-screen w-full flex bg-background font-body">
-
       {/* =========================
           LEFT SIDE: FORM
       ========================== */}
@@ -28,7 +27,6 @@ export function RegisterPage() {
           sm:p-8
         "
       >
-
         {/* =========================
             MOBILE NAVIGATION
         ========================== */}
@@ -38,7 +36,7 @@ export function RegisterPage() {
           title="Volver al inicio"
           className="
             absolute
-            top-5
+            top-2
             left-5
             z-20
             flex
@@ -62,8 +60,15 @@ export function RegisterPage() {
         {/* =========================
             LOGO + THEME TOGGLE
         ========================== */}
-        <div className="flex items-start justify-between">
-
+        <div
+          className="
+            flex
+            items-start
+            justify-between
+            pt-8
+            sm:pt-0
+          "
+        >
           <Link
             to="/home"
             className="inline-flex items-center gap-2 shrink-0 group"
@@ -93,7 +98,6 @@ export function RegisterPage() {
           <div className="flex items-center">
             <ThemeToggle />
           </div>
-
         </div>
 
         {/* =========================
@@ -117,7 +121,6 @@ export function RegisterPage() {
         >
           &copy; {new Date().getFullYear()} Luka AI. Todos los derechos reservados.
         </div>
-
       </div>
 
       {/* =========================
@@ -136,7 +139,6 @@ export function RegisterPage() {
       >
         <RegisterShowcase />
       </div>
-
     </div>
   );
 }
