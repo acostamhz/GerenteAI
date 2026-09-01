@@ -15,7 +15,13 @@ interface PreviewCard {
   label: string;
   title: string;
   description: string;
-  icon: "warning" | "success" | "info" | "wallet" | "receipt" | "credit";
+  icon:
+    | "warning"
+    | "success"
+    | "info"
+    | "wallet"
+    | "receipt"
+    | "credit";
   color: "amber" | "emerald" | "cyan";
 }
 
@@ -80,7 +86,7 @@ export function FeaturePaywallState({
   planDescription = "Disponible a partir del Plan Gerente ($79.900/mes) y Plan Administrador ($249.900/mes).",
 }: FeaturePaywallStateProps) {
   return (
-    <div className="relative w-full max-w-4xl mx-auto py-2 sm:py-8 animate-in fade-in zoom-in-95 duration-300">
+    <div className="relative w-full min-w-0 max-w-4xl mx-auto py-2 sm:py-8 animate-in fade-in zoom-in-95 duration-300">
       {/* ======================================================
           BACKGROUND AMBIENT GLOW
       ======================================================= */}
@@ -111,7 +117,7 @@ export function FeaturePaywallState({
           INTERACTIVE PAYWALL TEASER
       ======================================================= */}
 
-      <div className="relative w-full bg-gradient-to-b from-emerald-500/5 via-card/70 to-card dark:from-emerald-500/10 dark:via-slate-900/60 dark:to-slate-950 backdrop-blur-xl border border-emerald-500/20 dark:border-emerald-500/30 rounded-2xl sm:rounded-3xl p-3.5 sm:p-8 shadow-xl overflow-hidden min-h-[300px] sm:min-h-[260px] flex items-center justify-center">
+      <div className="relative w-full min-w-0 bg-gradient-to-b from-emerald-500/5 via-card/70 to-card dark:from-emerald-500/10 dark:via-slate-900/60 dark:to-slate-950 backdrop-blur-xl border border-emerald-500/20 dark:border-emerald-500/30 rounded-2xl sm:rounded-3xl p-3.5 sm:p-8 shadow-xl overflow-hidden min-h-[300px] sm:min-h-[260px] flex items-center justify-center">
         {/* ====================================================
             BLURRED PREVIEW CARDS
         ===================================================== */}
