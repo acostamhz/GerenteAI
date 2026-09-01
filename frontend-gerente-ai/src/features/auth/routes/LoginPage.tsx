@@ -9,7 +9,6 @@ import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
 export function LoginPage() {
   return (
     <div className="min-h-screen w-full flex bg-background font-body">
-
       {/* =========================
           LEFT SIDE: FORM
       ========================== */}
@@ -26,7 +25,6 @@ export function LoginPage() {
           duration-700
         "
       >
-
         {/* =========================
             MOBILE NAVIGATION
         ========================== */}
@@ -36,7 +34,7 @@ export function LoginPage() {
           title="Volver al inicio"
           className="
             absolute
-            top-6
+            top-3
             left-6
             z-20
             flex
@@ -60,8 +58,17 @@ export function LoginPage() {
         {/* =========================
             LOGO + THEME TOGGLE
         ========================== */}
-        <div className="p-8 sm:p-12 flex items-start justify-between">
-
+        <div
+          className="
+            p-8
+            pt-14
+            sm:p-12
+            sm:pt-12
+            flex
+            items-start
+            justify-between
+          "
+        >
           <Link
             to="/home"
             className="inline-flex items-center gap-2 shrink-0 group cursor-pointer"
@@ -91,7 +98,6 @@ export function LoginPage() {
           <div className="flex items-center">
             <ThemeToggle />
           </div>
-
         </div>
 
         {/* =========================
@@ -118,7 +124,6 @@ export function LoginPage() {
         >
           &copy; {new Date().getFullYear()} Luka AI. Todos los derechos reservados.
         </div>
-
       </div>
 
       {/* =========================
@@ -137,7 +142,6 @@ export function LoginPage() {
       >
         <LoginShowcase />
       </div>
-
     </div>
   );
 }
