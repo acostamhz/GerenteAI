@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { ArrowLeft } from "lucide-react";
 
 import { LoginForm } from "@/features/auth/components/LoginForm";
 import { LoginShowcase } from "@/features/auth/components/LoginShowcase";
@@ -25,6 +26,36 @@ export function LoginPage() {
           duration-700
         "
       >
+
+        {/* =========================
+            MOBILE NAVIGATION
+        ========================== */}
+        <Link
+          to="/home"
+          aria-label="Volver al inicio"
+          title="Volver al inicio"
+          className="
+            absolute
+            top-6
+            left-6
+            z-20
+            flex
+            h-10
+            w-10
+            items-center
+            justify-center
+            rounded-xl
+            text-muted-foreground
+            transition-all
+            duration-200
+            hover:bg-muted
+            hover:text-foreground
+            hover:scale-105
+            lg:hidden
+          "
+        >
+          <ArrowLeft className="h-5 w-5" />
+        </Link>
 
         {/* =========================
             LOGO + THEME TOGGLE
