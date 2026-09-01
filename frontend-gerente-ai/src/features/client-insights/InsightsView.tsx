@@ -93,10 +93,7 @@ export function InsightsView() {
 
       setItems(insights);
     } catch (e: unknown) {
-      const msg =
-        e instanceof Error
-          ? e.message
-          : String(e);
+      const msg = e instanceof Error ? e.message : String(e);
 
       const lowerMsg = msg.toLowerCase();
 
@@ -157,11 +154,7 @@ export function InsightsView() {
   // ============================================================
 
   const dismiss = (id: string) => {
-    setItems((prev) =>
-      prev.filter(
-        (item) => item.id !== id,
-      ),
-    );
+    setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
   // ============================================================
@@ -179,19 +172,15 @@ export function InsightsView() {
     success: {
       Icon: CheckCircle,
       bg: "bg-emerald-100 dark:bg-emerald-900/30",
-      iconColor:
-        "text-emerald-600 dark:text-emerald-500",
-      border:
-        "border-emerald-200 dark:border-emerald-800",
+      iconColor: "text-emerald-600 dark:text-emerald-500",
+      border: "border-emerald-200 dark:border-emerald-800",
     },
 
     info: {
       Icon: Info,
       bg: "bg-cyan-100 dark:bg-cyan-900/30",
-      iconColor:
-        "text-cyan-600 dark:text-cyan-500",
-      border:
-        "border-cyan-200 dark:border-cyan-800",
+      iconColor: "text-cyan-600 dark:text-cyan-500",
+      border: "border-cyan-200 dark:border-cyan-800",
     },
   };
 
@@ -199,16 +188,14 @@ export function InsightsView() {
   // CONTADORES
   // ============================================================
 
-  const unread = items.filter(
-    (item) => !item.read,
-  ).length;
+  const unread = items.filter((item) => !item.read).length;
 
   // ============================================================
   // RENDER
   // ============================================================
 
   return (
-    <div className="flex-1 min-w-0 overflow-auto pb-8 pr-4">
+    <div className="flex-1 min-w-0 overflow-auto pb-8 pr-0 sm:pr-4">
       {/* ======================================================
           CABECERA
       ======================================================= */}
@@ -251,9 +238,7 @@ export function InsightsView() {
           >
             <RefreshCw
               className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${
-                isLoading
-                  ? "animate-spin"
-                  : ""
+                isLoading ? "animate-spin" : ""
               }`}
               strokeWidth={2}
             />
@@ -267,24 +252,23 @@ export function InsightsView() {
           ESTADOS PRINCIPALES
       ======================================================= */}
 
-      {!isPlanLoading &&
-      cantidadNegocios === 0 ? (
+      {!isPlanLoading && cantidadNegocios === 0 ? (
         <NoBusinessRedirectState
           title="Configura tu negocio para ver Recomendaciones de IA"
           description="Aún no tienes un comercio registrado. Registra tu negocio en la página de resumen para empezar a recibir análisis prescriptivos y alertas inteligentes."
         />
-      ) : !isPlanLoading &&
-        estaEnPlanGratuito ? (
+      ) : !isPlanLoading && estaEnPlanGratuito ? (
         /*
          * ======================================================
          * PLAN GRATUITO
          *
-         * El paywall ocupa todo el ancho disponible y se centra
-         * horizontalmente, especialmente importante en móvil.
+         * En móvil el contenedor padre ya no tiene padding-right.
+         * Esto permite que el centro real coincida con el centro
+         * visual del viewport.
          * ======================================================
          */
 
-        <div className="w-full flex justify-center">
+        <div className="w-full min-w-0 flex justify-center">
           <FeaturePaywallState
             onUpgrade={() =>
               abrirPaywall(
@@ -331,23 +315,19 @@ export function InsightsView() {
             features={[
               {
                 title: "Alertas Prescriptivas",
-                description:
-                  "Sugerencias concretas con 1 clic.",
+                description: "Sugerencias concretas con 1 clic.",
               },
               {
                 title: "Márgenes y Costos",
-                description:
-                  "Detección automática de fugas.",
+                description: "Detección automática de fugas.",
               },
               {
                 title: "Cuota 500+ Mensajes",
-                description:
-                  "Auditorías financieras continuas.",
+                description: "Auditorías financieras continuas.",
               },
               {
                 title: "Múltiples Sedes",
-                description:
-                  "Análisis individual o total.",
+                description: "Análisis individual o total.",
               },
             ]}
           />
@@ -382,48 +362,45 @@ export function InsightsView() {
               CUOTA AGOTADA
           =================================================== */}
 
-          {!isLoading &&
-            isQuotaExceeded && (
-              <QuotaExceededCard
-                onUpgrade={() =>
-                  abrirPaywall(
-                    "Has alcanzado el límite mensual de mensajes de IA. Mejora al Plan Administrador para obtener 5.000 mensajes mensuales.",
-                    3,
-                  )
-                }
-              />
-            )}
+          {!isLoading && isQuotaExceeded && (
+            <QuotaExceededCard
+              onUpgrade={() =>
+                abrirPaywall(
+                  "Has alcanzado el límite mensual de mensajes de IA. Mejora al Plan Administrador para obtener 5.000 mensajes mensuales.",
+                  3,
+                )
+              }
+            />
+          )}
 
           {/* ==================================================
               ERROR
           =================================================== */}
 
-          {!isLoading &&
-            !isQuotaExceeded &&
-            error && (
-              <div className="bg-card border border-border rounded-2xl shadow-sm p-6 text-center">
-                <AlertTriangle
-                  className="w-10 h-10 mx-auto mb-3 text-amber-500"
-                  strokeWidth={1.5}
-                />
+          {!isLoading && !isQuotaExceeded && error && (
+            <div className="bg-card border border-border rounded-2xl shadow-sm p-6 text-center">
+              <AlertTriangle
+                className="w-10 h-10 mx-auto mb-3 text-amber-500"
+                strokeWidth={1.5}
+              />
 
-                <p className="text-sm font-bold text-foreground">
-                  No pudimos generar tus recomendaciones
-                </p>
+              <p className="text-sm font-bold text-foreground">
+                No pudimos generar tus recomendaciones
+              </p>
 
-                <p className="text-xs mt-1 text-muted-foreground">
-                  {error}
-                </p>
+              <p className="text-xs mt-1 text-muted-foreground">
+                {error}
+              </p>
 
-                <button
-                  type="button"
-                  onClick={() => void cargar()}
-                  className="mt-4 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-foreground border border-border hover:bg-muted transition-all cursor-pointer"
-                >
-                  Reintentar
-                </button>
-              </div>
-            )}
+              <button
+                type="button"
+                onClick={() => void cargar()}
+                className="mt-4 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-foreground border border-border hover:bg-muted transition-all cursor-pointer"
+              >
+                Reintentar
+              </button>
+            </div>
+          )}
 
           {/* ==================================================
               LISTA DE INSIGHTS
@@ -433,14 +410,8 @@ export function InsightsView() {
             !isQuotaExceeded &&
             !error &&
             items.map((item, index) => {
-              const {
-                Icon,
-                bg,
-                iconColor,
-                border,
-              } =
-                iconCfg[item.type] ??
-                iconCfg.info;
+              const { Icon, bg, iconColor, border } =
+                iconCfg[item.type] ?? iconCfg.info;
 
               return (
                 <div
@@ -476,9 +447,7 @@ export function InsightsView() {
                           )}
 
                           <span className="text-[11px] text-muted-foreground font-medium">
-                            {tiempoRelativo(
-                              item.generatedAt,
-                            )}
+                            {tiempoRelativo(item.generatedAt)}
                           </span>
                         </div>
                       </div>
@@ -496,9 +465,7 @@ export function InsightsView() {
                       <div className="flex items-center gap-3">
                         <button
                           type="button"
-                          onClick={() =>
-                            apply(item.id)
-                          }
+                          onClick={() => apply(item.id)}
                           disabled={item.read}
                           className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-emerald-700 bg-emerald-50 dark:bg-emerald-900/30 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 transition-all disabled:opacity-40 cursor-pointer"
                         >
@@ -512,9 +479,7 @@ export function InsightsView() {
 
                         <button
                           type="button"
-                          onClick={() =>
-                            dismiss(item.id)
-                          }
+                          onClick={() => dismiss(item.id)}
                           className="flex items-center gap-1.5 px-3.5 sm:px-4 py-2 sm:py-2.5 rounded-xl text-xs sm:text-sm font-bold text-muted-foreground border border-border hover:bg-muted hover:text-foreground transition-all cursor-pointer"
                         >
                           <X
@@ -550,10 +515,9 @@ export function InsightsView() {
                 </p>
 
                 <p className="text-xs mt-1 text-muted-foreground max-w-sm mx-auto">
-                  Registra algunos movimientos
-                  en tu negocio y Luka generará
-                  recomendaciones para optimizar
-                  tus finanzas.
+                  Registra algunos movimientos en tu negocio y Luka
+                  generará recomendaciones para optimizar tus
+                  finanzas.
                 </p>
               </div>
             )}
@@ -568,9 +532,7 @@ export function InsightsView() {
         isOpen={isPaywallOpen}
         onClose={cerrarPaywall}
         motivo={paywallMotivo}
-        planRecomendadoId={
-          paywallPlanRecomendadoId
-        }
+        planRecomendadoId={paywallPlanRecomendadoId}
       />
     </div>
   );

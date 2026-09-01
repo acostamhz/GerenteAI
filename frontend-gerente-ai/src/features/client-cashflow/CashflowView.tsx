@@ -82,7 +82,7 @@ export function CashflowView() {
 
   if (hasNoBusiness) {
     return (
-      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-4">
+      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-0 sm:pr-4">
         <NoBusinessRedirectState
           title="Configura tu negocio para ver tu Flujo de Caja"
           description="Aún no tienes un comercio registrado. Registra tu negocio en la página principal para empezar a monitorear tus ingresos, egresos y cuentas por cobrar."
@@ -97,7 +97,7 @@ export function CashflowView() {
 
   if (planUsuarioId === 1) {
     return (
-      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-4 animate-in fade-in duration-300">
+      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-0 sm:pr-4 animate-in fade-in duration-300">
         {/* ======================================================
             CABECERA
         ======================================================= */}
@@ -119,7 +119,7 @@ export function CashflowView() {
             PAYWALL CENTRADO
         ======================================================= */}
 
-        <div className="w-full flex justify-center">
+        <div className="w-full min-w-0 flex justify-center">
           <FeaturePaywallState
             onUpgrade={() =>
               abrirPaywall(
@@ -196,9 +196,7 @@ export function CashflowView() {
           isOpen={isPaywallOpen}
           onClose={cerrarPaywall}
           motivo={paywallMotivo}
-          planRecomendadoId={
-            paywallPlanRecomendadoId
-          }
+          planRecomendadoId={paywallPlanRecomendadoId}
         />
       </div>
     );
@@ -209,17 +207,14 @@ export function CashflowView() {
   // ============================================================
 
   const hasNoData =
-    (!transactions ||
-      transactions.length === 0) &&
+    (!transactions || transactions.length === 0) &&
     (!metrics ||
-      (
-        (metrics.ingresos?.total ?? 0) === 0 &&
+      ((metrics.ingresos?.total ?? 0) === 0 &&
         (metrics.egresos?.total ?? 0) === 0 &&
-        (fiados?.totales?.porCobrar ?? 0) === 0
-      ));
+        (fiados?.totales?.porCobrar ?? 0) === 0));
 
   return (
-    <div className="flex-1 min-w-0 overflow-auto pb-12 pr-4 animate-in fade-in duration-300">
+    <div className="flex-1 min-w-0 overflow-auto pb-12 pr-0 sm:pr-4 animate-in fade-in duration-300">
       {/* ======================================================
           CABECERA
       ======================================================= */}
@@ -271,8 +266,8 @@ export function CashflowView() {
                 </h2>
 
                 <p className="text-xs sm:text-sm text-muted-foreground mt-1 max-w-2xl leading-relaxed">
-                  Registra tus primeras ventas o compras por
-                  WhatsApp con tu copiloto{" "}
+                  Registra tus primeras ventas o compras por WhatsApp
+                  con tu copiloto{" "}
                   <strong className="text-foreground">
                     Luka
                   </strong>
@@ -348,9 +343,7 @@ export function CashflowView() {
         isOpen={isPaywallOpen}
         onClose={cerrarPaywall}
         motivo={paywallMotivo}
-        planRecomendadoId={
-          paywallPlanRecomendadoId
-        }
+        planRecomendadoId={paywallPlanRecomendadoId}
       />
     </div>
   );
