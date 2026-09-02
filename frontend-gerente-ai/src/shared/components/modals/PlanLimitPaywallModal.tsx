@@ -125,7 +125,7 @@ export function PlanLimitPaywallModal({
                   <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <span className="text-foreground font-semibold">
-                  500 mensajes de IA al mes (vs 50 en plan gratuito)
+                  4.000 mensajes de IA al mes (vs 500 en plan gratuito)
                 </span>
               </div>
 
