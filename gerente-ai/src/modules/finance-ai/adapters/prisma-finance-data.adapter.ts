@@ -1,5 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { CategoriaGasto, Prisma } from '@prisma/client';
+import {
+  BeneficiarioReparto,
+  CategoriaGasto,
+  MetodoPago,
+  Prisma,
+} from '@prisma/client';
 
 import { PrismaService } from '../../../services/prisma.service';
 import {
@@ -12,12 +17,15 @@ import {
   type BusinessSnapshot,
   type CategoryTotal,
   type MonthlyTotals,
+  type PaymentMethod,
+  type ProfitBeneficiary,
   type Transaction,
   type TransactionCategory,
   type TransactionType,
 } from '../domain/finance.types';
 import type {
   FinanceDataPort,
+  ProfitDistribution,
   TransactionQuery,
 } from '../ports/finance-data.port';
 
@@ -91,18 +99,34 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
         currency: 'COP',
         source: 'manual' as const,
         createdAt: gasto.fecha.toISOString(),
+        paymentMethod: gasto.metodoPago
+          ? PAYMENT_FROM_PRISMA[gasto.metodoPago]
+          : null,
+        isCredit: false,
+        customerName: null,
+        groupId: gasto.grupoId,
       })),
       ...ventas.map((venta): Transaction => ({
         id: venta.id,
         businessId: venta.sedeId,
         date: isoDate(venta.fecha),
-        description: `Venta ${venta.tipo === 'FIADO' ? 'a credito' : 'de contado'}`,
+        // El concepto real cuando existe. Sin este campo no habia forma de
+        // buscar un ingreso por su nombre, como si se hace con los gastos.
+        description:
+          venta.descripcion ??
+          `Venta ${venta.tipo === 'FIADO' ? 'a credito' : 'de contado'}`,
         category: 'ventas',
         amount: toNumber(venta.total),
         type: 'income',
         currency: 'COP',
         source: 'manual' as const,
         createdAt: venta.fecha.toISOString(),
+        paymentMethod: venta.metodoPago
+          ? PAYMENT_FROM_PRISMA[venta.metodoPago]
+          : null,
+        isCredit: venta.tipo === 'FIADO',
+        customerName: null,
+        groupId: venta.grupoId,
       })),
       ...compras.map((compra): Transaction => ({
         id: compra.id,
@@ -170,30 +194,13 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
   async saveTransactions(transactions: Transaction[]): Promise<Transaction[]> {
     if (!transactions.length) return [];
 
-    // Una sola transaccion de base: o entran todos los movimientos del mensaje
-    // o no entra ninguno. Nada de contabilidad a medias.
+    // Los clientes de los fiados se resuelven antes de abrir la transaccion:
+    // buscar o crear un cliente es una consulta aparte y no puede ir dentro de
+    // la lista de operaciones atomicas.
+    const clientes = await this.resolveCustomers(transactions);
+
     const operations: Prisma.PrismaPromise<unknown>[] = transactions.map(
-      (transaction) =>
-        transaction.type === 'income'
-          ? this.prisma.venta.create({
-              data: {
-                id: transaction.id,
-                sedeId: transaction.businessId,
-                total: new Prisma.Decimal(transaction.amount),
-                tipo: 'CONTADO',
-                fecha: new Date(transaction.createdAt),
-              },
-            })
-          : this.prisma.gasto.create({
-              data: {
-                id: transaction.id,
-                sedeId: transaction.businessId,
-                descripcion: buildDescription(transaction),
-                monto: new Prisma.Decimal(transaction.amount),
-                categoria: CATEGORY_TO_PRISMA[transaction.category] ?? 'OTROS',
-                fecha: new Date(transaction.createdAt),
-              },
-            }),
+      (transaction) => this.buildWriteOperation(transaction, clientes),
     );
 
     await this.prisma.$transaction(operations);
@@ -203,6 +210,155 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
     );
 
     return transactions;
+  }
+
+  /**
+   * Sustituye un movimiento por sus partes, en una sola transaccion de base.
+   *
+   * Si se guardaran las partes sin borrar el total, el dinero quedaria contado
+   * dos veces; si se borrara primero y fallara la insercion, se perderia la
+   * venta. Por eso las dos cosas van juntas o no van.
+   */
+  async replaceTransaction(
+    businessId: string,
+    transactionId: string,
+    parts: Transaction[],
+  ): Promise<Transaction[]> {
+    const clientes = await this.resolveCustomers(parts);
+
+    // El movimiento original puede ser una venta o un gasto: se intenta borrar
+    // en ambas tablas y solo una encuentra la fila.
+    const operations: Prisma.PrismaPromise<unknown>[] = [
+      this.prisma.venta.deleteMany({
+        where: { id: transactionId, sedeId: businessId },
+      }),
+      this.prisma.gasto.deleteMany({
+        where: { id: transactionId, sedeId: businessId },
+      }),
+      ...parts.map((part) => this.buildWriteOperation(part, clientes)),
+    ];
+
+    await this.prisma.$transaction(operations);
+
+    this.logger.log(
+      `Movimiento ${transactionId} reemplazado por ${parts.length} partes en sede ${businessId}.`,
+    );
+
+    return parts;
+  }
+
+  /** Guarda el reparto de utilidades: una fila por beneficiario. */
+  async saveProfitDistribution(
+    distribution: ProfitDistribution,
+  ): Promise<ProfitDistribution> {
+    await this.prisma.repartoUtilidad.createMany({
+      data: distribution.shares.map((share) => ({
+        beneficiario: BENEFICIARY_TO_PRISMA[share.beneficiary],
+        nombre: share.name,
+        porcentaje: new Prisma.Decimal(share.percentage),
+        monto: new Prisma.Decimal(share.amount),
+        totalRepartido: new Prisma.Decimal(distribution.total),
+        grupoId: distribution.groupId,
+        sedeId: distribution.businessId,
+        fecha: new Date(`${distribution.date}T12:00:00.000Z`),
+      })),
+    });
+
+    this.logger.log(
+      `Reparto de utilidades de ${distribution.total} entre ${distribution.shares.length} beneficiarios en sede ${distribution.businessId}.`,
+    );
+
+    return distribution;
+  }
+
+  // ------------------------------------------------------- escritura: detalle
+
+  /**
+   * Traduce un movimiento del dominio a la operacion de Prisma que le
+   * corresponde. Un ingreso es una Venta; todo lo demas, un Gasto.
+   */
+  private buildWriteOperation(
+    transaction: Transaction,
+    clientes: Map<string, string>,
+  ): Prisma.PrismaPromise<unknown> {
+    return transaction.type === 'income'
+      ? this.prisma.venta.create({
+          data: {
+            id: transaction.id,
+            sedeId: transaction.businessId,
+            total: new Prisma.Decimal(transaction.amount),
+            // Un fiado se registra como venta a credito con su saldo por
+            // cobrar. Antes todo entraba como CONTADO y el reporte de fiados,
+            // que filtra por saldoPendiente > 0, nunca los veia.
+            tipo: transaction.isCredit ? 'FIADO' : 'CONTADO',
+            saldoPendiente: new Prisma.Decimal(
+              transaction.isCredit ? transaction.amount : 0,
+            ),
+            descripcion: transaction.description,
+            metodoPago: transaction.paymentMethod
+              ? PAYMENT_TO_PRISMA[transaction.paymentMethod]
+              : null,
+            grupoId: transaction.groupId ?? null,
+            clienteId: transaction.customerName
+              ? (clientes.get(customerKey(transaction)) ?? null)
+              : null,
+            fecha: new Date(transaction.createdAt),
+          },
+        })
+      : this.prisma.gasto.create({
+          data: {
+            id: transaction.id,
+            sedeId: transaction.businessId,
+            descripcion: buildDescription(transaction),
+            monto: new Prisma.Decimal(transaction.amount),
+            categoria: CATEGORY_TO_PRISMA[transaction.category] ?? 'OTROS',
+            metodoPago: transaction.paymentMethod
+              ? PAYMENT_TO_PRISMA[transaction.paymentMethod]
+              : null,
+            grupoId: transaction.groupId ?? null,
+            fecha: new Date(transaction.createdAt),
+          },
+        });
+  }
+
+  /**
+   * Busca o crea los clientes de las ventas fiadas y devuelve sus ids.
+   *
+   * Un fiado sin cliente no sirve para nada: el reporte de cuentas por cobrar
+   * necesita saber a quien cobrarle. Se busca por nombre dentro de la sede,
+   * sin distinguir mayusculas, y se crea si no existe.
+   */
+  private async resolveCustomers(
+    transactions: Transaction[],
+  ): Promise<Map<string, string>> {
+    const resultado = new Map<string, string>();
+
+    const pendientes = transactions.filter(
+      (transaction) => transaction.isCredit && transaction.customerName,
+    );
+
+    for (const transaction of pendientes) {
+      const clave = customerKey(transaction);
+      if (resultado.has(clave)) continue;
+
+      const nombre = transaction.customerName!.trim();
+      const existente = await this.prisma.cliente.findFirst({
+        where: {
+          sedeId: transaction.businessId,
+          nombre: { equals: nombre, mode: 'insensitive' },
+        },
+      });
+
+      const cliente =
+        existente ??
+        (await this.prisma.cliente.create({
+          data: { nombre, sedeId: transaction.businessId },
+        }));
+
+      resultado.set(clave, cliente.id);
+    }
+
+    return resultado;
   }
 }
 
@@ -217,6 +373,30 @@ const CATEGORY_TO_PRISMA: Partial<Record<TransactionCategory, CategoriaGasto>> =
     // mercancia, insumos, mantenimiento, otros_gastos y las de inversion
     // no tienen equivalente: caen en OTROS (ver cabecera del archivo).
   };
+
+const PAYMENT_TO_PRISMA: Record<PaymentMethod, MetodoPago> = {
+  efectivo: MetodoPago.EFECTIVO,
+  transferencia: MetodoPago.TRANSFERENCIA,
+  tarjeta: MetodoPago.TARJETA,
+  otro: MetodoPago.OTRO,
+};
+
+const PAYMENT_FROM_PRISMA: Record<MetodoPago, PaymentMethod> = {
+  EFECTIVO: 'efectivo',
+  TRANSFERENCIA: 'transferencia',
+  TARJETA: 'tarjeta',
+  OTRO: 'otro',
+};
+
+const BENEFICIARY_TO_PRISMA: Record<ProfitBeneficiary, BeneficiarioReparto> = {
+  dueno: BeneficiarioReparto.DUENO,
+  trabajador: BeneficiarioReparto.TRABAJADOR,
+};
+
+/** Identifica a un cliente dentro de una sede, sin distinguir mayusculas. */
+function customerKey(transaction: Transaction): string {
+  return `${transaction.businessId}:${(transaction.customerName ?? '').trim().toLowerCase()}`;
+}
 
 const CATEGORY_FROM_PRISMA: Record<CategoriaGasto, TransactionCategory> = {
   ARRIENDO: 'renta',

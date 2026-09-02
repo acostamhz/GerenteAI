@@ -10,6 +10,7 @@ import {
 } from '../domain/finance.types';
 import type {
   FinanceDataPort,
+  ProfitDistribution,
   TransactionQuery,
 } from '../ports/finance-data.port';
 
@@ -27,6 +28,7 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
   };
 
   private readonly transactions: Transaction[] = seedTransactions();
+  private readonly profitDistributions: ProfitDistribution[] = [];
 
   getSnapshot(businessId: string): Promise<BusinessSnapshot> {
     const rows = this.transactions.filter(
@@ -74,6 +76,28 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
   saveTransactions(transactions: Transaction[]): Promise<Transaction[]> {
     this.transactions.push(...transactions);
     return Promise.resolve(transactions);
+  }
+
+  replaceTransaction(
+    businessId: string,
+    transactionId: string,
+    parts: Transaction[],
+  ): Promise<Transaction[]> {
+    const indice = this.transactions.findIndex(
+      (row) => row.id === transactionId && row.businessId === businessId,
+    );
+
+    if (indice >= 0) this.transactions.splice(indice, 1);
+    this.transactions.push(...parts);
+
+    return Promise.resolve(parts);
+  }
+
+  saveProfitDistribution(
+    distribution: ProfitDistribution,
+  ): Promise<ProfitDistribution> {
+    this.profitDistributions.push(distribution);
+    return Promise.resolve(distribution);
   }
 }
 
