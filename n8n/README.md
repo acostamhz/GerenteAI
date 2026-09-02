@@ -31,6 +31,8 @@ Archivos de este directorio:
 | `01-whatsapp-mensajes.json` | Flujo principal: mensaje entrante → IA → respuesta |
 | `02-recordatorio-nocturno.json` | RF-07 · cron 21:00 diario a quien no registró nada |
 | `03-resumen-semanal.json` | RF-08 · cron domingos 10:00 con el resumen de la semana |
+| `04-mantener-despierto.json` | Ping periódico para que Render no duerma el servicio |
+| `05-recordatorio-fiados.json` | Cron 10:00 diario · avisa de los fiados con 5 días sin cobrar |
 
 ---
 
@@ -188,6 +190,7 @@ curl -X POST https://TU-BACKEND.onrender.com/ai/interpret \
 | `WHATSAPP_API_VERSION` | `v25.0` |
 | `WHATSAPP_TEMPLATE_RECORDATORIO` | `recordatorio_diario` |
 | `WHATSAPP_TEMPLATE_RESUMEN` | `resumen_semanal` |
+| `WHATSAPP_TEMPLATE_FIADO` | `recordatorio_fiado` |
 | `GENERIC_TIMEZONE` | `America/Bogota` |
 | `WEBHOOK_URL` | `https://n8n-production-1935.up.railway.app` |
 
@@ -201,7 +204,7 @@ curl -X POST https://TU-BACKEND.onrender.com/ai/interpret \
 |---|---|---|
 | `Backend Luka AI (x-api-key)` | *Header Auth* | Name: `x-api-key` · Value: el mismo `N8N_API_KEY` |
 | `Bearer Auth account` | *Bearer Auth* | Token permanente de WhatsApp (ya existe) |
-| `PostgreSQL Luka AI` | *Postgres* | Datos de **Neon** · **SSL: `require`** (obligatorio en Neon) |
+| `PostgreSQL Luka AI` | *Postgres* | Datos de **Neon** · **SSL: `require`** (obligatorio en Neon) · solo la usa `03-resumen-semanal` |
 
 Los datos de Postgres salen de **Neon** → tu proyecto → *Connection Details*.
 La cadena tiene esta forma, y de ahí se sacan los campos sueltos:
@@ -217,7 +220,7 @@ la conexión.
 
 ---
 
-## 4. Plantillas de WhatsApp (obligatorias para los workflows 2 y 3)
+## 4. Plantillas de WhatsApp (obligatorias para los workflows 2, 3 y 5)
 
 Meta **solo permite texto libre dentro de la ventana de 24 h** desde el último
 mensaje del usuario. Un recordatorio a las 21:00 o un resumen del domingo casi
@@ -245,6 +248,14 @@ Balance: {{5}}
 Mayor gasto: {{6}}
 
 Escríbeme "¿cómo voy este mes?" si quieres el detalle.
+```
+
+**3. `recordatorio_fiado`** — Categoría: *Utility* · Idioma: *Español*
+
+```
+Hola {{1}} 👋 {{2}} tiene un fiado pendiente de {{3}} desde hace {{4}} días.
+
+No olvides cobrarle. Cuando te pague, escríbeme y lo marco como cobrado.
 ```
 
 Reglas de los parámetros (si no se respetan, Meta devuelve `132000`):
@@ -392,14 +403,28 @@ Logs útiles del backend (Render → pestaña Logs):
 5. **Moneda**: `COP` fija. El esquema todavía no guarda moneda por negocio.
 6. **Deduplicación en memoria del proceso.** Con más de una instancia del backend
    hay que moverla a Redis o a un índice único sobre el `wamid`.
-7. **Correcciones** (`"corrijo: eran $5.000"`) se interpretan y se responden, pero
-   todavía no modifican el registro anterior: hace falta guardar el id del último
-   movimiento por conversación.
-8. **El `verify_token` de Meta no se valida** en el workflow (se devuelve el
+7. **Correcciones** (`"corrijo: eran $5.000"`, `"borra el último gasto"`) sí
+   modifican el registro. El backend busca entre los movimientos de los últimos
+   31 días de esa sede: sin referencia toma el más reciente, y con referencia
+   (`"el de transporte"`) busca por texto. Si hay varios candidatos pregunta en
+   vez de adivinar. Escribe sobre las mismas tablas que lee el panel, así que el
+   cambio se ve en la web sin ningún paso de sincronización.
+8. **Quién puede recibir un mensaje** se define **una sola vez**, en
+   `DestinatariosService` (backend), y los workflows la consultan por HTTP. Antes
+   el workflow 02 tenía su propio SQL que solo miraba `Sede.telefono` y
+   `Sede.whatsappUserId`; quien usaba el bot desde su número personal escribía
+   sin problema pero **nunca recibía el recordatorio**. Si esa regla vuelve a
+   escribirse en dos sitios, el error vuelve.
+9. **`GET /ai/recordatorios/fiados` marca los avisos como enviados al servirlos**,
+   no después. Dos ejecuciones que se solapen mandarían el mismo recordatorio dos
+   veces; se prefiere perder un aviso a repetirlo cada día. Por eso ese nodo no
+   reintenta y **no conviene ejecutarlo a mano para probar**: quema los avisos del
+   día.
+10. **El `verify_token` de Meta no se valida** en el workflow (se devuelve el
    `hub.challenge` sin comprobarlo). Es la conducta que ya tenía el flujo actual y
    sirve; para endurecerlo, agregar una condición contra
    `{{ $json.query['hub.verify_token'] }}`.
-9. **La firma `X-Hub-Signature-256` no se verifica.** Cualquiera que conozca la URL
+11. **La firma `X-Hub-Signature-256` no se verifica.** Cualquiera que conozca la URL
    del webhook puede simular un mensaje de Meta. Como el backend sí valida el
    número contra la base, el daño está acotado, pero conviene añadirlo antes de
    operar con clientes reales.

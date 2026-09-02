@@ -4,6 +4,7 @@ import type { PeriodSummary, Transaction } from '../domain/finance.types';
 import type {
   FinanceDataPort,
   ProfitDistribution,
+  TransactionChanges,
 } from '../ports/finance-data.port';
 import type { WhatsAppIntentOutput } from '../prompts/whatsapp-assistant.prompt';
 import {
@@ -97,12 +98,16 @@ interface FakeFinanceData extends FinanceDataPort {
   saved: Transaction[];
   replaced: { id: string; parts: Transaction[] }[];
   distributions: ProfitDistribution[];
+  updated: { id: string; changes: TransactionChanges }[];
+  deleted: string[];
 }
 
 function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
   const saved: Transaction[] = [];
   const replaced: { id: string; parts: Transaction[] }[] = [];
   const distributions: ProfitDistribution[] = [];
+  const updated: { id: string; changes: TransactionChanges }[] = [];
+  const deleted: string[] = [];
 
   return {
     saved,
@@ -125,6 +130,21 @@ function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
     saveProfitDistribution: (distribution: ProfitDistribution) => {
       distributions.push(distribution);
       return Promise.resolve(distribution);
+    },
+    updated,
+    deleted,
+    updateTransaction: (
+      _businessId: string,
+      transactionId: string,
+      changes: TransactionChanges,
+    ) => {
+      updated.push({ id: transactionId, changes });
+      const fila = rows.find((row) => row.id === transactionId);
+      return Promise.resolve(fila ? { ...fila, ...changes } : null);
+    },
+    deleteTransaction: (_businessId: string, transactionId: string) => {
+      deleted.push(transactionId);
+      return Promise.resolve(true);
     },
   };
 }
@@ -1311,5 +1331,243 @@ describe('WhatsAppMessageService - fecha colombiana', () => {
 
     const result = await service.handleMessage(BASE_REQUEST);
     expect(result.transactions[0].date).toBe('2026-09-01');
+  });
+});
+
+// ===========================================================================
+// Pendiente 1 - corregir movimientos desde WhatsApp
+// ===========================================================================
+
+/** Movimientos recientes sobre los que se puede corregir. */
+const RECIENTES: Transaction[] = [
+  {
+    id: 'ultimo',
+    businessId: 'b1',
+    date: '2026-09-01',
+    description: 'Transporte',
+    category: 'transporte',
+    amount: 50_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-01T18:00:00.000Z',
+  },
+  {
+    id: 'almuerzo',
+    businessId: 'b1',
+    date: '2026-09-01',
+    description: 'Almuerzo',
+    category: 'otros_gastos',
+    amount: 30_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-01T17:00:00.000Z',
+  },
+];
+
+function correccion(parcial: Record<string, unknown>) {
+  return {
+    action: 'update',
+    reference: null,
+    newAmount: null,
+    newConcept: null,
+    ...parcial,
+  };
+}
+
+describe('WhatsAppMessageService - correcciones', () => {
+  it('corrige el monto del ultimo movimiento', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'ultimo', changes: { amount: 60_000 } },
+    ]);
+    expect(result.replyText).toContain('$50.000');
+    expect(result.replyText).toContain('$60.000');
+  });
+
+  it('avisa que el cambio tambien quedo en el panel', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+    expect(result.replyText.toLowerCase()).toContain('panel');
+  });
+
+  it('ubica el movimiento por su concepto', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ reference: 'almuerzo', newAmount: 35_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+    expect(financeData.updated[0].id).toBe('almuerzo');
+  });
+
+  it('corrige el concepto sin tocar el monto', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          reference: 'almuerzo',
+          newConcept: 'Transporte',
+        }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+    expect(financeData.updated[0].changes).toEqual({
+      description: 'Transporte',
+    });
+  });
+
+  it('borra un movimiento cuando lo piden', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete', reference: 'almuerzo' }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.deleted).toEqual(['almuerzo']);
+    expect(result.replyText).toContain('Eliminé');
+  });
+});
+
+describe('WhatsAppMessageService - correcciones ambiguas o imposibles', () => {
+  it('pregunta cual corregir cuando hay varios parecidos', async () => {
+    // Corregir el equivocado deja el error escondido: mejor preguntar.
+    const dosIguales: Transaction[] = [
+      { ...RECIENTES[0], id: 'a', description: 'Transporte a la plaza' },
+      { ...RECIENTES[0], id: 'b', description: 'Transporte de vuelta' },
+    ];
+
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ reference: 'transporte', newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      dosIguales,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(result.replyText).toContain('Cuál');
+  });
+
+  it('lo dice claro cuando no encuentra el movimiento', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ reference: 'jabones', newAmount: 1000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(result.replyText).toContain('jabones');
+  });
+
+  it('pide el valor si dicen corregir pero no dicen cual', async () => {
+    const { service, financeData } = buildService(
+      { type: 'correction', correction: correccion({}), responseText: 'ok' },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(result.replyText).toContain('valor correcto');
+  });
+
+  it('no toca la base si no se pidio persistir', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    await service.handleMessage(BASE_REQUEST);
+    expect(financeData.updated).toHaveLength(0);
+    expect(financeData.deleted).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// Pendiente 2 - periodo contable configurable
+// ===========================================================================
+
+describe('periodRange con periodo contable propio', () => {
+  const enSeptiembre = new Date('2026-09-05T17:00:00.000Z');
+
+  it('sin configurar, el mes es el calendario', () => {
+    expect(periodRange('month', enSeptiembre)).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-05',
+    });
+  });
+
+  it('con corte el 21, el mes arranca el 21 del mes anterior', () => {
+    expect(periodRange('month', enSeptiembre, 21)).toEqual({
+      from: '2026-08-21',
+      to: '2026-09-05',
+    });
+  });
+
+  it('el dia y la semana no dependen del corte', () => {
+    expect(periodRange('day', enSeptiembre, 21).from).toBe('2026-09-05');
+    expect(periodRange('week', enSeptiembre, 21).from).toBe('2026-08-31');
   });
 });

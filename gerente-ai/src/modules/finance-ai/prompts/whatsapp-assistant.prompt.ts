@@ -31,7 +31,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v7';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v8';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -57,6 +57,12 @@ export interface WhatsAppIntentOutput {
     name?: string | null;
     percentage?: number | string | null;
   }[];
+  correction?: {
+    action?: string | null;
+    reference?: string | null;
+    newAmount?: number | string | null;
+    newConcept?: string | null;
+  } | null;
   concept?: string | null;
   queryKind?: string | null;
   queryPeriod?: string | null;
@@ -95,6 +101,12 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
   "profitShares": [
     { "beneficiary": "dueno" | "trabajador", "name": string | null, "percentage": number }
   ],
+  "correction": {
+    "action": "update" | "delete",
+    "reference": string | null,
+    "newAmount": number | null,
+    "newConcept": string | null
+  } | null,
   "concept": string | null,
   "queryKind": "summary" | "list" | "search" | null,
   "queryPeriod": "day" | "week" | "month" | null,
@@ -205,9 +217,31 @@ REGLAS DE INTERPRETACIÓN:
    inventes montos ni fechas: escribe algo breve, el sistema lo reemplaza.
 
 9. CORRECCIONES (type: "correction"):
-   - "El último gasto no fueron $X sino $Y"
-   - "Corrijo: eran $X"
-   - "Borra el último registro"
+   Cuando el usuario quiere arreglar algo que YA registró, llena "correction".
+
+   a) CAMBIAR EL MONTO:
+      "El último gasto no fueron $50.000 sino $60.000"
+      -> action "update", reference null, newAmount 60000
+      "Corrige el gasto de transporte a $60.000"
+      -> action "update", reference "transporte", newAmount 60000
+
+   b) CAMBIAR EL CONCEPTO:
+      "Ese gasto no era almuerzo, era transporte"
+      -> action "update", reference "almuerzo", newConcept "Transporte"
+
+   c) BORRAR:
+      "Borra el último registro"      -> action "delete", reference null
+      "Elimina el gasto de almuerzo"  -> action "delete", reference "almuerzo"
+
+   REGLAS:
+   - "reference" es el texto que identifica CUÁL movimiento, no el nuevo valor.
+     Si el usuario dice "el último" o no lo especifica, va null.
+   - Pon en newAmount y newConcept SOLO lo que el usuario quiere cambiar. Lo que
+     no menciona va null y se queda como estaba.
+   - No inventes cuál movimiento es: el sistema lo busca y, si no lo encuentra o
+     hay varios parecidos, le pregunta al usuario.
+   - En responseText escribe algo breve: el sistema lo reemplaza por la
+     confirmación con las cifras reales.
 
 10. NO CLARO (type: "unclear"):
    - Si no puedes determinar con certeza qué quiere el usuario
@@ -344,6 +378,12 @@ Respuesta: {"type":"out_of_scope","movements":[],"declaredTotal":null,"profitSha
 Mensaje: "¿Cuál es el producto que más vendo?" (plan Asistente)
 Respuesta: {"type":"premium","movements":[],"declaredTotal":null,"profitShares":[],"concept":"reporte por producto","queryKind":null,"queryPeriod":null,"responseText":"Los reportes por producto están disponibles en los planes pagos.","confidence":0.9}
 
+Mensaje: "El último gasto no fueron 50.000 sino 60.000"
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"newAmount":60000,"newConcept":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
+
+Mensaje: "Borra el gasto de almuerzo"
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","newAmount":null,"newConcept":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
+
 Mensaje: "Gasté como 500 en unas cosas"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Tengo el monto de $500, pero ¿podrías decirme en qué lo gastaste? Así lo clasifico mejor.","confidence":0.4}`;
 
@@ -409,6 +449,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'movements',
     'declaredTotal',
     'profitShares',
+    'correction',
     'concept',
     'queryKind',
     'queryPeriod',
@@ -513,6 +554,32 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
             minimum: 0,
             maximum: 100,
           },
+        },
+      },
+    },
+    correction: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['action', 'reference', 'newAmount', 'newConcept'],
+      description:
+        'Que corregir de un movimiento ya registrado. null si el mensaje no pide corregir nada.',
+      properties: {
+        action: {
+          type: 'string',
+          enum: ['update', 'delete'],
+        },
+        reference: {
+          type: ['string', 'null'],
+          description:
+            'Texto que identifica cual movimiento. null = el ultimo registrado.',
+        },
+        newAmount: {
+          type: ['number', 'null'],
+          description: 'Monto corregido. null si no se cambia.',
+        },
+        newConcept: {
+          type: ['string', 'null'],
+          description: 'Concepto corregido. null si no se cambia.',
         },
       },
     },

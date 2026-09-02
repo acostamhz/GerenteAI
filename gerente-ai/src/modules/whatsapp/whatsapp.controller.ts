@@ -7,12 +7,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 
+import { DestinatariosService } from './services/destinatarios.service';
 import { InterpretMessageDto } from './dto/interpret-message.dto';
 import { N8nApiKeyGuard } from './guards/n8n-api-key.guard';
 import {
   WhatsappInterpretService,
   type InterpretResponse,
 } from './services/whatsapp-interpret.service';
+import type { FiadoPorCobrar } from './services/destinatarios.service';
 
 /**
  * API que consume n8n. Es la unica puerta de entrada del canal de WhatsApp.
@@ -25,7 +27,13 @@ import {
 @Controller('ai')
 @UseGuards(N8nApiKeyGuard)
 export class WhatsappController {
-  constructor(private readonly interpretService: WhatsappInterpretService) {}
+  /** Dias que se le dan al fiado antes de recordarle al duenno que cobre. */
+  private static readonly DIAS_PARA_COBRAR_FIADO = 5;
+
+  constructor(
+    private readonly interpretService: WhatsappInterpretService,
+    private readonly destinatarios: DestinatariosService,
+  ) {}
 
   /**
    * Interpreta un mensaje de WhatsApp y devuelve el texto de respuesta.
@@ -41,6 +49,48 @@ export class WhatsappController {
     return this.interpretService.interpret(dto);
   }
 
+  /**
+   * Sedes que hoy no registraron nada: la lista del recordatorio de las 9 p.m.
+   *
+   * Antes n8n resolvia esto con su propio SQL, que solo miraba la linea de la
+   * sede. Quien usaba el bot desde su telefono personal escribia sin problema
+   * pero nunca recibia el recordatorio. Ahora la definicion de "contacto
+   * alcanzable" es una sola y vive junto al enrutamiento que ya la conocia.
+   */
+  @Get('recordatorios/nocturno')
+  async recordatorioNocturno() {
+    const destinatarios = await this.destinatarios.sedesSinMovimientosHoy();
+    return { total: destinatarios.length, destinatarios };
+  }
+
+  /**
+   * Fiados que llevan 5 dias sin cobrarse.
+   *
+   * Servirlos los marca como avisados: si se marcaran despues del envio, dos
+   * ejecuciones simultaneas mandarian el mismo recordatorio dos veces.
+   */
+  @Get('recordatorios/fiados')
+  async recordatorioFiados() {
+    const fiados = await this.destinatarios.fiadosPorCobrar(
+      WhatsappController.DIAS_PARA_COBRAR_FIADO,
+    );
+    await this.destinatarios.marcarFiadosAvisados(fiados);
+
+    return {
+      total: fiados.length,
+      fiados: fiados.map((fiado) => ({
+        ...fiado,
+        // El monto ya formateado. Si lo armara n8n, el formato colombiano
+        // acabaria escrito en dos sitios y terminarian discrepando.
+        montoTexto: montoColombiano(fiado.saldo),
+        // Texto completo, para los canales que admiten texto libre y para el
+        // log. WhatsApp fuera de la ventana de 24 h exige plantilla, asi que el
+        // workflow envia las partes por separado; el tono se cambia aqui.
+        mensaje: mensajeDeCobro(fiado),
+      })),
+    };
+  }
+
   /** Comprobacion rapida desde n8n: ¿esta viva la integracion y la API key es correcta? */
   @Get('interpret/ping')
   ping() {
@@ -50,4 +100,29 @@ export class WhatsappController {
       at: new Date().toISOString(),
     };
   }
+}
+
+/**
+ * El texto del recordatorio de cobro.
+ *
+ * Se nombran la persona y el monto porque el duenno puede tener varios fiados
+ * abiertos y un aviso generico no le dice a quien perseguir.
+ */
+function mensajeDeCobro(fiado: FiadoPorCobrar): string {
+  const monto = montoColombiano(fiado.saldo);
+
+  return (
+    `Hola ${fiado.contacto} 👋 Un recordatorio de ${fiado.negocio} (${fiado.sede}):
+
+` +
+    `${fiado.cliente} te debe ${monto} del fiado que registraste hace ${fiado.diasTranscurridos} días.
+
+` +
+    `No olvides cobrarle. Cuando te pague, escríbeme y lo marco como cobrado.`
+  );
+}
+
+/** Pesos colombianos, sin decimales: `$45.000`. */
+function montoColombiano(valor: number): string {
+  return `$${Math.round(valor).toLocaleString('es-CO')}`;
 }

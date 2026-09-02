@@ -44,6 +44,13 @@ export interface WhatsappContext {
   /** true si el plan vigente es el gratuito: decide que funciones se ofrecen. */
   planIsFree: boolean;
   currency: string;
+  /**
+   * Dia en que arranca el periodo contable del negocio (1 a 28).
+   *
+   * Hay negocios cuyo mes va del 21 al 20; sin este dato el bot les cortaria
+   * los totales por el mes calendario y no coincidirian con su realidad.
+   */
+  diaInicioPeriodo: number;
   /** Contexto de negocio/sede que el dashboard configura para la IA. */
   contexto: string | null;
 }
@@ -60,6 +67,7 @@ interface SedeConNegocio {
     contexto: string | null;
     plan: number;
     planVenceEl: Date | null;
+    diaInicioPeriodo: number;
   };
 }
 
@@ -268,6 +276,7 @@ export class WhatsappRoutingService {
       sedeNombre: sede.nombre,
       ...this.planDelNegocio(sede.negocio),
       currency: DEFAULT_CURRENCY,
+      diaInicioPeriodo: sede.negocio.diaInicioPeriodo,
       contexto: sede.contexto ?? sede.negocio.contexto,
     };
   }
