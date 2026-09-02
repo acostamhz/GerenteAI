@@ -1248,3 +1248,68 @@ describe('WhatsAppMessageService - el desglose encuentra el total aunque venga d
     expect(financeData.saved).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// La fecha del movimiento es la de Colombia, no la del contenedor
+// ===========================================================================
+
+describe('WhatsAppMessageService - fecha colombiana', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('registra con el dia colombiano aunque en UTC ya sea manana', async () => {
+    // 1 de septiembre, 7:53 p.m. en Colombia = 2 de septiembre 00:53 UTC.
+    // La confirmacion decia "2 de sept" mientras el movimiento quedaba
+    // guardado el 1: la fecha se calculaba con toISOString(), que da UTC.
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-02T00:53:00.000Z'));
+
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({
+          amount: 50_000,
+          category: 'transporte',
+          concept: 'Transporte',
+        }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe('2026-09-01');
+  });
+
+  it('el texto de confirmacion muestra esa misma fecha', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-02T00:53:00.000Z'));
+
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 50_000, concept: 'Transporte' }),
+        movimiento({ amount: 30_000, concept: 'Almuerzo' }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.replyText).toContain('1 de sept');
+    expect(result.replyText).not.toContain('2 de sept');
+  });
+
+  it('antes de las 7 p.m. no hay diferencia', async () => {
+    // Mediodia en Colombia: el dia UTC y el colombiano coinciden.
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-01T17:00:00.000Z'));
+
+    const { service } = buildService({
+      type: 'expense',
+      movements: [movimiento({ amount: 50_000 })],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].date).toBe('2026-09-01');
+  });
+});
