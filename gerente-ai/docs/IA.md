@@ -76,6 +76,8 @@ proveedor (que rechace `temperature`, que no soporte JSON con esquema, que use
 | `src/modules/finance-ai/prompts/` | **Los system prompts.** Uno por caso de uso. |
 | `src/modules/finance-ai/services/` | Qué hace el backend con la respuesta del modelo. |
 | `src/modules/finance-ai/domain/finance.types.ts` | Tipos, categorías y sus etiquetas. |
+| `src/modules/finance-ai/domain/periodo-contable.ts` | **El periodo contable del negocio.** Un solo sitio decide qué es "este mes". |
+| `src/modules/whatsapp/services/destinatarios.service.ts` | **A quién puede escribirle el bot.** Lo consultan los workflows de recordatorios. |
 
 ---
 
@@ -229,7 +231,7 @@ Según el `type`, el backend actúa
 | `breakdown` | Busca el total ya registrado y lo **sustituye** por sus partes, en una sola transacción de base. No suma dinero nuevo. |
 | `profit_share` | Calcula el monto de cada beneficiario sobre la utilidad real del periodo y lo guarda. |
 | `query` | **Ignora el `responseText`** y arma la respuesta con cifras del backend, según `queryKind`. |
-| `correction` | Devuelve la intención. Aplicarla requiere persistencia (ver §8). |
+| `correction` | **Modifica o borra** el movimiento anterior en la misma tabla que lee el panel. Si hay varios candidatos, pregunta. |
 | `unclear` / `out_of_scope` / `premium` | Solo responden. |
 
 Y según el `queryKind`:
@@ -264,6 +266,91 @@ curl -X POST http://localhost:3000/ai/whatsapp/message \
    cobrar del panel. En los resúmenes se informa aparte para que el dueño no
    confunda lo vendido con lo cobrado.
 
+### Corregir un movimiento desde WhatsApp
+
+*"No, eran 60.000"*, *"el gasto de transporte era de 45.000"*, *"borra el último
+gasto"*. El modelo devuelve `type: "correction"` con:
+
+```json
+{
+  "correction": {
+    "action": "update | delete",
+    "reference": "transporte",   // null = el último movimiento
+    "newAmount": 60000,
+    "newConcept": null
+  }
+}
+```
+
+Cómo lo resuelve el backend:
+
+1. **Busca entre los movimientos de los últimos 31 días de esa sede.** Sin
+   `reference`, toma el más reciente. Con `reference`, busca por texto.
+2. **Si encuentra varios, pregunta.** Corregir el movimiento equivocado no
+   arregla el error: lo mueve de sitio y lo esconde. Preferimos una pregunta más.
+3. **Si no encuentra ninguno, lo dice**, nombrando lo que buscó.
+4. **Aplica el cambio sobre las mismas tablas que lee el panel** (`Venta`,
+   `Gasto`). No hay ningún paso de sincronización: el dueño corrige por WhatsApp
+   y lo ve en la web al recargar.
+
+Un detalle que no es obvio: si el monto corregido pertenece a un fiado, también
+se actualiza `saldoPendiente`. Sin eso, el reporte de cuentas por cobrar seguiría
+mostrando la deuda vieja aunque la venta ya estuviera corregida.
+
+### El periodo contable del negocio
+
+No todos cierran el mes calendario. Hay negocios cuyo mes va **del 21 al 20**,
+porque así les cuadra con la nómina o con el pago a proveedores. Si el sistema
+asume siempre del 1 al 30, sus reportes cortan por donde no es.
+
+`Negocio.diaInicioPeriodo` guarda el día de arranque (1–28; se limita a 28 para
+que exista en febrero). El día de cierre es el anterior: arrancar el 21 cierra
+el 20. La regla vive **una sola vez**, en
+[`periodo-contable.ts`](../src/modules/finance-ai/domain/periodo-contable.ts), y
+la usan igual el chatbot y los reportes del panel.
+
+Qué cambia con `diaInicioPeriodo = 21`, un 5 de septiembre:
+
+| Consulta | Con `1` (por defecto) | Con `21` |
+| --- | --- | --- |
+| *"¿cómo voy este mes?"* | 01/09 → 05/09 | **21/08** → 05/09 |
+| *"¿y hoy?"* | 05/09 | 05/09 |
+| *"¿esta semana?"* | 31/08 → 05/09 | 31/08 → 05/09 |
+
+El día y la semana no dependen del corte: solo el mes. Con el valor por defecto
+`1` el comportamiento es idéntico al de siempre, así que los negocios que ya
+existen no notan nada.
+
+### Recordatorios automáticos
+
+Dos endpoints que consume n8n, ambos detrás de `N8nApiKeyGuard`:
+
+| Endpoint | Cuándo | Qué devuelve |
+| --- | --- | --- |
+| `GET /ai/recordatorios/nocturno` | Cron 21:00 | Sedes que hoy no registraron ningún movimiento. |
+| `GET /ai/recordatorios/fiados` | Cron 10:00 | Fiados con saldo y 5 días sin cobrar, con el texto ya armado. |
+
+Los dos preguntan lo mismo primero: **¿a quién puedo escribirle?** Esa respuesta
+vive en
+[`destinatarios.service.ts`](../src/modules/whatsapp/services/destinatarios.service.ts)
+y sigue el mismo orden que el enrutamiento de entrada:
+
+```
+Sede.telefono  →  Sede.whatsappUserId  →  Usuario.telefono
+```
+
+Ese último paso es el que faltaba. El workflow de n8n tenía su propia consulta
+SQL que solo miraba los dos primeros, así que **quien usaba el bot desde su
+número personal, con la sede sin línea propia, escribía sin problema pero nunca
+recibía el recordatorio**. Era exactamente el síntoma reportado: *"a algunos
+contactos no les llega"*. Ahora la definición está una sola vez y n8n la
+consulta.
+
+> **Ojo con `/ai/recordatorios/fiados`:** servirlo **ya marca** los avisos como
+> enviados. Es deliberado —marcarlos después del envío haría que dos ejecuciones
+> solapadas mandaran el mismo recordatorio dos veces—, pero implica que
+> ejecutarlo a mano para probar quema los avisos del día.
+
 ### Insights — `POST /ai/insights`
 
 Alimenta la pantalla *Recomendaciones de IA*. Toma la foto real del negocio
@@ -294,9 +381,9 @@ Los planes de la pantalla de suscripción están en `src/ai/usage/usage.service.
 
 | Plan | Mensajes de IA/mes |
 | --- | --- |
-| Asistente | 50 |
-| Gerente | 500 |
-| Director | 5.000 |
+| Asistente (gratuito) | 500 |
+| Gerente | 4.000 |
+| Director | 10.000 |
 | Corporativo | sin límite |
 
 `LlmService` verifica la cuota **antes** de llamar al modelo y registra el
@@ -334,8 +421,12 @@ modelo económico, insights y asistente (donde se nota la calidad) en el premium
 
 ## 8. Cambios de base de datos (aplicar antes de desplegar)
 
-La versión v7 del prompt necesita columnas que antes no existían. **Sin este
-paso el backend arranca pero falla al guardar.**
+El prompt y las funciones nuevas necesitan columnas que antes no existían.
+**Sin este paso el backend arranca pero falla al guardar.**
+
+> En Render no hay que hacer nada a mano: el *Start Command* es
+> `npx prisma db push && node dist/main`, así que el esquema se aplica solo en
+> cada despliegue.
 
 ```bash
 npx prisma generate     # regenera el cliente tipado
@@ -352,6 +443,8 @@ tipo ni se eliminó, así que los datos actuales siguen siendo válidos.
 | `Venta.grupoId`, `Gasto.grupoId` | texto opcional | Mantiene la relación entre un total y sus subcampos. |
 | `RepartoUtilidad` | tabla nueva | Reparto de ganancias. Va aparte de `Gasto` porque repartir utilidades no es un costo: mezclarlo distorsionaría los márgenes. |
 | `MetodoPago`, `BeneficiarioReparto` | enums nuevos | — |
+| `Negocio.diaInicioPeriodo` | entero, por defecto `1` | Día en que arranca el mes contable del negocio. Con `1` todo se comporta como siempre. |
+| `RecordatorioFiado` | tabla nueva | Deja constancia de que ya se avisó por un fiado, para no repetir el aviso cada día. |
 
 **Para el frontend:** el campo `grupoId` es la clave para mostrar el total con
 sus subcampos anidados en la tabla del Resumen. Los movimientos que comparten
@@ -368,8 +461,6 @@ Esta capa está completa y funcionando, pero el backend a su alrededor todavía 
       contabilidad de otro negocio y gastar su cuota de IA.
 - [ ] **Cuotas persistentes.** `AiUsageRepository` sigue en memoria: se reinicia
       con cada despliegue, así que todavía no se puede facturar por mensajes.
-- [ ] **Aplicar una corrección** (`type: "correction"`): hoy se interpreta y se
-      responde, pero no modifica el movimiento.
 - [ ] **Rate limiting por IP/tenant**, además de la cuota del plan.
 - [ ] **Caché de insights**: hoy cada llamada gasta tokens; regenerarlos una vez
       al día por negocio es suficiente.

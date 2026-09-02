@@ -53,21 +53,21 @@ export function finDelDia(fecha: string): Date {
  *
  * Se devuelven ya resueltos en vez de exponer el `Date` corrido, porque ese
  * intermedio es facil de usar mal: sus getters locales darian otra cosa.
+ *
+ * Aqui hubo un `primeroDelMes` y se quito a proposito: invitaba a asumir que el
+ * mes arranca el dia 1, y no siempre es asi. El inicio del mes contable lo
+ * decide `periodo-contable.ts`, que conoce el dia de corte del negocio.
  */
 export function partesDelDia(instante: Date): {
   fecha: string;
   /** 0 = domingo, como `Date.getDay()`. */
   diaDeLaSemana: number;
-  /** `YYYY-MM-01` del mes al que pertenece. */
-  primeroDelMes: string;
 } {
   const local = enColombia(instante);
-  const fecha = local.toISOString().slice(0, 10);
 
   return {
-    fecha,
+    fecha: local.toISOString().slice(0, 10),
     diaDeLaSemana: local.getUTCDay(),
-    primeroDelMes: `${fecha.slice(0, 7)}-01`,
   };
 }
 

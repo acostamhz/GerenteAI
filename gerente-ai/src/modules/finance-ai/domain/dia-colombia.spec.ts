@@ -78,20 +78,18 @@ describe('límites del día', () => {
 });
 
 describe('partesDelDia', () => {
-  it('resuelve fecha, día de la semana y primero de mes en hora colombiana', () => {
+  it('resuelve fecha y día de la semana en hora colombiana', () => {
     // 30 de agosto de 2026 fue domingo.
     expect(partesDelDia(GASTO_DE_LAS_11PM)).toEqual({
       fecha: '2026-08-30',
       diaDeLaSemana: 0,
-      primeroDelMes: '2026-08-01',
     });
   });
 
-  // A las 11 p.m. del último día del mes, el mes todavía no cambió.
-  it('no adelanta el mes por el desfase', () => {
+  // A las 11 p.m. del último día del mes, el día todavía no cambió.
+  it('no adelanta el día por el desfase', () => {
     expect(partesDelDia(new Date('2026-09-01T03:00:00.000Z'))).toMatchObject({
       fecha: '2026-08-31',
-      primeroDelMes: '2026-08-01',
     });
   });
 });
