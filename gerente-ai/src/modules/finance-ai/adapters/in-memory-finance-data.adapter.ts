@@ -1,15 +1,20 @@
 import { Injectable } from '@nestjs/common';
 
+import { randomUUID } from 'node:crypto';
+
 import {
   type BusinessSnapshot,
   type CategoryTotal,
   type MonthlyTotals,
+  type Receivable,
   type Transaction,
   type TransactionCategory,
   type TransactionType,
 } from '../domain/finance.types';
 import type {
   FinanceDataPort,
+  PaymentRequest,
+  PaymentResult,
   ProfitDistribution,
   TransactionChanges,
   TransactionQuery,
@@ -58,8 +63,10 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
       totalExpense,
       totalInvestment,
       balance: totalIncome - totalExpense - totalInvestment,
-      monthly: groupByMonth(rows),
-      topCategories: topCategories(rows),
+      totalReceivable: this.deudaViva(businessId).total,
+      receivables: this.cuentasPorCobrar(businessId),
+      monthly: groupByMonth(contado),
+      topCategories: topCategories(contado),
       recentTransactions: [...rows]
         .sort((a, b) => b.date.localeCompare(a.date))
         .slice(0, 15),
@@ -99,6 +106,154 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
     this.transactions.push(...parts);
 
     return Promise.resolve(parts);
+  }
+
+  /**
+   * Version en memoria del cobro de un fiado: baja el saldo de las ventas a
+   * credito del cliente y deja el abono como un ingreso de categoria "cobros".
+   *
+   * Replica el criterio del adaptador real —lo mas viejo primero, y el ingreso
+   * nace al cobrar, no al fiar— para que las pruebas que corren contra este
+   * adaptador digan la verdad sobre el de produccion.
+   */
+  registerPayment(payment: PaymentRequest): Promise<PaymentResult> {
+    const nombre = payment.customerName.trim().toLowerCase();
+
+    const pendientes = this.transactions
+      .filter(
+        (row) =>
+          row.businessId === payment.businessId &&
+          row.isCredit &&
+          (row.customerName ?? '').trim().toLowerCase() === nombre,
+      )
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    if (!pendientes.length) {
+      return Promise.resolve(
+        sinAplicar('cliente_no_encontrado', payment.customerName),
+      );
+    }
+
+    const abiertas = pendientes.filter((row) => saldoDe(row) > 0);
+    const deuda = redondear(
+      abiertas.reduce((suma, row) => suma + saldoDe(row), 0),
+    );
+
+    const real = pendientes[0].customerName ?? payment.customerName;
+    if (deuda <= 0) return Promise.resolve(sinAplicar('sin_deuda', real));
+
+    const pedido = payment.amount ?? deuda;
+    const aplicado = redondear(Math.min(pedido, deuda));
+
+    let porRepartir = aplicado;
+    let saldadas = 0;
+
+    for (const fila of abiertas) {
+      if (porRepartir <= 0) break;
+      const saldo = saldoDe(fila);
+      const parte = redondear(Math.min(porRepartir, saldo));
+      fila.pendingAmount = redondear(saldo - parte);
+      if (fila.pendingAmount === 0) saldadas += 1;
+      porRepartir = redondear(porRepartir - parte);
+    }
+
+    this.transactions.push({
+      id: randomUUID(),
+      businessId: payment.businessId,
+      date: payment.date,
+      description: `Abono de ${real}`,
+      category: 'cobros',
+      amount: aplicado,
+      type: 'income',
+      currency: 'COP',
+      source: 'whatsapp',
+      createdAt: new Date().toISOString(),
+      isCredit: false,
+      pendingAmount: null,
+      customerName: real,
+    });
+
+    return Promise.resolve({
+      applied: true,
+      reason: null,
+      customerName: real,
+      amount: aplicado,
+      remaining: redondear(deuda - aplicado),
+      excess: redondear(pedido - aplicado),
+      settledSales: saldadas,
+    });
+  }
+
+  listReceivables(businessId: string): Promise<Receivable[]> {
+    return Promise.resolve(this.cuentasPorCobrar(businessId));
+  }
+
+  /** Fiados con saldo vivo, agrupados por cliente. */
+  private cuentasPorCobrar(businessId: string): Receivable[] {
+    const hoy = today();
+    const fichas = new Map<string, Receivable>();
+
+    for (const fila of this.transactions) {
+      if (fila.businessId !== businessId || !fila.isCredit) continue;
+      if (saldoDe(fila) <= 0) continue;
+
+      const nombre = fila.customerName ?? 'Cliente sin identificar';
+      const clave = nombre.trim().toLowerCase();
+
+      const ficha = fichas.get(clave) ?? {
+        customerId: clave,
+        customerName: nombre,
+        pending: 0,
+        paid: 0,
+        total: 0,
+        oldestSince: fila.date,
+        daysOutstanding: 0,
+        lastPaymentDate: null,
+        daysSinceLastPayment: null,
+        openSales: 0,
+      };
+
+      ficha.pending = redondear(ficha.pending + saldoDe(fila));
+      ficha.paid = redondear(ficha.paid + (fila.amount - saldoDe(fila)));
+      ficha.total = redondear(ficha.total + fila.amount);
+      ficha.openSales += 1;
+      if (fila.date < ficha.oldestSince) ficha.oldestSince = fila.date;
+
+      fichas.set(clave, ficha);
+    }
+
+    for (const ficha of fichas.values()) {
+      ficha.daysOutstanding = diasEntre(ficha.oldestSince, hoy);
+
+      const ultimo = this.transactions
+        .filter(
+          (row) =>
+            row.businessId === businessId &&
+            row.category === 'cobros' &&
+            (row.customerName ?? '').trim().toLowerCase() === ficha.customerId,
+        )
+        .sort((a, b) => b.date.localeCompare(a.date))[0];
+
+      if (ultimo) {
+        ficha.lastPaymentDate = ultimo.date;
+        ficha.daysSinceLastPayment = diasEntre(ultimo.date, hoy);
+      }
+    }
+
+    return [...fichas.values()].sort(
+      (a, b) => b.daysOutstanding - a.daysOutstanding,
+    );
+  }
+
+  private deudaViva(businessId: string): { total: number } {
+    return {
+      total: redondear(
+        this.cuentasPorCobrar(businessId).reduce(
+          (suma, ficha) => suma + ficha.pending,
+          0,
+        ),
+      ),
+    };
   }
 
   saveProfitDistribution(
@@ -286,4 +441,34 @@ function seedTransactions(): Transaction[] {
     source: 'import' as const,
     createdAt: new Date(`${date}T12:00:00.000Z`).toISOString(),
   }));
+}
+
+/** Lo que falta por cobrar de una venta fiada. Sin abonos, es el total. */
+function saldoDe(fila: Transaction): number {
+  return fila.pendingAmount ?? fila.amount;
+}
+
+function redondear(valor: number): number {
+  return Math.round(valor * 100) / 100;
+}
+
+function diasEntre(desde: string, hasta: string): number {
+  const inicio = new Date(`${desde}T00:00:00.000Z`).getTime();
+  const fin = new Date(`${hasta}T00:00:00.000Z`).getTime();
+  return Math.max(0, Math.round((fin - inicio) / 86_400_000));
+}
+
+function sinAplicar(
+  reason: PaymentResult['reason'],
+  customerName: string,
+): PaymentResult {
+  return {
+    applied: false,
+    reason,
+    customerName,
+    amount: 0,
+    remaining: 0,
+    excess: 0,
+    settledSales: 0,
+  };
 }

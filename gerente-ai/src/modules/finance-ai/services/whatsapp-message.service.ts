@@ -26,6 +26,7 @@ import {
   type MessageIntent,
   type MessageIntentType,
   type MovementDraft,
+  type PaymentDraft,
   type PaymentMethod,
   type PeriodSummary,
   type ProfitBeneficiary,
@@ -39,6 +40,7 @@ import {
 import {
   FINANCE_DATA_PORT,
   type FinanceDataPort,
+  type PaymentResult,
 } from '../ports/finance-data.port';
 import {
   WHATSAPP_ASSISTANT_PROMPT_VERSION,
@@ -99,6 +101,8 @@ export interface WhatsAppMessageResult {
     total: number;
     shares: ProfitShare[];
   } | null;
+  /** Como quedo la deuda, si el mensaje avisaba de un cobro de fiado. */
+  payment: PaymentResult | null;
   /** Resumen real del periodo, si el mensaje era una consulta. */
   summary: PeriodSummary | null;
   /** El texto que se le responde al usuario por WhatsApp. */
@@ -208,6 +212,15 @@ export class WhatsAppMessageService {
       case 'correction':
         return this.handleCorrection(intent, request, currency, meta);
 
+      case 'payment':
+        return this.handlePayment(
+          intent,
+          request,
+          currency,
+          referenceDate,
+          meta,
+        );
+
       case 'income':
       case 'expense':
       case 'investment':
@@ -252,6 +265,21 @@ export class WhatsAppMessageService {
       );
     }
 
+    // Un fiado sin nombre es una deuda que nadie puede cobrar: no se sabe a
+    // quien reclamarle ni a que saldo aplicarle un abono despues. Preguntar
+    // ahora cuesta un mensaje; descubrirlo un mes despues cuesta la plata.
+    const fiadoSinCliente = intent.movements.find(
+      (movimiento) => movimiento.isCredit && !movimiento.customerName,
+    );
+
+    if (fiadoSinCliente) {
+      return this.needsClarification(
+        intent,
+        '¿A quién le fiaste? Necesito el nombre para saber después quién te debe.',
+        meta,
+      );
+    }
+
     const descuadre = checkBreakdown(intent.declaredTotal, intent.movements);
     if (descuadre) {
       this.logger.warn(
@@ -280,6 +308,7 @@ export class WhatsAppMessageService {
       transactions,
       transaction: transactions[0] ?? null,
       profitDistribution: null,
+      payment: null,
       summary: null,
       // Con un solo movimiento se respeta el texto del modelo, que suena
       // natural. Con varios lo arma el backend: son cifras, y las cifras las
@@ -288,6 +317,71 @@ export class WhatsAppMessageService {
         transactions.length === 1
           ? intent.responseText
           : renderMovementsRegistered(transactions, currency),
+      meta,
+    };
+  }
+
+  /**
+   * Registra que le pagaron un fiado.
+   *
+   * No crea un movimiento: baja el saldo de las ventas a credito que ya
+   * estaban registradas. El ingreso aparece solo, porque el abono se lee
+   * despues como un movimiento de categoria "cobros" con la fecha del pago.
+   * Registrarlo como venta nueva —que es lo que pasaba antes— contaba la
+   * misma plata dos veces y dejaba la deuda del cliente intacta.
+   */
+  private async handlePayment(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    referenceDate: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const abono = intent.payment;
+
+    // Sin nombre no hay deuda a la cual aplicarlo. Preguntar es mejor que
+    // adivinar: aplicarselo al cliente equivocado descuadra dos cuentas.
+    if (!abono?.customerName) {
+      return this.needsClarification(
+        intent,
+        '¡Qué bueno que te pagaron! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.',
+        meta,
+      );
+    }
+
+    if (!request.persist) {
+      return this.plainResult(intent, intent.responseText, meta);
+    }
+
+    const resultado = await this.financeData.registerPayment({
+      businessId: request.businessId,
+      customerName: abono.customerName,
+      // "Ya me pago todo" no trae monto: se salda lo que deba, que el sistema
+      // si sabe cuanto es.
+      amount: abono.settlesDebt ? null : abono.amount,
+      date: abono.date ?? referenceDate,
+    });
+
+    if (resultado.applied) {
+      this.logger.log(
+        `Abono de ${resultado.amount} de "${resultado.customerName}" en sede ${request.businessId}: quedan ${resultado.remaining}.`,
+      );
+    } else {
+      this.logger.warn(
+        `Abono no aplicado (${resultado.reason}) para "${abono.customerName}" en sede ${request.businessId}.`,
+      );
+    }
+
+    return {
+      intent,
+      transactions: [],
+      transaction: null,
+      profitDistribution: null,
+      payment: resultado,
+      summary: null,
+      // Las cifras las pone el backend: cuanto quedo debiendo es justo el dato
+      // que el modelo no puede saber y el dueno si necesita.
+      replyText: renderPayment(resultado, currency),
       meta,
     };
   }
@@ -342,6 +436,7 @@ export class WhatsAppMessageService {
         transactions: partes,
         transaction: partes[0] ?? null,
         profitDistribution: null,
+        payment: null,
         summary: null,
         replyText: renderMovementsRegistered(partes, currency),
         meta,
@@ -361,6 +456,7 @@ export class WhatsAppMessageService {
       transactions: partes,
       transaction: partes[0] ?? null,
       profitDistribution: null,
+      payment: null,
       summary: null,
       replyText: renderBreakdown(partes, suma, currency),
       meta,
@@ -517,12 +613,18 @@ export class WhatsAppMessageService {
     referencia: string | null,
   ): Promise<Transaction[]> {
     const hoy = todayIso();
-    const rows = await this.financeData.listTransactions({
+    const todo = await this.financeData.listTransactions({
       businessId: request.businessId,
       from: sumarDias(hoy, -CORRECTION_WINDOW_DAYS),
       to: hoy,
       limit: 200,
     });
+
+    // Los abonos quedan fuera: no son movimientos que se corrijan, son el
+    // cobro de un fiado. 'deleteTransaction' no los toca, asi que si entraran
+    // el bot responderia "listo, lo borre" sin haber borrado nada. Deshacer un
+    // abono se hace desde el panel, donde ademas se devuelve la deuda.
+    const rows = todo.filter((row) => row.category !== 'cobros');
 
     if (!referencia) {
       // `listTransactions` viene ordenado del mas reciente al mas viejo.
@@ -605,6 +707,7 @@ export class WhatsAppMessageService {
       transactions: [],
       transaction: null,
       profitDistribution: { total: summary.balance, shares },
+      payment: null,
       summary,
       replyText: renderProfitShare(summary.balance, shares, currency),
       meta,
@@ -681,6 +784,7 @@ export class WhatsAppMessageService {
       transactions: [],
       transaction: null,
       profitDistribution: null,
+      payment: null,
       summary: null,
       replyText,
       meta,
@@ -705,6 +809,7 @@ export class WhatsAppMessageService {
         movements: [],
         amount: null,
         category: null,
+        payment: null,
         queryKind: null,
         queryPeriod: null,
         // Si no se pudo completar, la interpretacion no puede considerarse
@@ -727,6 +832,7 @@ export class WhatsAppMessageService {
     const type = normalizeType(output?.type);
     const movements = normalizeMovements(output?.movements);
     const concept = cleanText(output?.concept);
+    const payment = normalizePayment(output?.payment);
 
     // `amount` y `category` se derivan de los movimientos para que quien solo
     // entiende un movimiento (n8n, el panel) siga leyendo algo coherente.
@@ -743,6 +849,7 @@ export class WhatsAppMessageService {
       declaredTotal: normalizeAmount(output?.declaredTotal),
       profitShares: normalizeProfitShares(output?.profitShares),
       correction: normalizeCorrection(output?.correction),
+      payment,
       amount,
       category,
       concept: conceptoEfectivo,
@@ -761,6 +868,7 @@ export class WhatsAppMessageService {
         type,
         amount,
         concept: conceptoEfectivo,
+        hasPayment: payment !== null,
       }),
     };
   }
@@ -858,7 +966,9 @@ export class WhatsAppMessageService {
 
     for (const row of rows) {
       if (row.isCredit) {
-        pendingCollection += row.amount;
+        // El SALDO, no lo vendido: lo que el cliente ya abono dejo de ser una
+        // cuenta por cobrar y entro a los ingresos por su lado, como abono.
+        pendingCollection += row.pendingAmount ?? row.amount;
         // Tampoco entra en el desglose por categoria: si entrara, las
         // categorias no sumarian los ingresos y el resumen se contradiria.
         continue;
@@ -911,6 +1021,7 @@ const INTENT_TYPES: MessageIntentType[] = [
   'unclear',
   'out_of_scope',
   'premium',
+  'payment',
 ];
 
 const TRANSACTION_TYPES: TransactionType[] = [
@@ -1076,6 +1187,34 @@ function normalizeCorrection(value: unknown): CorrectionRequest | null {
  * Si el modelo no la dice pero dejo un termino de busqueda, es una busqueda:
  * un modelo pequeno omite el campo nuevo antes que el que ya conocia.
  */
+/**
+ * Saneamiento del abono.
+ *
+ * Sin nombre de cliente no se devuelve nada: el manejador lo trata como un
+ * mensaje incompleto y pregunta, que es preferible a aplicarle el pago a
+ * quien no era.
+ */
+function normalizePayment(value: unknown): PaymentDraft | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const crudo = value as Record<string, unknown>;
+  const customerName = cleanText(crudo.customerName);
+  if (!customerName) return null;
+
+  const amount = normalizeAmount(crudo.amount);
+  // "Pago todo" tambien se deduce de la ausencia de monto: si el modelo no
+  // marco settlesDebt pero tampoco dijo cuanto, saldar la deuda entera es la
+  // unica lectura posible del mensaje.
+  const settlesDebt = crudo.settlesDebt === true || amount === null;
+
+  return {
+    customerName,
+    amount: settlesDebt ? null : amount,
+    settlesDebt,
+    date: normalizeMovementDate(crudo.date),
+  };
+}
+
 function normalizeQueryKind(value: unknown, concept: string | null): QueryKind {
   if (value === 'summary' || value === 'list' || value === 'search') {
     return value;
@@ -1139,6 +1278,7 @@ function normalizeConfidence(
     type: MessageIntentType;
     amount: number | null;
     concept: string | null;
+    hasPayment: boolean;
   },
 ): number {
   const reported = Number(value);
@@ -1152,6 +1292,9 @@ function normalizeConfidence(
   if (intent.type === 'premium') return 0.9;
   if (intent.type === 'query') return 0.85;
   if (intent.type === 'correction') return 0.6;
+  // Un abono no lleva monto propio ("Rosa ya me pago" no dice cuanto): lo que
+  // lo hace interpretable es saber de quien es el pago, no la cifra.
+  if (intent.type === 'payment') return intent.hasPayment ? 0.9 : 0.4;
   if (intent.amount === null) return 0.4;
   return intent.concept ? 0.9 : 0.7;
 }
@@ -1244,10 +1387,11 @@ export function renderSummary(summary: PeriodSummary): string {
   }
 
   // Va aparte y despues del balance, para que quede claro que es plata que
-  // todavia no entro y no forma parte de los ingresos de arriba.
+  // todavia no entro y no forma parte de los ingresos de arriba. Es el saldo
+  // vivo: lo que ya te abonaron dejo de estar aqui y esta en "Ingresos".
   if (summary.pendingCollection > 0) {
     lines.push(
-      `Aparte, vendiste ${money(summary.pendingCollection)} a crédito que aún no has cobrado.`,
+      `Aparte, te deben ${money(summary.pendingCollection)} de ventas fiadas.`,
     );
   }
 
@@ -1360,6 +1504,48 @@ export function renderSearch(
  * Se dicen el valor viejo y el nuevo: el usuario esta corrigiendo justamente
  * porque una cifra estaba mal, y necesita ver que ahora quedo la que queria.
  */
+/**
+ * Como quedo la deuda despues de un abono.
+ *
+ * El dato que el dueno quiere no es "registrado": es cuanto le siguen
+ * debiendo. Por eso lo escribe el backend y no el modelo, que no lo sabe.
+ */
+export function renderPayment(
+  resultado: PaymentResult,
+  currency: string,
+): string {
+  const money = (value: number) => formatMoney(value, currency);
+
+  if (!resultado.applied) {
+    return resultado.reason === 'sin_deuda'
+      ? `${resultado.customerName} no tiene fiados pendientes: ya está al día. ¿Era otro cliente?`
+      : `No encontré ningún fiado a nombre de ${resultado.customerName}. ¿Me confirmas cómo se llama en tus registros?`;
+  }
+
+  const lines: string[] = [];
+
+  if (resultado.remaining === 0) {
+    lines.push(
+      `🎉 ${resultado.customerName} quedó al día. Registré ${money(resultado.amount)} y ya no te debe nada.`,
+    );
+  } else {
+    lines.push(
+      `✅ Registré el abono de ${money(resultado.amount)} de ${resultado.customerName}.`,
+      `Le quedan ${money(resultado.remaining)} por pagarte.`,
+    );
+  }
+
+  // Cobrar de mas dejaria la deuda en negativo, asi que se recorta. Callarlo
+  // haria que el dueno creyera que registro una cifra que no registro.
+  if (resultado.excess > 0) {
+    lines.push(
+      `Ojo: solo te debía ${money(resultado.amount)}, así que los ${money(resultado.excess)} de más no los registré.`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
 export function renderCorrected(
   antes: Transaction,
   despues: Transaction,
