@@ -26,6 +26,7 @@ import {
 import type {
   FinanceDataPort,
   ProfitDistribution,
+  TransactionChanges,
   TransactionQuery,
 } from '../ports/finance-data.port';
 
@@ -269,6 +270,83 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
     );
 
     return distribution;
+  }
+
+  /**
+   * Corrige un movimiento en PostgreSQL.
+   *
+   * Al escribir en las mismas tablas que lee el panel (`Venta`, `Gasto`), la
+   * correccion hecha por WhatsApp aparece en la web sin ningun paso extra: no
+   * hay copia que sincronizar.
+   *
+   * Un movimiento puede ser venta o gasto y el id no dice cual, asi que se
+   * intenta en las dos tablas; solo una tiene la fila.
+   */
+  async updateTransaction(
+    businessId: string,
+    transactionId: string,
+    changes: TransactionChanges,
+  ): Promise<Transaction | null> {
+    const monto =
+      changes.amount !== undefined
+        ? new Prisma.Decimal(changes.amount)
+        : undefined;
+
+    const venta = await this.prisma.venta.updateMany({
+      where: { id: transactionId, sedeId: businessId },
+      data: {
+        total: monto,
+        descripcion: changes.description,
+        // Un fiado corregido debe reflejar el nuevo saldo por cobrar; si no,
+        // el reporte de cuentas por cobrar seguiria mostrando el monto viejo.
+        ...(monto !== undefined ? { saldoPendiente: monto } : {}),
+      },
+    });
+
+    if (venta.count === 0) {
+      const gasto = await this.prisma.gasto.updateMany({
+        where: { id: transactionId, sedeId: businessId },
+        data: { monto, descripcion: changes.description },
+      });
+      if (gasto.count === 0) return null;
+    }
+
+    this.logger.log(
+      `Movimiento ${transactionId} corregido en sede ${businessId}: ${JSON.stringify(changes)}.`,
+    );
+
+    return this.findTransaction(businessId, transactionId);
+  }
+
+  async deleteTransaction(
+    businessId: string,
+    transactionId: string,
+  ): Promise<boolean> {
+    const [venta, gasto] = await this.prisma.$transaction([
+      this.prisma.venta.deleteMany({
+        where: { id: transactionId, sedeId: businessId },
+      }),
+      this.prisma.gasto.deleteMany({
+        where: { id: transactionId, sedeId: businessId },
+      }),
+    ]);
+
+    const borrado = venta.count + gasto.count > 0;
+    if (borrado) {
+      this.logger.log(
+        `Movimiento ${transactionId} eliminado de la sede ${businessId}.`,
+      );
+    }
+    return borrado;
+  }
+
+  /** Relee un movimiento por su id, venga de la tabla que venga. */
+  private async findTransaction(
+    businessId: string,
+    transactionId: string,
+  ): Promise<Transaction | null> {
+    const rows = await this.listTransactions({ businessId, limit: 1_000 });
+    return rows.find((row) => row.id === transactionId) ?? null;
   }
 
   // ------------------------------------------------------- escritura: detalle

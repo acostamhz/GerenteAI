@@ -264,6 +264,8 @@ export class WhatsappInterpretService {
         message: dto.message,
         businessName: context.negocioNombre,
         currency: context.currency,
+        // El periodo contable del negocio: hay quienes cierran el 20, no el 30.
+        diaInicioPeriodo: context.diaInicioPeriodo,
         plan: context.plan,
         planName: context.planName,
         planIsFree: context.planIsFree,

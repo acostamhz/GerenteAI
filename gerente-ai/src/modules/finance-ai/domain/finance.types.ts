@@ -167,6 +167,25 @@ export interface MovementDraft {
   customerName: string | null;
 }
 
+/**
+ * Lo que el usuario quiere cambiar de un movimiento ya registrado.
+ *
+ * La gente dicta mal por WhatsApp ("eran 60.000, no 50.000") y hasta ahora la
+ * unica salida era entrar al panel a corregirlo. Solo se admiten el monto y el
+ * concepto: cambiar el tipo implicaria mover la fila de tabla, y para eso es
+ * mas claro borrar y volver a registrar.
+ */
+export interface CorrectionRequest {
+  action: 'update' | 'delete';
+  /**
+   * Como ubicar el movimiento: el texto que lo identifica ("el de transporte").
+   * null significa "el ultimo que registre", que es el caso mas comun.
+   */
+  reference: string | null;
+  newAmount: number | null;
+  newConcept: string | null;
+}
+
 /** Que clase de consulta hizo el usuario. */
 export type QueryKind =
   /** "¿Como voy?" → totales del periodo. */
@@ -195,6 +214,8 @@ export interface MessageIntent {
   declaredTotal: number | null;
   /** Reparto de utilidades, cuando el mensaje lo menciona. */
   profitShares: ProfitShare[];
+  /** Que corregir, cuando el mensaje pide arreglar algo ya registrado. */
+  correction: CorrectionRequest | null;
   /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.

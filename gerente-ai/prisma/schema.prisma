@@ -81,15 +81,25 @@ model Usuario {
 }
 
 model Negocio {
-  id                 String    @id @default(uuid())
+  id                 String  @id @default(uuid())
   nombre             String
   telefonoContacto   String? // Teléfono general/administrativo (no usado por el bot)
   telefonoSecundario String?
-  contexto           String?   @db.Text // Contexto general de IA para el negocio
-  plan               Int       @default(1)
-  planVenceEl        DateTime?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
+  contexto           String? @db.Text // Contexto general de IA para el negocio
+  /// Dia en que arranca el periodo contable del negocio (1 a 28).
+  ///
+  /// No todos cierran el mes calendario: hay negocios cuyo periodo va del 21 al
+  /// 20 del mes siguiente. El dia de cierre no se guarda porque se deduce
+  /// (inicio - 1) y guardar los dos permitiria dejarlos inconsistentes.
+  ///
+  /// Se limita a 28 para que exista en todos los meses: un periodo que empiece
+  /// el 30 no tendria fecha valida en febrero.
+  diaInicioPeriodo   Int     @default(1)
+
+  plan        Int       @default(1)
+  planVenceEl DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   usuariosNegocio UsuarioNegocio[]
   sedes           Sede[]
@@ -247,9 +257,27 @@ model Venta {
   detalles DetalleVenta[]
   abonos   Abono[]
 
+  recordatorios RecordatorioFiado[]
+
   @@index([sedeId, fecha])
   @@index([clienteId, saldoPendiente])
   @@index([grupoId])
+}
+
+/// Constancia de que ya se avisó por un fiado sin cobrar.
+///
+/// Existe para no repetir el aviso: el job puede correr dos veces, o correr
+/// tarde si Render estuvo dormido, y el duenno no deberia recibir el mismo
+/// recordatorio cada dia. La unicidad sobre `ventaId` es la que lo garantiza.
+model RecordatorioFiado {
+  id        String   @id @default(uuid())
+  ventaId   String   @unique
+  venta     Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  /// Saldo que quedaba pendiente cuando se aviso, para poder auditarlo.
+  saldo     Decimal
+  enviadoEl DateTime @default(now())
+
+  @@index([enviadoEl])
 }
 
 model DetalleVenta {

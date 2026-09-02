@@ -11,6 +11,7 @@ import {
 import type {
   FinanceDataPort,
   ProfitDistribution,
+  TransactionChanges,
   TransactionQuery,
 } from '../ports/finance-data.port';
 
@@ -98,6 +99,36 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
   ): Promise<ProfitDistribution> {
     this.profitDistributions.push(distribution);
     return Promise.resolve(distribution);
+  }
+
+  updateTransaction(
+    businessId: string,
+    transactionId: string,
+    changes: TransactionChanges,
+  ): Promise<Transaction | null> {
+    const fila = this.transactions.find(
+      (row) => row.id === transactionId && row.businessId === businessId,
+    );
+    if (!fila) return Promise.resolve(null);
+
+    if (changes.amount !== undefined) fila.amount = changes.amount;
+    if (changes.description !== undefined)
+      fila.description = changes.description;
+
+    return Promise.resolve(fila);
+  }
+
+  deleteTransaction(
+    businessId: string,
+    transactionId: string,
+  ): Promise<boolean> {
+    const indice = this.transactions.findIndex(
+      (row) => row.id === transactionId && row.businessId === businessId,
+    );
+    if (indice < 0) return Promise.resolve(false);
+
+    this.transactions.splice(indice, 1);
+    return Promise.resolve(true);
   }
 }
 

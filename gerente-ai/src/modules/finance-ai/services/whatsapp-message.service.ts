@@ -10,6 +10,11 @@ import {
   sumarDias,
 } from '../domain/dia-colombia';
 import {
+  DIA_INICIO_POR_DEFECTO,
+  normalizarDiaInicio,
+  periodoContableDe,
+} from '../domain/periodo-contable';
+import {
   CATEGORIES_BY_TYPE,
   CATEGORY_LABELS,
   DEFAULT_CATEGORY_BY_TYPE,
@@ -17,6 +22,7 @@ import {
   PAYMENT_METHODS,
   PROFIT_BENEFICIARIES,
   PROFIT_BENEFICIARY_LABELS,
+  type CorrectionRequest,
   type MessageIntent,
   type MessageIntentType,
   type MovementDraft,
@@ -60,6 +66,13 @@ export interface WhatsAppMessageRequest {
    * el monto, el usuario lo respondia suelto y volvia a preguntar lo mismo.
    */
   history?: { role: 'user' | 'assistant'; content: string }[];
+  /**
+   * Dia en que arranca el periodo contable del negocio (1 a 28).
+   *
+   * Sin esto, "este mes" seria siempre del 1 al 30. Hay negocios cuyo mes va
+   * del 21 al 20 y sus totales cortarian por donde no es.
+   */
+  diaInicioPeriodo?: number;
   /** Nombre comercial del plan, para decidir que funciones estan incluidas. */
   planName?: string;
   /** true si el plan vigente es el gratuito. */
@@ -188,6 +201,9 @@ export class WhatsAppMessageService {
       case 'profit_share':
         return this.handleProfitShare(intent, request, currency, meta);
 
+      case 'correction':
+        return this.handleCorrection(intent, request, currency, meta);
+
       case 'income':
       case 'expense':
       case 'investment':
@@ -200,8 +216,7 @@ export class WhatsAppMessageService {
         );
 
       default:
-        // correction, unclear, out_of_scope y premium solo responden.
-        // Aplicar una correccion requiere persistencia (ver docs/IA.md).
+        // unclear, out_of_scope y premium solo responden.
         return this.plainResult(intent, intent.responseText, meta);
     }
   }
@@ -379,6 +394,143 @@ export class WhatsAppMessageService {
     );
   }
 
+  // ------------------------------------------------------------ correcciones
+
+  /**
+   * Corrige o borra un movimiento ya registrado.
+   *
+   * Antes esta intencion solo respondia con buenas palabras y no cambiaba nada:
+   * el usuario creia haber corregido y la contabilidad seguia mal. Ahora se
+   * ubica el movimiento y se escribe en la misma base que lee el panel, asi que
+   * el cambio aparece tambien en la web.
+   */
+  private async handleCorrection(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const correccion = intent.correction;
+
+    if (!correccion) {
+      return this.needsClarification(
+        intent,
+        '¿Qué movimiento quieres corregir y cuál es el valor correcto?',
+        meta,
+      );
+    }
+
+    const candidatos = await this.buscarParaCorregir(
+      request,
+      correccion.reference,
+    );
+
+    if (candidatos.length === 0) {
+      return this.plainResult(
+        intent,
+        correccion.reference
+          ? `No encontré ningún movimiento que mencione "${correccion.reference}". ¿Me dices de cuál se trata?`
+          : 'No encontré movimientos recientes para corregir.',
+        meta,
+      );
+    }
+
+    // Varios candidatos: no se elige por el usuario. Corregir el equivocado es
+    // peor que preguntar, porque el error queda escondido en la contabilidad.
+    if (candidatos.length > 1) {
+      return this.plainResult(
+        intent,
+        renderAmbiguousCorrection(candidatos, currency),
+        meta,
+      );
+    }
+
+    const objetivo = candidatos[0];
+
+    if (correccion.action === 'delete') {
+      if (request.persist) {
+        await this.financeData.deleteTransaction(
+          request.businessId,
+          objetivo.id,
+        );
+      }
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderDeleted(objetivo, currency),
+      };
+    }
+
+    if (correccion.newAmount === null && correccion.newConcept === null) {
+      return this.needsClarification(
+        intent,
+        `Encontré el movimiento "${objetivo.description}". ¿Cuál es el valor correcto?`,
+        meta,
+      );
+    }
+
+    const cambios = {
+      ...(correccion.newAmount !== null
+        ? { amount: correccion.newAmount }
+        : {}),
+      ...(correccion.newConcept !== null
+        ? { description: correccion.newConcept }
+        : {}),
+    };
+
+    const actualizado = request.persist
+      ? await this.financeData.updateTransaction(
+          request.businessId,
+          objetivo.id,
+          cambios,
+        )
+      : { ...objetivo, ...cambios };
+
+    if (!actualizado) {
+      return this.plainResult(
+        intent,
+        'No pude corregir ese movimiento. ¿Lo intentamos de nuevo?',
+        meta,
+      );
+    }
+
+    return {
+      ...this.plainResult(intent, '', meta),
+      transactions: [actualizado],
+      transaction: actualizado,
+      replyText: renderCorrected(objetivo, actualizado, currency),
+    };
+  }
+
+  /**
+   * Movimientos que podrian ser el que hay que corregir.
+   *
+   * Sin referencia se devuelve el ultimo registrado, que es lo que la gente
+   * quiere decir con "el ultimo gasto". Con referencia se busca por texto y se
+   * devuelven todas las coincidencias, para poder preguntar si hay varias.
+   */
+  private async buscarParaCorregir(
+    request: WhatsAppMessageRequest,
+    referencia: string | null,
+  ): Promise<Transaction[]> {
+    const hoy = todayIso();
+    const rows = await this.financeData.listTransactions({
+      businessId: request.businessId,
+      from: sumarDias(hoy, -CORRECTION_WINDOW_DAYS),
+      to: hoy,
+      limit: 200,
+    });
+
+    if (!referencia) {
+      // `listTransactions` viene ordenado del mas reciente al mas viejo.
+      return rows.slice(0, 1);
+    }
+
+    const buscado = normalizeText(referencia);
+    return rows
+      .filter((row) => normalizeText(row.description).includes(buscado))
+      .slice(0, CORRECTION_MAX_CANDIDATES);
+  }
+
   // --------------------------------------------------- reparto de utilidades
 
   /**
@@ -418,6 +570,7 @@ export class WhatsAppMessageService {
       request.businessId,
       intent.queryPeriod ?? 'month',
       currency,
+      diaInicioDe(request),
     );
 
     if (summary.balance <= 0) {
@@ -464,12 +617,14 @@ export class WhatsAppMessageService {
     meta: WhatsAppMessageResult['meta'],
   ): Promise<WhatsAppMessageResult> {
     const period = intent.queryPeriod ?? 'month';
+    const diaInicio = diaInicioDe(request);
 
     // Una busqueda sin termino no se puede hacer: cae al resumen.
     if (intent.queryKind === 'search' && intent.concept) {
       const encontrados = await this.searchTransactions(
         request.businessId,
         intent.concept,
+        diaInicio,
       );
       return {
         ...this.plainResult(intent, '', meta),
@@ -481,10 +636,11 @@ export class WhatsAppMessageService {
       request.businessId,
       period,
       currency,
+      diaInicio,
     );
 
     if (intent.queryKind === 'list') {
-      const { from, to } = periodRange(period);
+      const { from, to } = periodRange(period, new Date(), diaInicio);
       // Se traen todos y el renderizador recorta: si se pidieran solo los 20
       // primeros, el encabezado diria "tus 20 movimientos" aunque hubiera 50,
       // y no cuadraria con el conteo que el resumen acaba de dar.
@@ -582,6 +738,7 @@ export class WhatsAppMessageService {
       movements,
       declaredTotal: normalizeAmount(output?.declaredTotal),
       profitShares: normalizeProfitShares(output?.profitShares),
+      correction: normalizeCorrection(output?.correction),
       amount,
       category,
       concept: conceptoEfectivo,
@@ -654,8 +811,9 @@ export class WhatsAppMessageService {
   private async searchTransactions(
     businessId: string,
     termino: string,
+    diaInicioPeriodo: number,
   ): Promise<Transaction[]> {
-    const { from, to } = periodRange('month');
+    const { from, to } = periodRange('month', new Date(), diaInicioPeriodo);
 
     const rows = await this.financeData.listTransactions({
       businessId,
@@ -676,8 +834,9 @@ export class WhatsAppMessageService {
     businessId: string,
     period: QueryPeriod,
     currency: string,
+    diaInicioPeriodo: number,
   ): Promise<PeriodSummary> {
-    const { from, to } = periodRange(period);
+    const { from, to } = periodRange(period, new Date(), diaInicioPeriodo);
 
     const rows = await this.financeData.listTransactions({
       businessId,
@@ -848,6 +1007,26 @@ function normalizeProfitShares(value: unknown): ProfitShare[] {
 }
 
 /**
+ * Correccion pedida por el usuario, saneada.
+ *
+ * Se descarta si el modelo no dijo una accion valida: aplicar una correccion a
+ * ciegas es peor que preguntar.
+ */
+function normalizeCorrection(value: unknown): CorrectionRequest | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const row = value as Record<string, unknown>;
+  const action = row.action === 'delete' ? 'delete' : 'update';
+
+  return {
+    action,
+    reference: cleanText(row.reference),
+    newAmount: normalizeAmount(row.newAmount),
+    newConcept: cleanText(row.newConcept),
+  };
+}
+
+/**
  * Clase de consulta.
  *
  * Si el modelo no la dice pero dejo un termino de busqueda, es una busqueda:
@@ -953,6 +1132,17 @@ function cleanText(value: unknown): string | null {
  * aunque quedaran guardados con la de hoy. El resto del modulo ya calculaba
  * sobre el dia colombiano; esta funcion era la ultima que faltaba.
  */
+/**
+ * Dia de corte del periodo contable de este negocio.
+ *
+ * Si no viene en la peticion se asume mes calendario, que es lo que hace la
+ * mayoria: es mejor un default explicito que arrastrar un `undefined` hasta el
+ * calculo del rango.
+ */
+function diaInicioDe(request: WhatsAppMessageRequest): number {
+  return normalizarDiaInicio(request.diaInicioPeriodo);
+}
+
 function todayIso(): string {
   return fechaColombiana(new Date());
 }
@@ -961,10 +1151,11 @@ function todayIso(): string {
 export function periodRange(
   period: QueryPeriod,
   now: Date = new Date(),
+  diaInicioPeriodo: number = DIA_INICIO_POR_DEFECTO,
 ): { from: string; to: string } {
   // Todo se calcula sobre el dia colombiano, no sobre la hora del contenedor:
   // asi el periodo es el mismo corra donde corra el proceso.
-  const { fecha: to, diaDeLaSemana, primeroDelMes } = partesDelDia(now);
+  const { fecha: to, diaDeLaSemana } = partesDelDia(now);
 
   if (period === 'day') return { from: to, to };
 
@@ -974,7 +1165,9 @@ export function periodRange(
     return { from: sumarDias(to, -desdeElLunes), to };
   }
 
-  return { from: primeroDelMes, to };
+  // "Este mes" es el periodo contable del negocio, que no siempre arranca el 1.
+  const periodo = periodoContableDe(to, diaInicioPeriodo);
+  return { from: periodo.desde, to };
 }
 
 const PERIOD_LABELS: Record<QueryPeriod, string> = {
@@ -1060,6 +1253,15 @@ const BREAKDOWN_WINDOW_DAYS = 2;
 /** Cuantos movimientos caben comodos en un mensaje de WhatsApp. */
 const LIST_MAX_RESULTS = 20;
 
+/**
+ * Cuanto se mira hacia atras para encontrar el movimiento a corregir.
+ * Un mes cubre de sobra: nadie corrige por WhatsApp algo de hace un trimestre.
+ */
+const CORRECTION_WINDOW_DAYS = 31;
+
+/** Mas candidatos que esto no se listan: la pregunta se vuelve ilegible. */
+const CORRECTION_MAX_CANDIDATES = 5;
+
 const SEARCH_WINDOW_DAYS = 120;
 /** Mas de esto no se lee comodo en un WhatsApp. */
 const SEARCH_MAX_RESULTS = 8;
@@ -1104,6 +1306,64 @@ export function renderSearch(
   return [encabezado, ...lineas, `Total: ${formatMoney(total, currency)}`].join(
     '\n',
   );
+}
+
+// ----------------------------------------------- respuestas de correcciones
+
+/**
+ * Confirmacion de una correccion.
+ *
+ * Se dicen el valor viejo y el nuevo: el usuario esta corrigiendo justamente
+ * porque una cifra estaba mal, y necesita ver que ahora quedo la que queria.
+ */
+export function renderCorrected(
+  antes: Transaction,
+  despues: Transaction,
+  currency: string,
+): string {
+  const lineas = [`✅ Corregido: ${despues.description}`];
+
+  if (antes.amount !== despues.amount) {
+    lineas.push(
+      `Monto: ${formatMoney(antes.amount, currency)} → ${formatMoney(despues.amount, currency)}`,
+    );
+  }
+  if (antes.description !== despues.description) {
+    lineas.push(`Concepto: "${antes.description}" → "${despues.description}"`);
+  }
+
+  lineas.push('Ya quedó actualizado también en tu panel.');
+  return lineas.join('\n');
+}
+
+/** Confirmacion de un movimiento eliminado. */
+export function renderDeleted(
+  movimiento: Transaction,
+  currency: string,
+): string {
+  return [
+    `🗑️ Eliminé el movimiento: ${movimiento.description} · ${formatMoney(movimiento.amount, currency)}`,
+    'Ya no aparece en tu panel.',
+  ].join('\n');
+}
+
+/**
+ * Varios movimientos coinciden con lo que dijo el usuario.
+ *
+ * Se listan con su fecha y monto para que pueda distinguirlos. Elegir uno por
+ * el seria peor: corregir el movimiento equivocado deja el error escondido.
+ */
+export function renderAmbiguousCorrection(
+  candidatos: Transaction[],
+  currency: string,
+): string {
+  const lineas = candidatos.map((row) => movementLine(row, currency));
+
+  return [
+    `Encontré ${candidatos.length} movimientos que podrían ser:`,
+    ...lineas,
+    '¿Cuál de todos corrijo? Dime la fecha o el monto.',
+  ].join('\n');
 }
 
 // ------------------------------------------------- respuestas de movimientos
