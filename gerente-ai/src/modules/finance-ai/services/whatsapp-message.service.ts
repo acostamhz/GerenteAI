@@ -166,7 +166,11 @@ export class WhatsAppMessageService {
           // Interpretar un mensaje es determinista: sin creatividad.
           temperature: 0,
           effort: 'low',
-          maxOutputTokens: 512,
+          // Un mensaje puede traer varios movimientos y cada uno son ~70 tokens
+          // de JSON. Con 512 el modelo cortaba la respuesta a la mitad ("...
+          // customerName) y el parseo fallaba: el usuario veia "no pude
+          // procesar" cada vez que registraba mas de dos ventas juntas.
+          maxOutputTokens: 2048,
         },
         context,
       );
