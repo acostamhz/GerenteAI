@@ -31,7 +31,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v8';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v9';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -50,6 +50,7 @@ export interface WhatsAppIntentOutput {
     paymentMethod?: string | null;
     isCredit?: boolean | null;
     customerName?: string | null;
+    date?: string | null;
   }[];
   declaredTotal?: number | string | null;
   profitShares?: {
@@ -94,7 +95,8 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
       "concept": string,
       "paymentMethod": "efectivo" | "transferencia" | "tarjeta" | "otro" | null,
       "isCredit": boolean,
-      "customerName": string | null
+      "customerName": string | null,
+      "date": "YYYY-MM-DD" | null
     }
   ],
   "declaredTotal": number | null,
@@ -319,6 +321,24 @@ REGLAS DE INTERPRETACIÓN:
      no uses este tipo nunca.
    - En responseText no inventes precios ni enlaces: el sistema los agrega.
 
+FECHAS DE LOS MOVIMIENTOS:
+- Cada movimiento lleva su propio "date". Si el usuario NO dice cuando fue, deja
+  null: el sistema lo registra con la fecha de hoy.
+- Si dice cuando fue, ponlo en YYYY-MM-DD usando la fecha de hoy del contexto
+  para resolverlo. Ejemplos, suponiendo que hoy es 2026-09-02:
+      "el 23 de agosto vendí..."      -> "2026-08-23"
+      "ayer pagué..."                 -> "2026-09-01"
+      "el lunes compré..."            -> el lunes MÁS RECIENTE ya pasado
+      "la semana pasada gasté..."     -> deja null: no es una fecha concreta
+- Si el usuario da una fecha sin año, asume el año que haga que la fecha ya haya
+  ocurrido. "23 de agosto" dicho en septiembre de 2026 es 2026-08-23, no 2027.
+- NUNCA pongas una fecha futura. Si el cálculo da adelante de hoy, deja null.
+- En una lista, cada línea puede tener su propia fecha: no le apliques a todas la
+  de la primera.
+- Cuando registres con una fecha distinta de hoy, MENCIÓNALA en responseText
+  ("Registré la venta del 23 de agosto..."), para que el usuario pueda corregirte
+  si te equivocaste.
+
 REGLAS PARA confidence:
 - 0.9 a 1.0: el mensaje dice explícitamente el monto y se entiende el concepto
 - 0.6 a 0.89: se entiende la intención pero falta precisión (concepto vago, monto aproximado)
@@ -487,6 +507,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
           'concept',
           'paymentMethod',
           'isCredit',
+          'date',
           'customerName',
         ],
         properties: {
@@ -523,6 +544,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
           customerName: {
             type: ['string', 'null'],
             description: 'Cliente al que se le fió, si se menciona.',
+          },
+          date: {
+            type: ['string', 'null'],
+            description:
+              'Fecha del movimiento en YYYY-MM-DD si el usuario la dijo. null si no la menciono.',
           },
         },
       },

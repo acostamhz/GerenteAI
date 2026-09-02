@@ -95,7 +95,8 @@ export function buildInsightsUserPrompt(snapshot: BusinessSnapshot): string {
   const lines: string[] = [
     `Negocio: ${snapshot.businessName}`,
     `Periodo analizado: ${snapshot.periodStart} a ${snapshot.periodEnd}`,
-    `Ingresos totales: ${money(snapshot.totalIncome)}`,
+    `Ingresos totales (solo lo cobrado): ${money(snapshot.totalIncome)}`,
+    `Vendido a credito y aun sin cobrar: ${money(snapshot.totalCreditSales)}`,
     `Gastos totales: ${money(snapshot.totalExpense)}`,
     `Inversiones totales: ${money(snapshot.totalInvestment)}`,
     `Balance: ${money(snapshot.balance)}`,

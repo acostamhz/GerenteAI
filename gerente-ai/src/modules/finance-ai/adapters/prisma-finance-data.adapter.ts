@@ -167,9 +167,16 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
       limit: 2_000,
     });
 
-    const totalIncome = sumByType(rows, 'income');
-    const totalExpense = sumByType(rows, 'expense');
-    const totalInvestment = sumByType(rows, 'investment');
+    // Lo fiado se aparta antes de sumar nada: si entrara en los ingresos, las
+    // recomendaciones hablarian de una facturacion que no esta en la caja.
+    const contado = rows.filter((row) => !row.isCredit);
+    const totalCreditSales = rows
+      .filter((row) => row.isCredit)
+      .reduce((suma, row) => suma + row.amount, 0);
+
+    const totalIncome = sumByType(contado, 'income');
+    const totalExpense = sumByType(contado, 'expense');
+    const totalInvestment = sumByType(contado, 'investment');
     const dates = rows.map((row) => row.date).sort();
 
     return {
@@ -181,11 +188,12 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
       periodStart: dates[0] ?? isoDate(from),
       periodEnd: dates[dates.length - 1] ?? isoDate(new Date()),
       totalIncome,
+      totalCreditSales,
       totalExpense,
       totalInvestment,
       balance: totalIncome - totalExpense - totalInvestment,
-      monthly: groupByMonth(rows),
-      topCategories: topCategories(rows),
+      monthly: groupByMonth(contado),
+      topCategories: topCategories(contado),
       recentTransactions: rows.slice(0, 15),
     };
   }
@@ -380,7 +388,7 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
             clienteId: transaction.customerName
               ? (clientes.get(customerKey(transaction)) ?? null)
               : null,
-            fecha: new Date(transaction.createdAt),
+            fecha: fechaDelMovimiento(transaction),
           },
         })
       : this.prisma.gasto.create({
@@ -394,7 +402,7 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
               ? PAYMENT_TO_PRISMA[transaction.paymentMethod]
               : null,
             grupoId: transaction.groupId ?? null,
-            fecha: new Date(transaction.createdAt),
+            fecha: fechaDelMovimiento(transaction),
           },
         });
   }
@@ -489,6 +497,21 @@ const CATEGORY_FROM_PRISMA: Record<CategoriaGasto, TransactionCategory> = {
  * fina de la IA y si era una inversion. Asi el dato no se pierde para quien
  * lea la tabla, aunque el enum diga OTROS.
  */
+/**
+ * Fecha con la que se guarda el movimiento.
+ *
+ * Es la fecha del HECHO (`date`), no la del registro: quien el lunes anota lo
+ * del sabado espera verlo el sabado. Antes se guardaba `createdAt` y todo
+ * aparecia con la fecha en que se le escribio al bot, lo que descuadraba los
+ * reportes por dia.
+ *
+ * Se fija al mediodia UTC para que el cambio de zona horaria no corra el
+ * movimiento al dia anterior o al siguiente.
+ */
+function fechaDelMovimiento(transaction: Transaction): Date {
+  return new Date(`${transaction.date}T12:00:00.000Z`);
+}
+
 function buildDescription(transaction: Transaction): string {
   const prefix =
     transaction.type === 'investment'

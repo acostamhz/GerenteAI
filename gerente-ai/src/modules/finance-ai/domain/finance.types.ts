@@ -165,6 +165,14 @@ export interface MovementDraft {
   isCredit: boolean;
   /** A quien se le fio, cuando se menciona. */
   customerName: string | null;
+  /**
+   * Fecha del movimiento en YYYY-MM-DD, si el usuario la dijo.
+   *
+   * null = no la menciono, y entonces vale hoy. Sin esto, quien registra el
+   * lunes lo del fin de semana veia todo con la fecha de hoy y sus reportes
+   * por dia quedaban mal.
+   */
+  date: string | null;
 }
 
 /**
@@ -291,9 +299,11 @@ export interface PeriodSummary {
   investment: number;
   balance: number;
   /**
-   * Parte de `income` que corresponde a ventas fiadas: esta registrada pero
-   * el dinero todavia no entro a la caja. Se informa aparte para que el
-   * usuario no confunda lo vendido con lo cobrado.
+   * Ventas fiadas del periodo: ya ocurrieron, pero el dinero NO entro.
+   *
+   * NO esta incluido en `income`. Sumarlo daba un ingreso que el dueno no
+   * tiene en el bolsillo y un balance que no cuadra con su caja; es el error
+   * mas comun al llevar las cuentas a mano.
    */
   pendingCollection: number;
   transactionCount: number;
@@ -307,10 +317,13 @@ export interface BusinessSnapshot {
   currency: string;
   periodStart: string;
   periodEnd: string;
+  /** Solo caja: no incluye las ventas fiadas. */
   totalIncome: number;
   totalExpense: number;
   totalInvestment: number;
   balance: number;
+  /** Vendido a credito y todavia sin cobrar. Nunca sumado a `totalIncome`. */
+  totalCreditSales: number;
   monthly: MonthlyTotals[];
   topCategories: CategoryTotal[];
   recentTransactions: Transaction[];
