@@ -4,7 +4,11 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { LlmService } from '../../../ai/services/llm.service';
 import type { AiCallContext } from '../../../ai/usage/usage.service';
-import { partesDelDia, sumarDias } from '../domain/dia-colombia';
+import {
+  fechaColombiana,
+  partesDelDia,
+  sumarDias,
+} from '../domain/dia-colombia';
 import {
   CATEGORIES_BY_TYPE,
   CATEGORY_LABELS,
@@ -941,8 +945,16 @@ function cleanText(value: unknown): string | null {
   return text.length ? text : null;
 }
 
+/**
+ * El dia de HOY en Colombia, no en la hora del contenedor.
+ *
+ * `toISOString()` da la fecha UTC: a las 7 p.m. en Colombia ya es el dia
+ * siguiente en UTC, y los movimientos se confirmaban con la fecha de manana
+ * aunque quedaran guardados con la de hoy. El resto del modulo ya calculaba
+ * sobre el dia colombiano; esta funcion era la ultima que faltaba.
+ */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return fechaColombiana(new Date());
 }
 
 /** Rangos de fecha para las consultas: hoy, semana en curso, mes en curso. */
