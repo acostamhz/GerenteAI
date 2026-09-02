@@ -24,30 +24,34 @@ export interface PlanLimits {
 }
 
 export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
+  // Los topes de mensajes los fija el area comercial. El nombre de cada plan
+  // sale de `planes.service.ts`, que es el catalogo oficial; aqui solo se
+  // define cuanta IA incluye cada uno.
   asistente: {
     id: 'asistente',
     label: 'Asistente',
-    monthlyAiMessages: 50,
+    monthlyAiMessages: 500,
     whatsappNumbers: 1,
     businesses: 1,
   },
   gerente: {
     id: 'gerente',
     label: 'Gerente',
-    monthlyAiMessages: 500,
+    monthlyAiMessages: 4_000,
     whatsappNumbers: 3,
     businesses: 4,
   },
   director: {
     id: 'director',
-    label: 'Director',
-    monthlyAiMessages: 5_000,
+    label: 'Administrador',
+    monthlyAiMessages: 10_000,
     whatsappNumbers: 10,
     businesses: 10,
   },
+  // Plan interno de socios: no se vende y no tiene tope.
   corporativo: {
     id: 'corporativo',
-    label: 'Corporativo',
+    label: 'Socio',
     monthlyAiMessages: Number.POSITIVE_INFINITY,
     whatsappNumbers: Number.POSITIVE_INFINITY,
     businesses: Number.POSITIVE_INFINITY,

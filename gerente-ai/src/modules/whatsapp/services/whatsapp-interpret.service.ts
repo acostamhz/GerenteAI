@@ -44,6 +44,8 @@ export type PublicIntentType =
   | 'gasto'
   | 'ingreso'
   | 'inversion'
+  | 'desglose'
+  | 'reparto_utilidades'
   | 'consulta'
   | 'correccion'
   | 'no_claro'
@@ -71,6 +73,21 @@ export interface InterpretResponse {
     /** true = quedo escrito en PostgreSQL. */
     saved: boolean;
     transactionId: string | null;
+    /**
+     * Todos los movimientos del mensaje. Un mensaje puede traer varios
+     * ("pague 50.000 de transporte y 30.000 de almuerzo") y `amount` solo
+     * lleva la suma; aqui esta el detalle de cada uno.
+     */
+    movements: {
+      id: string;
+      type: string;
+      amount: number;
+      category: string;
+      categoryLabel: string;
+      concept: string;
+      paymentMethod: string | null;
+      isCredit: boolean;
+    }[];
   };
   meta: {
     negocioId: string | null;
@@ -90,6 +107,8 @@ const TYPE_LABELS: Record<MessageIntentType, PublicIntentType> = {
   expense: 'gasto',
   income: 'ingreso',
   investment: 'inversion',
+  breakdown: 'desglose',
+  profit_share: 'reparto_utilidades',
   query: 'consulta',
   correction: 'correccion',
   unclear: 'no_claro',
@@ -270,7 +289,7 @@ export class WhatsappInterpretService {
     const category = result.intent.category as TransactionCategory | null;
 
     this.logger.log(
-      `→ ${result.intent.type} · ${result.intent.amount ?? '-'} ${context.currency} · confianza ${result.intent.confidence} · guardado=${result.transaction !== null} · ${result.meta.provider}/${result.meta.model} · ${Date.now() - startedAt} ms`,
+      `→ ${result.intent.type} · ${result.intent.amount ?? '-'} ${context.currency} · confianza ${result.intent.confidence} · movimientos=${result.transactions.length} · ${result.meta.provider}/${result.meta.model} · ${Date.now() - startedAt} ms`,
     );
 
     // ---- 7. Contrato de salida -------------------------------------------
@@ -286,8 +305,18 @@ export class WhatsappInterpretService {
         concept: result.intent.concept,
         confidence: result.intent.confidence,
         period: result.intent.queryPeriod,
-        saved: result.transaction !== null,
+        saved: result.transactions.length > 0,
         transactionId: result.transaction?.id ?? null,
+        movements: result.transactions.map((movimiento) => ({
+          id: movimiento.id,
+          type: movimiento.type,
+          amount: movimiento.amount,
+          category: movimiento.category,
+          categoryLabel: CATEGORY_LABELS[movimiento.category],
+          concept: movimiento.description,
+          paymentMethod: movimiento.paymentMethod ?? null,
+          isCredit: movimiento.isCredit ?? false,
+        })),
       },
       meta: {
         negocioId: context.negocioId,
@@ -354,6 +383,7 @@ export class WhatsappInterpretService {
         period: null,
         saved: false,
         transactionId: null,
+        movements: [],
       },
       meta: {
         negocioId: context.negocioId,
@@ -511,6 +541,7 @@ ${url}`,
         period: null,
         saved: false,
         transactionId: null,
+        movements: [],
       },
       meta: {
         negocioId: null,

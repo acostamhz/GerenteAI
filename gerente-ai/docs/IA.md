@@ -193,41 +193,76 @@ y obliga al modelo a responder **siempre** con este JSON:
 
 ```json
 {
-  "type": "income" | "expense" | "investment" | "query" | "correction" | "unclear",
-  "amount": number | null,
-  "category": string | null,
-  "concept": string | null,
+  "type": "income | expense | investment | breakdown | profit_share | query | correction | unclear | out_of_scope | premium",
+  "movements": [
+    {
+      "type": "income | expense | investment",
+      "amount": 50000,
+      "category": "transporte",
+      "concept": "Transporte",
+      "paymentMethod": "efectivo | transferencia | tarjeta | otro | null",
+      "isCredit": false,
+      "customerName": null
+    }
+  ],
+  "declaredTotal": null,
+  "profitShares": [{ "beneficiary": "dueno", "name": null, "percentage": 60 }],
+  "concept": null,
+  "queryKind": "summary | list | search | null",
+  "queryPeriod": "day | week | month | null",
   "responseText": "texto de respuesta para el usuario",
-  "queryPeriod": "day" | "week" | "month" | null
+  "confidence": 0.95
 }
 ```
+
+> **`movements` es una lista.** Es el cambio central de la v7 del prompt. Con un
+> solo `amount`, un mensaje como *"pagué 50.000 de transporte y 30.000 de
+> almuerzo"* solo podía terminar en un registro de 80.000: el modelo entendía
+> los dos gastos pero no tenía dónde ponerlos.
 
 Según el `type`, el backend actúa
 ([`whatsapp-message.service.ts`](../src/modules/finance-ai/services/whatsapp-message.service.ts)):
 
 | `type` | Qué hace el backend |
 | --- | --- |
-| `income` / `expense` / `investment` | Crea el movimiento y responde con el `responseText` del modelo. |
-| `query` | **Ignora el `responseText`**, consulta los datos reales del periodo y arma la respuesta con cifras del backend. |
+| `income` / `expense` / `investment` | Crea **un movimiento por cada elemento** de `movements`. Si hay varios, comparten `groupId`. |
+| `breakdown` | Busca el total ya registrado y lo **sustituye** por sus partes, en una sola transacción de base. No suma dinero nuevo. |
+| `profit_share` | Calcula el monto de cada beneficiario sobre la utilidad real del periodo y lo guarda. |
+| `query` | **Ignora el `responseText`** y arma la respuesta con cifras del backend, según `queryKind`. |
 | `correction` | Devuelve la intención. Aplicarla requiere persistencia (ver §8). |
-| `unclear` | Responde pidiendo el dato que falta. |
+| `unclear` / `out_of_scope` / `premium` | Solo responden. |
+
+Y según el `queryKind`:
+
+| `queryKind` | Respuesta |
+| --- | --- |
+| `summary` | Totales del periodo, con lo fiado señalado aparte. |
+| `list` | El detalle de cada movimiento: fecha, concepto, valor, forma de pago. |
+| `search` | Los movimientos cuyo texto coincide con `concept`. Funciona igual para gastos y para ingresos. |
 
 ```bash
 curl -X POST http://localhost:3000/ai/whatsapp/message \
   -H "content-type: application/json" \
-  -d '{"message":"Hoy compré mercancía por 8000","businessId":"demo-business"}'
+  -d '{"message":"Pagué 50.000 de transporte y 30.000 de almuerzo","businessId":"demo-business"}'
 ```
 
-**Dos decisiones de diseño que conviene conocer:**
+**Cuatro decisiones de diseño que conviene conocer:**
 
-1. **Las cifras de las consultas las pone el backend, no el modelo.** Un LLM no
-   es una fuente confiable de números. El modelo solo detecta *qué* se está
-   preguntando; los totales salen de la base.
-2. **Saneamiento defensivo.** Aunque el esquema obligue, un modelo puede
+1. **Las cifras las pone el backend, no el modelo.** Un LLM no es una fuente
+   confiable de números. El modelo detecta *qué* se pregunta; los totales, los
+   montos del reparto y las sumas salen de la base y del código.
+2. **La aritmética se verifica en código.** Si el usuario declara un total y un
+   desglose que no cuadra, `checkBreakdown()` lo detecta y el bot **pregunta en
+   vez de registrar**. Registrar cifras que no suman es peor que no registrar:
+   el error queda escondido dentro de la contabilidad.
+3. **Saneamiento defensivo.** Aunque el esquema obligue, un modelo puede
    devolver un monto negativo, un tipo inventado o una categoría que no
    corresponde (`"ventas"` en un gasto). `normalizeIntent()` corrige o descarta
-   todo eso antes de que llegue a la contabilidad. La validación de esquema
-   reduce el riesgo, no lo elimina.
+   todo eso antes de que llegue a la contabilidad.
+4. **Un fiado es una venta, pero no es caja.** Se registra como `Venta` de tipo
+   `FIADO` con su `saldoPendiente`, que es lo que lee el reporte de cuentas por
+   cobrar del panel. En los resúmenes se informa aparte para que el dueño no
+   confunda lo vendido con lo cobrado.
 
 ### Insights — `POST /ai/insights`
 
@@ -297,17 +332,44 @@ modelo económico, insights y asistente (donde se nota la calidad) en el premium
 
 ---
 
-## 8. Pendientes antes de producción
+## 8. Cambios de base de datos (aplicar antes de desplegar)
+
+La versión v7 del prompt necesita columnas que antes no existían. **Sin este
+paso el backend arranca pero falla al guardar.**
+
+```bash
+npx prisma generate     # regenera el cliente tipado
+npx prisma db push      # aplica los cambios al PostgreSQL configurado
+```
+
+Todo lo añadido es **opcional o nuevo**: ninguna columna existente cambió de
+tipo ni se eliminó, así que los datos actuales siguen siendo válidos.
+
+| Dónde | Qué se agregó | Por qué |
+| --- | --- | --- |
+| `Venta.descripcion` | texto opcional | Sin esto el concepto de un ingreso se perdía al guardar, y por eso *"¿cuánto gané en ventas?"* nunca encontraba nada. |
+| `Venta.metodoPago`, `Gasto.metodoPago` | enum opcional | Guardar el desglose por forma de pago. |
+| `Venta.grupoId`, `Gasto.grupoId` | texto opcional | Mantiene la relación entre un total y sus subcampos. |
+| `RepartoUtilidad` | tabla nueva | Reparto de ganancias. Va aparte de `Gasto` porque repartir utilidades no es un costo: mezclarlo distorsionaría los márgenes. |
+| `MetodoPago`, `BeneficiarioReparto` | enums nuevos | — |
+
+**Para el frontend:** el campo `grupoId` es la clave para mostrar el total con
+sus subcampos anidados en la tabla del Resumen. Los movimientos que comparten
+`grupoId` salieron del mismo mensaje y suman el total declarado.
+
+---
+
+## 9. Pendientes antes de producción
 
 Esta capa está completa y funcionando, pero el backend a su alrededor todavía no:
 
-- [ ] **Autenticación.** Hoy `tenantId` llega en el cuerpo de la petición; el
-      cliente puede suplantar a otro. Debe salir de un JWT.
-- [ ] **Persistencia.** Implementar `FinanceDataPort` y `AiUsageRepository`
-      contra Postgres (el `docker-compose.yml` ya levanta la base).
-- [ ] **Webhook de WhatsApp.** El servicio de extracción está listo; falta el
-      endpoint que reciba los mensajes de Meta y valide la firma.
+- [ ] **Autenticación en `/ai/*`.** `FinanceAiController` no tiene guarda y
+      `tenantId` llega en el cuerpo: hoy cualquiera puede escribir en la
+      contabilidad de otro negocio y gastar su cuota de IA.
+- [ ] **Cuotas persistentes.** `AiUsageRepository` sigue en memoria: se reinicia
+      con cada despliegue, así que todavía no se puede facturar por mensajes.
+- [ ] **Aplicar una corrección** (`type: "correction"`): hoy se interpreta y se
+      responde, pero no modifica el movimiento.
 - [ ] **Rate limiting por IP/tenant**, además de la cuota del plan.
 - [ ] **Caché de insights**: hoy cada llamada gasta tokens; regenerarlos una vez
       al día por negocio es suficiente.
-- [ ] **Cablear el frontend**, que aún lee de `src/mocks/index.ts`.
