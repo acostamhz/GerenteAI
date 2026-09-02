@@ -253,7 +253,6 @@ export class WhatsappInterpretService {
     // Se lee ANTES de guardar el mensaje nuevo: si no, el modelo recibiria dos
     // veces el mismo texto (como turno anterior y como mensaje actual).
     const history = await this.loadHistory(context.sedeId);
-    await this.saveMessage(context.sedeId, 'USER', dto.message);
 
     // ---- 4. Interpretacion ------------------------------------------------
     let result: WhatsAppMessageResult;
@@ -286,6 +285,13 @@ export class WhatsappInterpretService {
         : result.replyText;
 
     // ---- 6. Historial: lo que respondio el bot ----------------------------
+    // El par pregunta/respuesta se guarda junto y solo si se pudo atender.
+    //
+    // Guardar el mensaje del usuario antes de interpretarlo dejaba, cuando algo
+    // fallaba, un turno sin responder en el historial. El modelo lo veia en el
+    // siguiente mensaje, intentaba contestarlo otra vez y volvia a fallar por lo
+    // mismo: la conversacion quedaba trabada y hasta un "Hola" devolvia error.
+    await this.saveMessage(context.sedeId, 'USER', dto.message);
     await this.saveMessage(context.sedeId, 'ASSISTANT', replyText);
 
     const category = result.intent.category as TransactionCategory | null;
