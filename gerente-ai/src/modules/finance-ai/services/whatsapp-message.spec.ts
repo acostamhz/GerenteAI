@@ -951,9 +951,13 @@ describe('WhatsAppMessageService - fiados', () => {
 
     const result = await service.handleMessage(BASE_REQUEST);
 
-    expect(result.summary?.income).toBe(1_000_000);
+    // Los ingresos son SOLO lo cobrado: los 300.000 fiados no entran.
+    // Sumarlos daba un ingreso que el duenno no tiene en el bolsillo y un
+    // balance que no cuadraba con su caja.
+    expect(result.summary?.income).toBe(700_000);
     expect(result.summary?.pendingCollection).toBe(300_000);
-    expect(result.replyText).toContain('fiado por cobrar');
+    expect(result.summary?.balance).toBe(700_000);
+    expect(result.replyText).toContain('a crédito que aún no has cobrado');
   });
 });
 
@@ -1569,5 +1573,127 @@ describe('periodRange con periodo contable propio', () => {
   it('el dia y la semana no dependen del corte', () => {
     expect(periodRange('day', enSeptiembre, 21).from).toBe('2026-09-05');
     expect(periodRange('week', enSeptiembre, 21).from).toBe('2026-08-31');
+  });
+});
+
+describe('WhatsAppMessageService · fecha del movimiento', () => {
+  /**
+   * Quien el lunes registra lo del fin de semana espera verlo en el fin de
+   * semana. Antes todo se guardaba con la fecha en que se le escribió al bot y
+   * los reportes por día quedaban descuadrados.
+   */
+  const HOY = new Date().toISOString().slice(0, 10);
+
+  const enFecha = (fecha: string | null) => ({
+    type: 'income' as const,
+    movements: [
+      {
+        type: 'income' as const,
+        amount: 2_000_000,
+        category: 'ventas',
+        concept: 'Cama nube',
+        paymentMethod: null,
+        isCredit: false,
+        customerName: null,
+        date: fecha,
+      },
+    ],
+    responseText: 'ok',
+  });
+
+  it('usa la fecha que dijo el usuario', async () => {
+    const { service } = buildService(enFecha('2026-08-23'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe('2026-08-23');
+  });
+
+  it('usa hoy cuando el usuario no dice ninguna fecha', async () => {
+    const { service } = buildService(enFecha(null));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+
+  it('ignora una fecha futura: nadie registra lo que no ha pasado', async () => {
+    // Un año mal tecleado mandaría el movimiento a 2027 y lo sacaría de todos
+    // los reportes sin que nadie lo note.
+    const { service } = buildService(enFecha('2027-08-23'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+
+  it('ignora una fecha inválida', async () => {
+    const { service } = buildService(enFecha('23/08/2026'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+
+  it('ignora un día que no existe', async () => {
+    // "2026-02-31" pasa el formato pero se desbordaría a marzo.
+    const { service } = buildService(enFecha('2026-02-31'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+});
+
+describe('WhatsAppMessageService · lo fiado no infla las categorías', () => {
+  it('el desglose por categoría cuadra con los ingresos', async () => {
+    // Si lo fiado entrara en el desglose, las categorías sumarían más que los
+    // ingresos y el resumen se contradiría a sí mismo.
+    const conFiado: Transaction[] = [
+      {
+        id: 'c1',
+        businessId: 'b1',
+        date: '2026-07-10',
+        description: 'Comedor fiado',
+        category: 'ventas',
+        amount: 3_200_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        isCredit: true,
+      },
+      {
+        id: 'c2',
+        businessId: 'b1',
+        date: '2026-07-11',
+        description: 'Venta de contado',
+        category: 'ventas',
+        amount: 500_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-11T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      conFiado,
+    );
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    const ventas = result.summary?.byCategory.find(
+      (fila) => fila.category === 'ventas',
+    );
+
+    expect(ventas?.total).toBe(500_000);
+    expect(result.summary?.income).toBe(500_000);
+    expect(result.summary?.pendingCollection).toBe(3_200_000);
   });
 });

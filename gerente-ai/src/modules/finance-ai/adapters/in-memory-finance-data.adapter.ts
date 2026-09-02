@@ -36,9 +36,15 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
       (transaction) => transaction.businessId === businessId,
     );
 
-    const totalIncome = sumByType(rows, 'income');
-    const totalExpense = sumByType(rows, 'expense');
-    const totalInvestment = sumByType(rows, 'investment');
+    // Mismo criterio que el adaptador real: lo fiado no es caja.
+    const contado = rows.filter((row) => !row.isCredit);
+    const totalCreditSales = rows
+      .filter((row) => row.isCredit)
+      .reduce((suma, row) => suma + row.amount, 0);
+
+    const totalIncome = sumByType(contado, 'income');
+    const totalExpense = sumByType(contado, 'expense');
+    const totalInvestment = sumByType(contado, 'investment');
     const dates = rows.map((row) => row.date).sort();
 
     return Promise.resolve({
@@ -48,6 +54,7 @@ export class InMemoryFinanceDataAdapter implements FinanceDataPort {
       periodStart: dates[0] ?? today(),
       periodEnd: dates[dates.length - 1] ?? today(),
       totalIncome,
+      totalCreditSales,
       totalExpense,
       totalInvestment,
       balance: totalIncome - totalExpense - totalInvestment,

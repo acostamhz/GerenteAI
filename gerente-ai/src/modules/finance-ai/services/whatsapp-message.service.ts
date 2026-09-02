@@ -785,7 +785,8 @@ export class WhatsAppMessageService {
     return movements.map((movement) => ({
       id: randomUUID(),
       businessId: request.businessId,
-      date: referenceDate,
+      // La fecha que dijo el usuario manda; si no dijo ninguna, es hoy.
+      date: movement.date ?? referenceDate,
       description:
         movement.concept ??
         `Movimiento registrado por WhatsApp (${movement.type})`,
@@ -850,14 +851,20 @@ export class WhatsAppMessageService {
     });
 
     const totals = { income: 0, expense: 0, investment: 0 };
-    // Lo fiado esta dentro de `income` (la venta ocurrio) pero se informa
-    // aparte: el dueno necesita distinguir lo vendido de lo cobrado.
+    // Una venta fiada NO es caja: se cuenta aparte y no toca los ingresos ni
+    // el balance. El dueno necesita saber cuanto tiene, no cuanto vendio.
     let pendingCollection = 0;
     const byCategory = new Map<string, PeriodSummary['byCategory'][number]>();
 
     for (const row of rows) {
+      if (row.isCredit) {
+        pendingCollection += row.amount;
+        // Tampoco entra en el desglose por categoria: si entrara, las
+        // categorias no sumarian los ingresos y el resumen se contradiria.
+        continue;
+      }
+
       totals[row.type] += row.amount;
-      if (row.isCredit) pendingCollection += row.amount;
 
       const key = `${row.type}:${row.category}`;
       const bucket = byCategory.get(key) ?? {
@@ -940,6 +947,38 @@ function sumAmounts(movements: { amount: number }[]): number {
  * corrige la categoria cuando no corresponde al tipo (un gasto no puede ser
  * "ventas": desalinearia los reportes).
  */
+/**
+ * Fecha declarada por el usuario, saneada.
+ *
+ * Se rechaza lo que no sea una fecha real en formato YYYY-MM-DD, lo que quede
+ * en el futuro (nadie registra una venta que no ha ocurrido, y un ano mal
+ * tecleado mandaria el movimiento a 2027) y lo anterior a dos anos, que a esta
+ * altura es siempre un error de interpretacion. En cualquiera de esos casos se
+ * devuelve null y el movimiento queda con la fecha de hoy.
+ */
+function normalizeMovementDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const texto = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return null;
+
+  const fecha = new Date(`${texto}T12:00:00.000Z`);
+  if (Number.isNaN(fecha.getTime())) return null;
+  // "2026-02-31" pasa el regex pero se desborda a marzo: se compara de vuelta.
+  if (fecha.toISOString().slice(0, 10) !== texto) return null;
+
+  const hoy = new Date();
+  if (fecha.getTime() > hoy.getTime() + DIA_MS) return null;
+
+  const haceDosAnios = new Date(hoy);
+  haceDosAnios.setFullYear(haceDosAnios.getFullYear() - 2);
+  if (fecha.getTime() < haceDosAnios.getTime()) return null;
+
+  return texto;
+}
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+
 function normalizeMovements(value: unknown): MovementDraft[] {
   if (!Array.isArray(value)) return [];
 
@@ -959,6 +998,7 @@ function normalizeMovements(value: unknown): MovementDraft[] {
         paymentMethod: normalizePaymentMethod(row.paymentMethod),
         isCredit: row.isCredit === true,
         customerName: cleanText(row.customerName),
+        date: normalizeMovementDate(row.date),
       };
     })
     .filter((movement): movement is MovementDraft => movement !== null)
@@ -1203,11 +1243,11 @@ export function renderSummary(summary: PeriodSummary): string {
     lines.push(`Inversiones: ${money(summary.investment)}`);
   }
 
-  // Lo fiado esta contado dentro de los ingresos, pero todavia no es plata en
-  // caja. Decirlo evita que el dueno crea que tiene mas de lo que tiene.
+  // Va aparte y despues del balance, para que quede claro que es plata que
+  // todavia no entro y no forma parte de los ingresos de arriba.
   if (summary.pendingCollection > 0) {
     lines.push(
-      `De eso, ${money(summary.pendingCollection)} está fiado por cobrar.`,
+      `Aparte, vendiste ${money(summary.pendingCollection)} a crédito que aún no has cobrado.`,
     );
   }
 
