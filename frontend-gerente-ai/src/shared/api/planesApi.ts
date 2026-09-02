@@ -80,13 +80,22 @@ export const PLANES_FALLBACK: PlanBackend[] = [
   },
 ];
 
+/**
+ * Cuota de mensajes de IA que muestra cada plan.
+ *
+ * OJO: estos numeros estan duplicados. La fuente de verdad es `PLAN_LIMITS`
+ * en el backend (`src/ai/usage/usage.service.ts`), que es quien realmente
+ * corta el servicio cuando se agota la cuota. Si cambian alli, hay que
+ * cambiarlos aqui tambien: la pagina llego a anunciar 50 mensajes mientras el
+ * backend ya concedia 500.
+ */
 export const MENSAJES_IA_POR_PLAN: Record<
   number,
   string
 > = {
-  1: '50 mensajes de IA / mes',
-  2: '500 mensajes de IA / mes',
-  3: '5.000 mensajes de IA / mes',
+  1: '500 mensajes de IA / mes',
+  2: '4.000 mensajes de IA / mes',
+  3: '10.000 mensajes de IA / mes',
   4: 'Mensajes de IA ilimitados',
 };
 
