@@ -4,6 +4,8 @@ import type { PeriodSummary, Transaction } from '../domain/finance.types';
 import type {
   FinanceDataPort,
   ProfitDistribution,
+  PaymentRequest,
+  PaymentResult,
   TransactionChanges,
 } from '../ports/finance-data.port';
 import type { WhatsAppIntentOutput } from '../prompts/whatsapp-assistant.prompt';
@@ -100,19 +102,39 @@ interface FakeFinanceData extends FinanceDataPort {
   distributions: ProfitDistribution[];
   updated: { id: string; changes: TransactionChanges }[];
   deleted: string[];
+  /** Abonos que se pidieron aplicar, para comprobar que llegan bien. */
+  payments: PaymentRequest[];
+  /** Lo que devolvera `registerPayment`. Cada prueba lo ajusta a su caso. */
+  paymentResult: PaymentResult;
 }
 
 function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
+  const payments: PaymentRequest[] = [];
   const saved: Transaction[] = [];
   const replaced: { id: string; parts: Transaction[] }[] = [];
   const distributions: ProfitDistribution[] = [];
   const updated: { id: string; changes: TransactionChanges }[] = [];
   const deleted: string[] = [];
 
-  return {
+  const fake: FakeFinanceData = {
     saved,
     replaced,
     distributions,
+    payments,
+    paymentResult: {
+      applied: true,
+      reason: null,
+      customerName: 'Doña Rosa',
+      amount: 20_000,
+      remaining: 30_000,
+      excess: 0,
+      settledSales: 0,
+    },
+    registerPayment: (payment: PaymentRequest) => {
+      payments.push(payment);
+      return Promise.resolve(fake.paymentResult);
+    },
+    listReceivables: () => Promise.resolve([]),
     getSnapshot: () => Promise.reject(new Error('no usado en estas pruebas')),
     listTransactions: () => Promise.resolve(rows),
     saveTransactions: (transactions: Transaction[]) => {
@@ -147,6 +169,8 @@ function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
       return Promise.resolve(true);
     },
   };
+
+  return fake;
 }
 
 function buildService(
@@ -957,7 +981,7 @@ describe('WhatsAppMessageService - fiados', () => {
     expect(result.summary?.income).toBe(700_000);
     expect(result.summary?.pendingCollection).toBe(300_000);
     expect(result.summary?.balance).toBe(700_000);
-    expect(result.replyText).toContain('a crédito que aún no has cobrado');
+    expect(result.replyText).toContain('te deben');
   });
 });
 
@@ -1695,5 +1719,330 @@ describe('WhatsAppMessageService · lo fiado no infla las categorías', () => {
     expect(ventas?.total).toBe(500_000);
     expect(result.summary?.income).toBe(500_000);
     expect(result.summary?.pendingCollection).toBe(3_200_000);
+  });
+});
+
+// ===========================================================================
+// ABONOS: cobrar un fiado baja la deuda, no crea una venta nueva
+// ===========================================================================
+
+describe('WhatsAppMessageService · abonos de fiados', () => {
+  const CON_ABONO: Partial<WhatsAppIntentOutput> = {
+    type: 'payment',
+    movements: [],
+    payment: {
+      customerName: 'Doña Rosa',
+      amount: 20_000,
+      settlesDebt: false,
+      date: null,
+    },
+    responseText: 'Listo, registro el abono.',
+  };
+
+  it('aplica el abono al cliente y no registra ningún movimiento', async () => {
+    // El error que se está corrigiendo: el cobro entraba como venta, la misma
+    // plata quedaba contada dos veces y la deuda seguía intacta.
+    const { service, financeData } = buildService(CON_ABONO);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(financeData.payments).toHaveLength(1);
+    expect(financeData.payments[0].customerName).toBe('Doña Rosa');
+    expect(financeData.payments[0].amount).toBe(20_000);
+    expect(result.transactions).toHaveLength(0);
+    expect(result.payment?.applied).toBe(true);
+  });
+
+  it('dice cuánto queda debiendo, que es lo que el dueño quiere saber', async () => {
+    const { service } = buildService(CON_ABONO);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('$20.000');
+    expect(result.replyText).toContain('$30.000');
+  });
+
+  it('avisa cuando el cliente queda al día', async () => {
+    const { service, financeData } = buildService(CON_ABONO);
+    financeData.paymentResult = {
+      applied: true,
+      reason: null,
+      customerName: 'Doña Rosa',
+      amount: 50_000,
+      remaining: 0,
+      excess: 0,
+      settledSales: 2,
+    };
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('al día');
+    expect(result.replyText).toContain('ya no te debe nada');
+  });
+
+  it('"ya me pagó todo" salda la deuda sin inventar un monto', async () => {
+    const { service, financeData } = buildService({
+      ...CON_ABONO,
+      payment: {
+        customerName: 'Juan',
+        amount: null,
+        settlesDebt: true,
+        date: null,
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    // null significa "lo que deba": el sistema sí sabe cuánto es, el modelo no.
+    expect(financeData.payments[0].amount).toBeNull();
+  });
+
+  it('respeta la fecha del pago cuando el usuario la dice', async () => {
+    const { service, financeData } = buildService({
+      ...CON_ABONO,
+      payment: {
+        customerName: 'Doña Rosa',
+        amount: 20_000,
+        settlesDebt: false,
+        date: '2026-08-23',
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.payments[0].date).toBe('2026-08-23');
+  });
+
+  it('sin nombre de cliente pregunta en vez de adivinar a quién cobrarle', async () => {
+    // Aplicárselo al cliente equivocado descuadra dos cuentas a la vez.
+    const { service, financeData } = buildService({
+      ...CON_ABONO,
+      payment: null,
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.payments).toHaveLength(0);
+    expect(result.intent.type).toBe('unclear');
+    expect(result.replyText).toContain('¿De quién es el pago?');
+  });
+
+  it('cuando no hay a quién aplicarlo lo dice, no falla', async () => {
+    const { service, financeData } = buildService(CON_ABONO);
+    financeData.paymentResult = {
+      applied: false,
+      reason: 'cliente_no_encontrado',
+      customerName: 'Doña Rosa',
+      amount: 0,
+      remaining: 0,
+      excess: 0,
+      settledSales: 0,
+    };
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('No encontré');
+    expect(result.replyText).toContain('Doña Rosa');
+  });
+
+  it('avisa cuando le pagaron más de lo que debía', async () => {
+    const { service, financeData } = buildService(CON_ABONO);
+    financeData.paymentResult = {
+      applied: true,
+      reason: null,
+      customerName: 'Doña Rosa',
+      amount: 50_000,
+      remaining: 0,
+      excess: 30_000,
+      settledSales: 1,
+    };
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    // Callarlo haría creer al dueño que registró una cifra que no registró.
+    expect(result.replyText).toContain('$30.000');
+    expect(result.replyText).toContain('no los registré');
+  });
+});
+
+describe('WhatsAppMessageService · las cuentas por cobrar bajan con los abonos', () => {
+  it('el resumen muestra el saldo, no lo que se fió', async () => {
+    // Este era el síntoma: el fiado seguía apareciendo entero por mucho que el
+    // cliente abonara.
+    const conSaldo: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-07-10',
+        description: 'Fiado a Doña Rosa',
+        category: 'ventas',
+        amount: 300_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        isCredit: true,
+        pendingAmount: 200_000,
+        customerName: 'Doña Rosa',
+      },
+      {
+        id: 'a1',
+        businessId: 'b1',
+        date: '2026-07-20',
+        description: 'Abono de Doña Rosa',
+        category: 'cobros',
+        amount: 100_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-20T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      conSaldo,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    // Lo cobrado es ingreso; lo que falta por cobrar, cuenta por cobrar.
+    expect(result.summary?.income).toBe(100_000);
+    expect(result.summary?.pendingCollection).toBe(200_000);
+  });
+
+  it('un fiado ya pagado deja de ser cuenta por cobrar', async () => {
+    const saldado: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-07-10',
+        description: 'Fiado a Juan',
+        category: 'ventas',
+        amount: 80_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        isCredit: true,
+        pendingAmount: 0,
+        customerName: 'Juan',
+      },
+      {
+        id: 'a1',
+        businessId: 'b1',
+        date: '2026-07-11',
+        description: 'Abono de Juan',
+        category: 'cobros',
+        amount: 80_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-11T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      saldado,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.summary?.pendingCollection).toBe(0);
+    expect(result.summary?.income).toBe(80_000);
+    expect(result.replyText).not.toContain('te deben');
+  });
+});
+
+describe('WhatsAppMessageService · un fiado necesita saber de quién es', () => {
+  it('pregunta el nombre en vez de registrar una deuda que nadie podrá cobrar', async () => {
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 20_000,
+          category: 'ventas',
+          concept: 'Venta fiada',
+          isCredit: true,
+          customerName: null,
+        }),
+      ],
+      responseText: 'Registré el fiado.',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(result.intent.type).toBe('unclear');
+    expect(result.replyText).toContain('¿A quién le fiaste?');
+  });
+
+  it('con nombre lo registra sin preguntar nada', async () => {
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 20_000,
+          category: 'ventas',
+          concept: 'Venta fiada',
+          isCredit: true,
+          customerName: 'Doña Rosa',
+        }),
+      ],
+      responseText: 'Registré el fiado de doña Rosa.',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.saved).toHaveLength(1);
+    expect(financeData.saved[0].customerName).toBe('Doña Rosa');
+    expect(financeData.saved[0].isCredit).toBe(true);
+    expect(result.intent.type).toBe('income');
   });
 });

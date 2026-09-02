@@ -46,6 +46,8 @@ export type PublicIntentType =
   | 'inversion'
   | 'desglose'
   | 'reparto_utilidades'
+  /** Le pagaron un fiado: baja la deuda, no crea un movimiento. */
+  | 'abono'
   | 'consulta'
   | 'correccion'
   | 'no_claro'
@@ -109,6 +111,7 @@ const TYPE_LABELS: Record<MessageIntentType, PublicIntentType> = {
   investment: 'inversion',
   breakdown: 'desglose',
   profit_share: 'reparto_utilidades',
+  payment: 'abono',
   query: 'consulta',
   correction: 'correccion',
   unclear: 'no_claro',

@@ -21,6 +21,13 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v10: los cobros de fiados dejan de ser ventas nuevas.
+ *
+ * "Rosa ya me pago" caia en type "income" y se registraba como otra venta: la
+ * plata se contaba dos veces y la deuda de Rosa seguia intacta. Ahora existe
+ * type "payment", que no crea movimientos sino que baja el saldo del fiado.
+ *
+ * ---------------------------------------------------------------------------
  * v7: un mensaje puede contener VARIOS movimientos.
  *
  * Hasta v6 el JSON tenia un solo "amount". Cuando alguien escribia "pague
@@ -31,7 +38,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v9';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v10';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -64,6 +71,12 @@ export interface WhatsAppIntentOutput {
     newAmount?: number | string | null;
     newConcept?: string | null;
   } | null;
+  payment?: {
+    customerName?: string | null;
+    amount?: number | string | null;
+    settlesDebt?: boolean | null;
+    date?: string | null;
+  } | null;
   concept?: string | null;
   queryKind?: string | null;
   queryPeriod?: string | null;
@@ -86,7 +99,7 @@ SIEMPRE responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin bloqu
 código, sin markdown. El JSON debe tener esta estructura exacta:
 
 {
-  "type": "income" | "expense" | "investment" | "breakdown" | "profit_share" | "query" | "correction" | "unclear" | "out_of_scope" | "premium",
+  "type": "income" | "expense" | "investment" | "payment" | "breakdown" | "profit_share" | "query" | "correction" | "unclear" | "out_of_scope" | "premium",
   "movements": [
     {
       "type": "income" | "expense" | "investment",
@@ -108,6 +121,12 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
     "reference": string | null,
     "newAmount": number | null,
     "newConcept": string | null
+  } | null,
+  "payment": {
+    "customerName": string,
+    "amount": number | null,
+    "settlesDebt": boolean,
+    "date": "YYYY-MM-DD" | null
   } | null,
   "concept": string | null,
   "queryKind": "summary" | "list" | "search" | null,
@@ -181,6 +200,35 @@ REGLAS DE INTERPRETACIÓN:
    - Un fiado SÍ se registra como venta, pero el dinero todavía no entró. El
      sistema lo separa en el flujo de caja; tú solo marca isCredit.
    - Si no dice que es fiado, isCredit es false.
+   - customerName es OBLIGATORIO en un fiado. Si dice "fié 20.000" pero no dice
+     a quién, usa type "unclear" y pregunta el nombre: un fiado sin dueño es una
+     deuda que después nadie puede cobrar ni descontar cuando le paguen.
+
+6B. LE PAGARON UN FIADO (type: "payment"):
+   Esto es lo contrario de fiar: el cliente que debia viene y paga.
+
+   - "Doña Rosa me abonó $20.000"            -> payment, amount 20000
+   - "Juan me pagó los $50.000 que me debía" -> payment, amount 50000
+   - "Rosa ya me pagó todo"                  -> payment, amount null, settlesDebt true
+   - "Ya quedó al día don Pedro"             -> payment, amount null, settlesDebt true
+   - "Me abonaron 30.000 del fiado de Ana"   -> payment, amount 30000, customerName "Ana"
+
+   REGLAS:
+   - customerName es OBLIGATORIO. Si el mensaje no dice a quién, usa type
+     "unclear" y pregunta de quién es el pago. No adivines el nombre.
+   - Si dice el monto, ponlo en amount y settlesDebt en false.
+   - Si dice que pagó TODO, o "quedó al día", o "ya no me debe nada": amount
+     null y settlesDebt true. El sistema salda lo que deba, que él sí lo sabe.
+   - movements va SIEMPRE vacío: []. Un cobro NO es una venta nueva. Si lo
+     registras como income, la misma plata queda contada dos veces y la deuda
+     del cliente nunca baja. Este es el error más grave que puedes cometer aquí.
+   - La fecha funciona igual que en los movimientos: null si no la dice.
+   - En responseText escribe algo breve: el sistema lo reemplaza por cuánto
+     quedó debiendo, que es el dato que el dueño quiere.
+
+   NO confundas:
+     "Le fié 50.000 a Rosa"   -> income con isCredit true  (nace la deuda)
+     "Rosa me pagó 50.000"    -> payment                   (se salda la deuda)
 
 7. REPARTO DE UTILIDADES (type: "profit_share"):
    - "De las ganancias, 60% para mí y 40% para los trabajadores"
@@ -374,6 +422,15 @@ Respuesta: {"type":"income","movements":[{"type":"income","amount":1500000,"cate
 Mensaje: "Le fié $50.000 a doña Rosa"
 Respuesta: {"type":"income","movements":[{"type":"income","amount":50000,"category":"ventas","concept":"Venta fiada a doña Rosa","paymentMethod":null,"isCredit":true,"customerName":"Doña Rosa"}],"declaredTotal":null,"profitShares":[],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"✅ Registré el fiado de $50.000 a doña Rosa.","confidence":0.95}
 
+Mensaje: "Doña Rosa me abonó $20.000"
+Respuesta: {"type":"payment","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":{"customerName":"Doña Rosa","amount":20000,"settlesDebt":false,"date":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, registro el abono de doña Rosa.","confidence":0.95}
+
+Mensaje: "Juan ya me pagó todo lo que me debía"
+Respuesta: {"type":"payment","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":{"customerName":"Juan","amount":null,"settlesDebt":true,"date":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Perfecto, dejo saldada la deuda de Juan.","confidence":0.95}
+
+Mensaje: "Ya me pagaron el fiado"
+Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"¡Qué bueno! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.","confidence":0.5}
+
 Mensaje: "De las ganancias, 60% para mí y 40% para los trabajadores"
 Respuesta: {"type":"profit_share","movements":[],"declaredTotal":null,"profitShares":[{"beneficiary":"dueno","name":null,"percentage":60},{"beneficiary":"trabajador","name":null,"percentage":40}],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, reparto las utilidades 60/40.","confidence":0.95}
 
@@ -470,6 +527,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'declaredTotal',
     'profitShares',
     'correction',
+    'payment',
     'concept',
     'queryKind',
     'queryPeriod',
@@ -483,6 +541,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         'income',
         'expense',
         'investment',
+        'payment',
         'breakdown',
         'profit_share',
         'query',
@@ -606,6 +665,32 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         newConcept: {
           type: ['string', 'null'],
           description: 'Concepto corregido. null si no se cambia.',
+        },
+      },
+    },
+    payment: {
+      type: ['object', 'null'],
+      additionalProperties: false,
+      required: ['customerName', 'amount', 'settlesDebt', 'date'],
+      description:
+        'Cobro de un fiado. null si el mensaje no avisa de ningun pago.',
+      properties: {
+        customerName: {
+          type: 'string',
+          description:
+            'Cliente que pago. Obligatorio: sin el no hay deuda que saldar.',
+        },
+        amount: {
+          type: ['number', 'null'],
+          description: 'Cuanto abono. null si dijo que pago todo.',
+        },
+        settlesDebt: {
+          type: 'boolean',
+          description: 'true si el mensaje dice que quedo al dia.',
+        },
+        date: {
+          type: ['string', 'null'],
+          description: 'Fecha del pago en YYYY-MM-DD. null = hoy.',
         },
       },
     },

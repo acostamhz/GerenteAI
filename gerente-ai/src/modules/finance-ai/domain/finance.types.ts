@@ -22,7 +22,17 @@ export type MessageIntentType =
   /** Le pidieron algo que no son las finanzas del negocio (codigo, poemas...). */
   | 'out_of_scope'
   /** Pidio una funcion que solo existe en los planes pagos. */
-  | 'premium';
+  | 'premium'
+  /**
+   * Le pagaron un fiado, entero o en parte ("Rosa me abono 20.000",
+   * "Juan ya me pago todo").
+   *
+   * No es un movimiento nuevo: es el cobro de una venta a credito que ya
+   * estaba registrada. Antes caia en "income" y se registraba como una venta
+   * aparte, con lo cual el dinero se contaba dos veces y la deuda del cliente
+   * nunca bajaba.
+   */
+  | 'payment';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';
@@ -176,6 +186,23 @@ export interface MovementDraft {
 }
 
 /**
+ * Un pago que le hicieron al negocio sobre un fiado.
+ *
+ * El monto puede faltar: "Rosa ya me pago" no dice cuanto, y lo correcto es
+ * saldar toda su deuda, no adivinar una cifra.
+ */
+export interface PaymentDraft {
+  /** A quien se le cobro. Sin nombre no hay a que deuda aplicarlo. */
+  customerName: string | null;
+  /** Monto abonado. null cuando el mensaje dice que pago todo. */
+  amount: number | null;
+  /** true = "ya me pago todo": se salda el saldo completo del cliente. */
+  settlesDebt: boolean;
+  /** Fecha del pago en YYYY-MM-DD. null = hoy. */
+  date: string | null;
+}
+
+/**
  * Lo que el usuario quiere cambiar de un movimiento ya registrado.
  *
  * La gente dicta mal por WhatsApp ("eran 60.000, no 50.000") y hasta ahora la
@@ -224,6 +251,8 @@ export interface MessageIntent {
   profitShares: ProfitShare[];
   /** Que corregir, cuando el mensaje pide arreglar algo ya registrado. */
   correction: CorrectionRequest | null;
+  /** El abono, cuando el mensaje avisa que le pagaron un fiado. */
+  payment: PaymentDraft | null;
   /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.
@@ -269,6 +298,15 @@ export interface Transaction {
   paymentMethod?: PaymentMethod | null;
   /** true = venta fiada: registrada, pero todavia por cobrar. */
   isCredit?: boolean;
+  /**
+   * Lo que TODAVIA se debe de esta venta fiada. null en las de contado.
+   *
+   * Es distinto de `amount`: `amount` es lo que se vendio y no cambia nunca;
+   * `pendingAmount` baja con cada abono y llega a 0 cuando el cliente termina
+   * de pagar. Sin este campo, un fiado ya cobrado seguia apareciendo entero en
+   * las cuentas por cobrar.
+   */
+  pendingAmount?: number | null;
   /** Cliente al que se le fio. */
   customerName?: string | null;
   /** Une el total con sus desgloses por metodo de pago. */
@@ -299,15 +337,46 @@ export interface PeriodSummary {
   investment: number;
   balance: number;
   /**
-   * Ventas fiadas del periodo: ya ocurrieron, pero el dinero NO entro.
+   * Lo que queda por cobrar de las ventas fiadas del periodo.
    *
-   * NO esta incluido en `income`. Sumarlo daba un ingreso que el dueno no
-   * tiene en el bolsillo y un balance que no cuadra con su caja; es el error
-   * mas comun al llevar las cuentas a mano.
+   * Es el SALDO, no lo vendido: si se fiaron 300.000 y el cliente ya abono
+   * 100.000, aqui hay 200.000. Antes se sumaba la venta completa y la cuenta
+   * por cobrar seguia igual por mucho que el cliente pagara.
+   *
+   * NO esta incluido en `income`. Lo fiado entra a los ingresos cuando se
+   * cobra, y entonces lo hace como abono, con la fecha del cobro.
    */
   pendingCollection: number;
   transactionCount: number;
   byCategory: CategoryTotal[];
+}
+
+/**
+ * Lo que un cliente concreto le debe al negocio.
+ *
+ * Existe para que las recomendaciones puedan decir "Rosa te debe 200.000 desde
+ * hace 47 dias" en vez de un total anonimo: al dueno lo que le sirve es saber
+ * a quien llamar.
+ */
+export interface Receivable {
+  customerId: string;
+  customerName: string;
+  /** Lo que aun debe, sumando todas sus ventas fiadas abiertas. */
+  pending: number;
+  /** Lo que ya abono sobre esas ventas. 0 si nunca ha pagado nada. */
+  paid: number;
+  /** Lo que se le fio en total (pending + paid). */
+  total: number;
+  /** Fecha del fiado sin pagar mas antiguo, en YYYY-MM-DD. */
+  oldestSince: string;
+  /** Dias transcurridos desde ese fiado. Es la antiguedad de la deuda. */
+  daysOutstanding: number;
+  /** Fecha del ultimo abono. null si nunca ha abonado. */
+  lastPaymentDate: string | null;
+  /** Dias desde el ultimo abono. null si nunca ha abonado. */
+  daysSinceLastPayment: number | null;
+  /** Cuantas ventas fiadas suyas siguen abiertas. */
+  openSales: number;
 }
 
 /** Foto del negocio que se le entrega al modelo para razonar. */
@@ -322,8 +391,17 @@ export interface BusinessSnapshot {
   totalExpense: number;
   totalInvestment: number;
   balance: number;
-  /** Vendido a credito y todavia sin cobrar. Nunca sumado a `totalIncome`. */
+  /** Vendido a credito en el periodo. Nunca sumado a `totalIncome`. */
   totalCreditSales: number;
+  /**
+   * Lo que le deben al negocio HOY, sin importar cuando se fio.
+   *
+   * Distinto de `totalCreditSales`: aquel dice cuanto se vendio a credito en
+   * el periodo, este cuanto falta por cobrar despues de los abonos.
+   */
+  totalReceivable: number;
+  /** Quien debe, cuanto y desde cuando. Ordenado por deuda mas antigua. */
+  receivables: Receivable[];
   monthly: MonthlyTotals[];
   topCategories: CategoryTotal[];
   recentTransactions: Transaction[];
