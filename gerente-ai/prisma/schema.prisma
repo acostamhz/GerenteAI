@@ -106,6 +106,7 @@ model Negocio {
   reportes        Reporte[]
   pagos           Pago[]
   notificaciones  NotificacionPlan[]
+  consumosIa      ConsumoIa[]
 }
 
 model Sede {
@@ -134,6 +135,7 @@ model Sede {
   reportes     Reporte[]
   abonos       Abono[]
   repartos     RepartoUtilidad[]
+  consumosIa   ConsumoIa[]
 
   @@index([negocioId, createdAt])
 }
@@ -421,4 +423,32 @@ model NotificacionPlan {
 
   @@unique([negocioId, tipo, venceEl])
   @@index([negocioId])
+}
+
+model ConsumoIa {
+  id           String   @id @default(uuid())
+
+  /** Caso de uso: "whatsapp.message", "insights.generate", "assistant.chat". */
+  feature      String
+  providerId   String              // "gemini", "groq", ...
+  model        String              // "gemini-3.6-flash"
+  inputTokens  Int
+  outputTokens Int
+  /** Coste en USD. 6 decimales porque una llamada puede costar 0,000045. */
+  costoUsd     Decimal  @db.Decimal(12, 6)
+  latenciaMs   Int
+  /** Solo las exitosas cuentan contra la cuota; las fallidas se guardan igual. */
+  exitosa      Boolean
+  errorCode    String?
+  createdAt    DateTime @default(now())
+
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  /** La sede desde la que se originó, cuando se sabe. */
+  sedeId String?
+  sede   Sede?   @relation(fields: [sedeId], references: [id], onDelete: SetNull)
+
+  @@index([negocioId, createdAt])
+  @@index([negocioId, exitosa, createdAt])
 }
