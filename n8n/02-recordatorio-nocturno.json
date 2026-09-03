@@ -24,31 +24,38 @@
     },
     {
       "parameters": {
-        "operation": "executeQuery",
-        "query": "-- RF-07: sedes con linea de WhatsApp que HOY no registraron ningun movimiento.\n--\n-- La sede es la unidad que tiene linea propia (Sede.telefono, unico) y es donde\n-- cuelgan Gasto, Venta y Compra. Negocio.telefonoContacto es administrativo y\n-- el esquema lo marca como \"no usado por el bot\": no se consulta aqui.\n--\n-- Nota de zona horaria: Prisma guarda DateTime como timestamp sin zona, en UTC.\n-- Por eso se reinterpreta (AT TIME ZONE UTC) antes de pasarlo a hora local\n-- (AT TIME ZONE America/Bogota). Sin esto, entre las 19:00 y las 24:00 de\n-- Colombia el \"hoy\" del servidor ya es el dia siguiente y el recordatorio se\n-- envia a gente que si registro.\nSELECT\n    s.id                                  AS sede_id,\n    s.nombre                              AS sede,\n    n.nombre                              AS negocio,\n    COALESCE(NULLIF(s.telefono, ''), s.\"whatsappUserId\") AS destinatario,\n    COALESCE(contacto.nombre, 'por aqui') AS contacto\nFROM \"Sede\" s\nJOIN \"Negocio\" n ON n.id = s.\"negocioId\"\nLEFT JOIN LATERAL (\n    SELECT u.nombre\n    FROM \"UsuarioNegocio\" un\n    JOIN \"Usuario\" u ON u.id = un.\"usuarioId\"\n    WHERE un.\"negocioId\" = n.id\n    ORDER BY un.id\n    LIMIT 1\n) contacto ON TRUE\n-- Una sede se puede alcanzar por telefono o por BSUID: las cuentas que\n-- ocultan su numero solo tienen lo segundo, y tambien deben recibir el aviso.\nWHERE (\n      (s.telefono IS NOT NULL AND s.telefono <> '')\n   OR s.\"whatsappUserId\" IS NOT NULL\n  )\n  AND NOT EXISTS (\n      SELECT 1 FROM \"Gasto\" g\n      WHERE g.\"sedeId\" = s.id\n        AND (g.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date\n            = (now() AT TIME ZONE 'America/Bogota')::date\n  )\n  AND NOT EXISTS (\n      SELECT 1 FROM \"Venta\" v\n      WHERE v.\"sedeId\" = s.id\n        AND (v.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date\n            = (now() AT TIME ZONE 'America/Bogota')::date\n  )\n  AND NOT EXISTS (\n      SELECT 1 FROM \"Compra\" c\n      WHERE c.\"sedeId\" = s.id\n        AND (c.fecha AT TIME ZONE 'UTC' AT TIME ZONE 'America/Bogota')::date\n            = (now() AT TIME ZONE 'America/Bogota')::date\n  )\nORDER BY n.nombre, s.nombre;",
-        "options": {}
+        "method": "GET",
+        "url": "={{ $env.BACKEND_URL || 'https://TU-BACKEND.up.railway.app' }}/ai/recordatorios/nocturno",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "timeout": 90000
+        }
       },
-      "type": "n8n-nodes-base.postgres",
-      "typeVersion": 2.6,
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
       "position": [
         0,
         0
       ],
       "id": "a2000000-0000-4000-8000-000000000002",
-      "name": "Negocios sin movimientos hoy",
+      "name": "Sedes sin movimientos hoy",
       "credentials": {
-        "postgres": {
+        "httpHeaderAuth": {
           "id": "REEMPLAZAR_ID_CREDENCIAL",
-          "name": "PostgreSQL Luka AI"
+          "name": "Backend Luka AI (x-api-key)"
         }
       },
       "alwaysOutputData": true,
       "onError": "stopWorkflow",
-      "notes": "Devuelve SEDES (no negocios): la linea de WhatsApp vive en Sede.telefono.\nalwaysOutputData=true para que el nodo siguiente pueda dejar en el log que hoy no habia pendientes."
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000,
+      "notes": "Antes este nodo era una consulta SQL propia, y ahi estaba el error reportado:\nsolo miraba Sede.telefono y Sede.whatsappUserId, mientras que la entrada de\nmensajes tambien acepta el telefono personal del duenno (Usuario.telefono).\nQuien usaba el bot desde su celular, con la sede sin linea propia, escribia\nsin problema pero nunca recibia el recordatorio.\n\nAhora \"quien es un contacto\" se define una sola vez, en el backend\n(DestinatariosService), y este workflow la consulta. Si la regla cambia, no\nhay dos sitios que sincronizar.\n\nTimeout 90 s por el arranque en frio de Render."
     },
     {
       "parameters": {
-        "jsCode": "// Filtra, normaliza y deja traza. Un solo lugar donde mirar cuando alguien\n// pregunte \"por que no me llego el recordatorio?\".\nconst filas = $input.all().filter((item) => item.json.destinatario);\n\nconsole.log(`[Recordatorio 21:00] Sedes sin movimientos hoy: ${filas.length}`);\n\nif (filas.length === 0) {\n  return [];\n}\n\nreturn filas.map((item) => {\n  const bruto = String(item.json.destinatario);\n\n  // Un BSUID (CO.1710763673557397) va tal cual: quitarle el prefijo lo rompe.\n  // Un telefono si se limpia, porque Meta lo exige en digitos.\n  const esIdentidad = bruto.includes('.');\n  const destinatario = esIdentidad ? bruto : bruto.replace(/\\D/g, '');\n\n  const sede = String(item.json.sede);\n\n  // Meta exige el numero en formato internacional. Un movil colombiano completo\n  // tiene 12 digitos (57 + 10). Sin el prefijo, el envio se acepta y nunca llega,\n  // asi que conviene verlo en el log y arreglar el dato en la base.\n  if (!esIdentidad && destinatario.length < 11) {\n    console.error(\n      `[AVISO] La sede \"${sede}\" tiene el telefono sin codigo de pais: ${destinatario}. Corregir en Sede.telefono (ej. 57${destinatario}).`,\n    );\n  }\n\n  const contacto = String(item.json.contacto || '').split(' ')[0] || 'por aqui';\n  const negocio = String(item.json.negocio);\n\n  console.log(\n    `[Recordatorio 21:00] → ${negocio} / ${sede} (${esIdentidad ? bruto : '***' + destinatario.slice(-4)})`,\n  );\n\n  return {\n    json: {\n      sedeId: item.json.sede_id,\n      negocio,\n      sede,\n      // Lo que ve el usuario. Se nombra la sede porque un mismo duenno puede\n      // tener varias, cada una con su linea, y si no no sabria cual es cual.\n      destino: `${negocio} (${sede})`,\n      destinatario,\n      contacto,\n    },\n  };\n});"
+        "jsCode": "// El backend ya decidio a quien escribirle y por que numero. Aqui solo se\n// abre el arreglo en un item por sede y se deja traza: un solo lugar donde\n// mirar cuando alguien pregunte \"por que no me llego el recordatorio?\".\nconst respuesta = $input.first().json;\nconst destinatarios = respuesta.destinatarios || [];\n\nconsole.log(`[Recordatorio 21:00] Sedes sin movimientos hoy: ${destinatarios.length}`);\n\nreturn destinatarios.map((d) => {\n  // El backend ya normalizo el numero a digitos y validó el codigo de pais.\n  // `via` dice como se resolvio (sede_telefono, sede_identidad o\n  // usuario_telefono), y es lo primero que hay que mirar si alguien no recibe.\n  console.log(\n    `[Recordatorio 21:00] → ${d.negocio} / ${d.sede} [${d.via}]`,\n  );\n\n  return {\n    json: {\n      sedeId: d.sedeId,\n      negocio: d.negocio,\n      sede: d.sede,\n      // Lo que ve el usuario. Se nombra la sede porque un mismo duenno puede\n      // tener varias, cada una con su linea, y si no no sabria cual es cual.\n      destino: `${d.negocio} (${d.sede})`,\n      destinatario: d.destinatario,\n      contacto: d.contacto,\n      via: d.via,\n    },\n  };\n});"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -118,18 +125,7 @@
       "main": [
         [
           {
-            "node": "Negocios sin movimientos hoy",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Negocios sin movimientos hoy": {
-      "main": [
-        [
-          {
-            "node": "Preparar destinatarios",
+            "node": "Sedes sin movimientos hoy",
             "type": "main",
             "index": 0
           }
@@ -153,6 +149,17 @@
         [
           {
             "node": "Registrar fallos",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sedes sin movimientos hoy": {
+      "main": [
+        [
+          {
+            "node": "Preparar destinatarios",
             "type": "main",
             "index": 0
           }

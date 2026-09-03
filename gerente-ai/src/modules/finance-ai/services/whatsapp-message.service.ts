@@ -4,14 +4,34 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { LlmService } from '../../../ai/services/llm.service';
 import type { AiCallContext } from '../../../ai/usage/usage.service';
-import { partesDelDia, sumarDias } from '../domain/dia-colombia';
+import {
+  fechaColombiana,
+  partesDelDia,
+  sumarDias,
+} from '../domain/dia-colombia';
+import {
+  DIA_INICIO_POR_DEFECTO,
+  normalizarDiaInicio,
+  periodoContableDe,
+} from '../domain/periodo-contable';
 import {
   CATEGORIES_BY_TYPE,
   CATEGORY_LABELS,
   DEFAULT_CATEGORY_BY_TYPE,
+  PAYMENT_METHOD_LABELS,
+  PAYMENT_METHODS,
+  PROFIT_BENEFICIARIES,
+  PROFIT_BENEFICIARY_LABELS,
+  type CorrectionRequest,
   type MessageIntent,
   type MessageIntentType,
+  type MovementDraft,
+  type PaymentDraft,
+  type PaymentMethod,
   type PeriodSummary,
+  type ProfitBeneficiary,
+  type ProfitShare,
+  type QueryKind,
   type QueryPeriod,
   type Transaction,
   type TransactionCategory,
@@ -20,6 +40,7 @@ import {
 import {
   FINANCE_DATA_PORT,
   type FinanceDataPort,
+  type PaymentResult,
 } from '../ports/finance-data.port';
 import {
   WHATSAPP_ASSISTANT_PROMPT_VERSION,
@@ -47,6 +68,13 @@ export interface WhatsAppMessageRequest {
    * el monto, el usuario lo respondia suelto y volvia a preguntar lo mismo.
    */
   history?: { role: 'user' | 'assistant'; content: string }[];
+  /**
+   * Dia en que arranca el periodo contable del negocio (1 a 28).
+   *
+   * Sin esto, "este mes" seria siempre del 1 al 30. Hay negocios cuyo mes va
+   * del 21 al 20 y sus totales cortarian por donde no es.
+   */
+  diaInicioPeriodo?: number;
   /** Nombre comercial del plan, para decidir que funciones estan incluidas. */
   planName?: string;
   /** true si el plan vigente es el gratuito. */
@@ -56,8 +84,25 @@ export interface WhatsAppMessageRequest {
 export interface WhatsAppMessageResult {
   /** Lo que el modelo entendio, ya validado. Es el JSON del system prompt. */
   intent: MessageIntent;
-  /** Movimiento contable, si el mensaje era un ingreso, gasto o inversion. */
+  /**
+   * Todos los movimientos creados por el mensaje. Un mensaje puede traer
+   * varios ("pague 50.000 de transporte y 30.000 de almuerzo").
+   */
+  transactions: Transaction[];
+  /**
+   * El primer movimiento, o null.
+   *
+   * Se conserva por compatibilidad con quienes solo esperaban uno (n8n, el
+   * panel). Para saber todo lo que se registro, usa `transactions`.
+   */
   transaction: Transaction | null;
+  /** Reparto de utilidades registrado, si el mensaje lo pedia. */
+  profitDistribution: {
+    total: number;
+    shares: ProfitShare[];
+  } | null;
+  /** Como quedo la deuda, si el mensaje avisaba de un cobro de fiado. */
+  payment: PaymentResult | null;
   /** Resumen real del periodo, si el mensaje era una consulta. */
   summary: PeriodSummary | null;
   /** El texto que se le responde al usuario por WhatsApp. */
@@ -125,7 +170,11 @@ export class WhatsAppMessageService {
           // Interpretar un mensaje es determinista: sin creatividad.
           temperature: 0,
           effort: 'low',
-          maxOutputTokens: 512,
+          // Un mensaje puede traer varios movimientos y cada uno son ~70 tokens
+          // de JSON. Con 512 el modelo cortaba la respuesta a la mitad ("...
+          // customerName) y el parseo fallaba: el usuario veia "no pude
+          // procesar" cada vez que registraba mas de dos ventas juntas.
+          maxOutputTokens: 2048,
         },
         context,
       );
@@ -148,97 +197,628 @@ export class WhatsAppMessageService {
       costUsd: response.costUsd,
     };
 
-    if (intent.type === 'query') {
-      // Consulta sobre algo concreto ("¿que dia compre jabones?"): se busca por
-      // texto en los movimientos, no se devuelve el resumen del periodo. Antes
-      // cualquier pregunta caia en el resumen y el usuario recibia los mismos
-      // totales sin importar que hubiera preguntado.
-      if (intent.concept) {
-        const encontrados = await this.searchTransactions(
-          request.businessId,
-          intent.concept,
-        );
+    // Cada intencion tiene su manejador. El switch deja a la vista todos los
+    // caminos posibles del mensaje, que antes estaban encadenados en ifs.
+    switch (intent.type) {
+      case 'query':
+        return this.handleQuery(intent, request, currency, meta);
 
-        return {
+      case 'breakdown':
+        return this.handleBreakdown(intent, request, currency, meta);
+
+      case 'profit_share':
+        return this.handleProfitShare(intent, request, currency, meta);
+
+      case 'correction':
+        return this.handleCorrection(intent, request, currency, meta);
+
+      case 'payment':
+        return this.handlePayment(
           intent,
-          transaction: null,
-          summary: null,
-          replyText: renderSearch(intent.concept, encontrados, currency),
+          request,
+          currency,
+          referenceDate,
           meta,
-        };
-      }
-
-      const summary = await this.buildSummary(
-        request.businessId,
-        intent.queryPeriod ?? 'month',
-        currency,
-      );
-      return {
-        intent,
-        transaction: null,
-        summary,
-        replyText: renderSummary(summary),
-        meta,
-      };
-    }
-
-    if (isTransactionType(intent.type)) {
-      const transaction = this.buildTransaction(
-        intent,
-        intent.type,
-        request,
-        currency,
-        referenceDate,
-      );
-
-      if (!transaction) {
-        // El modelo dijo "gasto" pero no dejo un monto usable: no inventamos
-        // cifras, preguntamos.
-        this.logger.warn(
-          `Intencion "${intent.type}" sin monto valido: "${request.message.slice(0, 80)}"`,
         );
-        return {
-          // Al degradar a "unclear" se limpian los campos del movimiento:
-          // dejarlos puestos haria creer que hay un registro a medio hacer.
-          intent: {
-            ...intent,
-            type: 'unclear',
-            category: null,
-            queryPeriod: null,
-            // Si no hubo monto, la interpretacion no puede considerarse buena
-            // por mucho que el modelo diga lo contrario.
-            confidence: Math.min(intent.confidence, 0.4),
-          },
-          transaction: null,
-          summary: null,
-          replyText:
-            'No alcancé a identificar el monto. ¿Me lo confirmas para registrarlo?',
+
+      case 'income':
+      case 'expense':
+      case 'investment':
+        return this.handleMovements(
+          intent,
+          request,
+          currency,
+          referenceDate,
           meta,
-        };
-      }
+        );
 
-      if (request.persist) {
-        await this.financeData.saveTransactions([transaction]);
-      }
+      default:
+        // unclear, out_of_scope y premium solo responden.
+        return this.plainResult(intent, intent.responseText, meta);
+    }
+  }
 
-      return {
+  // ------------------------------------------------------------- movimientos
+
+  /**
+   * Registra uno o varios movimientos.
+   *
+   * Antes de guardar nada comprueba que el desglose cuadre con el total que
+   * dijo el usuario: registrar cifras que no suman es peor que no registrar,
+   * porque el error queda escondido en la contabilidad.
+   */
+  private async handleMovements(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    referenceDate: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    if (!intent.movements.length) {
+      this.logger.warn(
+        `Intencion "${intent.type}" sin monto valido: "${request.message.slice(0, 80)}"`,
+      );
+      return this.needsClarification(
         intent,
-        transaction,
-        summary: null,
-        replyText: intent.responseText,
+        'No alcancé a identificar el monto. ¿Me lo confirmas para registrarlo?',
         meta,
-      };
+      );
     }
 
-    // correction y unclear: por ahora solo se responde.
-    // Aplicar la correccion requiere persistencia (ver docs/IA.md, pendientes).
+    // Un fiado sin nombre es una deuda que nadie puede cobrar: no se sabe a
+    // quien reclamarle ni a que saldo aplicarle un abono despues. Preguntar
+    // ahora cuesta un mensaje; descubrirlo un mes despues cuesta la plata.
+    const fiadoSinCliente = intent.movements.find(
+      (movimiento) => movimiento.isCredit && !movimiento.customerName,
+    );
+
+    if (fiadoSinCliente) {
+      return this.needsClarification(
+        intent,
+        '¿A quién le fiaste? Necesito el nombre para saber después quién te debe.',
+        meta,
+      );
+    }
+
+    const descuadre = checkBreakdown(intent.declaredTotal, intent.movements);
+    if (descuadre) {
+      this.logger.warn(
+        `Desglose que no cuadra: total ${descuadre.declared}, partes ${descuadre.sum}.`,
+      );
+      return this.needsClarification(
+        intent,
+        renderMismatch(descuadre, currency),
+        meta,
+      );
+    }
+
+    const transactions = this.buildTransactions(
+      intent.movements,
+      request,
+      currency,
+      referenceDate,
+    );
+
+    if (request.persist) {
+      await this.financeData.saveTransactions(transactions);
+    }
+
     return {
       intent,
-      transaction: null,
+      transactions,
+      transaction: transactions[0] ?? null,
+      profitDistribution: null,
+      payment: null,
       summary: null,
-      replyText: intent.responseText,
+      // Con un solo movimiento se respeta el texto del modelo, que suena
+      // natural. Con varios lo arma el backend: son cifras, y las cifras las
+      // pone quien tiene los datos.
+      replyText:
+        transactions.length === 1
+          ? intent.responseText
+          : renderMovementsRegistered(transactions, currency),
       meta,
     };
+  }
+
+  /**
+   * Registra que le pagaron un fiado.
+   *
+   * No crea un movimiento: baja el saldo de las ventas a credito que ya
+   * estaban registradas. El ingreso aparece solo, porque el abono se lee
+   * despues como un movimiento de categoria "cobros" con la fecha del pago.
+   * Registrarlo como venta nueva —que es lo que pasaba antes— contaba la
+   * misma plata dos veces y dejaba la deuda del cliente intacta.
+   */
+  private async handlePayment(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    referenceDate: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const abono = intent.payment;
+
+    // Sin nombre no hay deuda a la cual aplicarlo. Preguntar es mejor que
+    // adivinar: aplicarselo al cliente equivocado descuadra dos cuentas.
+    if (!abono?.customerName) {
+      return this.needsClarification(
+        intent,
+        '¡Qué bueno que te pagaron! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.',
+        meta,
+      );
+    }
+
+    if (!request.persist) {
+      return this.plainResult(intent, intent.responseText, meta);
+    }
+
+    const resultado = await this.financeData.registerPayment({
+      businessId: request.businessId,
+      customerName: abono.customerName,
+      // "Ya me pago todo" no trae monto: se salda lo que deba, que el sistema
+      // si sabe cuanto es.
+      amount: abono.settlesDebt ? null : abono.amount,
+      date: abono.date ?? referenceDate,
+    });
+
+    if (resultado.applied) {
+      this.logger.log(
+        `Abono de ${resultado.amount} de "${resultado.customerName}" en sede ${request.businessId}: quedan ${resultado.remaining}.`,
+      );
+    } else {
+      this.logger.warn(
+        `Abono no aplicado (${resultado.reason}) para "${abono.customerName}" en sede ${request.businessId}.`,
+      );
+    }
+
+    return {
+      intent,
+      transactions: [],
+      transaction: null,
+      profitDistribution: null,
+      payment: resultado,
+      summary: null,
+      // Las cifras las pone el backend: cuanto quedo debiendo es justo el dato
+      // que el modelo no puede saber y el dueno si necesita.
+      replyText: renderPayment(resultado, currency),
+      meta,
+    };
+  }
+
+  /**
+   * Desglosa un total que ya estaba registrado.
+   *
+   * Busca el movimiento del que se esta hablando y lo sustituye por sus partes.
+   * Si no lo encuentra (el usuario nunca registro ese total), trata el mensaje
+   * como movimientos nuevos en vez de perderlo.
+   */
+  private async handleBreakdown(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    if (!intent.movements.length) {
+      return this.needsClarification(
+        intent,
+        'No entendí el desglose. ¿Me repites cuánto fue en cada forma de pago?',
+        meta,
+      );
+    }
+
+    const referenceDate = todayIso();
+    const suma = sumAmounts(intent.movements);
+    const original = await this.findTransactionToBreakDown(
+      request.businessId,
+      intent.movements[0].type,
+      suma,
+    );
+
+    const partes = this.buildTransactions(
+      intent.movements,
+      request,
+      currency,
+      referenceDate,
+      original?.groupId ?? randomUUID(),
+    );
+
+    if (!original) {
+      // No hay un total previo con esa cifra: son movimientos nuevos.
+      this.logger.warn(
+        `Desglose sin total previo de ${suma} en sede ${request.businessId}: se registra como movimientos nuevos.`,
+      );
+      if (request.persist) {
+        await this.financeData.saveTransactions(partes);
+      }
+      return {
+        intent,
+        transactions: partes,
+        transaction: partes[0] ?? null,
+        profitDistribution: null,
+        payment: null,
+        summary: null,
+        replyText: renderMovementsRegistered(partes, currency),
+        meta,
+      };
+    }
+
+    if (request.persist) {
+      await this.financeData.replaceTransaction(
+        request.businessId,
+        original.id,
+        partes,
+      );
+    }
+
+    return {
+      intent,
+      transactions: partes,
+      transaction: partes[0] ?? null,
+      profitDistribution: null,
+      payment: null,
+      summary: null,
+      replyText: renderBreakdown(partes, suma, currency),
+      meta,
+    };
+  }
+
+  /**
+   * Busca el movimiento total que el desglose viene a detallar.
+   *
+   * Criterio: mismo tipo, mismo monto que la suma de las partes, sin desglosar
+   * todavia y reciente. Es deterministico y no necesita memoria de la
+   * conversacion, que en WhatsApp no siempre llega completa.
+   */
+  private async findTransactionToBreakDown(
+    businessId: string,
+    type: TransactionType,
+    total: number,
+  ): Promise<Transaction | null> {
+    const hoy = todayIso();
+    const rows = await this.financeData.listTransactions({
+      businessId,
+      from: sumarDias(hoy, -BREAKDOWN_WINDOW_DAYS),
+      to: hoy,
+      type,
+      limit: 200,
+    });
+
+    // No se filtra por `source`: la base no guarda de donde vino el movimiento
+    // y el adaptador de Prisma devuelve "manual" para todo, asi que exigir
+    // "whatsapp" no encontraria nunca el total y el desglose terminaria
+    // duplicando el dinero.
+    return (
+      rows.find((row) => !row.groupId && Math.abs(row.amount - total) < 0.01) ??
+      null
+    );
+  }
+
+  // ------------------------------------------------------------ correcciones
+
+  /**
+   * Corrige o borra un movimiento ya registrado.
+   *
+   * Antes esta intencion solo respondia con buenas palabras y no cambiaba nada:
+   * el usuario creia haber corregido y la contabilidad seguia mal. Ahora se
+   * ubica el movimiento y se escribe en la misma base que lee el panel, asi que
+   * el cambio aparece tambien en la web.
+   */
+  private async handleCorrection(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const correccion = intent.correction;
+
+    if (!correccion) {
+      return this.needsClarification(
+        intent,
+        '¿Qué movimiento quieres corregir y cuál es el valor correcto?',
+        meta,
+      );
+    }
+
+    const candidatos = await this.buscarParaCorregir(
+      request,
+      correccion.reference,
+    );
+
+    if (candidatos.length === 0) {
+      return this.plainResult(
+        intent,
+        correccion.reference
+          ? `No encontré ningún movimiento que mencione "${correccion.reference}". ¿Me dices de cuál se trata?`
+          : 'No encontré movimientos recientes para corregir.',
+        meta,
+      );
+    }
+
+    // Varios candidatos: no se elige por el usuario. Corregir el equivocado es
+    // peor que preguntar, porque el error queda escondido en la contabilidad.
+    if (candidatos.length > 1) {
+      return this.plainResult(
+        intent,
+        renderAmbiguousCorrection(candidatos, currency),
+        meta,
+      );
+    }
+
+    const objetivo = candidatos[0];
+
+    if (correccion.action === 'delete') {
+      if (request.persist) {
+        await this.financeData.deleteTransaction(
+          request.businessId,
+          objetivo.id,
+        );
+      }
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderDeleted(objetivo, currency),
+      };
+    }
+
+    if (correccion.newAmount === null && correccion.newConcept === null) {
+      return this.needsClarification(
+        intent,
+        `Encontré el movimiento "${objetivo.description}". ¿Cuál es el valor correcto?`,
+        meta,
+      );
+    }
+
+    const cambios = {
+      ...(correccion.newAmount !== null
+        ? { amount: correccion.newAmount }
+        : {}),
+      ...(correccion.newConcept !== null
+        ? { description: correccion.newConcept }
+        : {}),
+    };
+
+    const actualizado = request.persist
+      ? await this.financeData.updateTransaction(
+          request.businessId,
+          objetivo.id,
+          cambios,
+        )
+      : { ...objetivo, ...cambios };
+
+    if (!actualizado) {
+      return this.plainResult(
+        intent,
+        'No pude corregir ese movimiento. ¿Lo intentamos de nuevo?',
+        meta,
+      );
+    }
+
+    return {
+      ...this.plainResult(intent, '', meta),
+      transactions: [actualizado],
+      transaction: actualizado,
+      replyText: renderCorrected(objetivo, actualizado, currency),
+    };
+  }
+
+  /**
+   * Movimientos que podrian ser el que hay que corregir.
+   *
+   * Sin referencia se devuelve el ultimo registrado, que es lo que la gente
+   * quiere decir con "el ultimo gasto". Con referencia se busca por texto y se
+   * devuelven todas las coincidencias, para poder preguntar si hay varias.
+   */
+  private async buscarParaCorregir(
+    request: WhatsAppMessageRequest,
+    referencia: string | null,
+  ): Promise<Transaction[]> {
+    const hoy = todayIso();
+    const todo = await this.financeData.listTransactions({
+      businessId: request.businessId,
+      from: sumarDias(hoy, -CORRECTION_WINDOW_DAYS),
+      to: hoy,
+      limit: 200,
+    });
+
+    // Los abonos quedan fuera: no son movimientos que se corrijan, son el
+    // cobro de un fiado. 'deleteTransaction' no los toca, asi que si entraran
+    // el bot responderia "listo, lo borre" sin haber borrado nada. Deshacer un
+    // abono se hace desde el panel, donde ademas se devuelve la deuda.
+    const rows = todo.filter((row) => row.category !== 'cobros');
+
+    if (!referencia) {
+      // `listTransactions` viene ordenado del mas reciente al mas viejo.
+      return rows.slice(0, 1);
+    }
+
+    const buscado = normalizeText(referencia);
+    return rows
+      .filter((row) => normalizeText(row.description).includes(buscado))
+      .slice(0, CORRECTION_MAX_CANDIDATES);
+  }
+
+  // --------------------------------------------------- reparto de utilidades
+
+  /**
+   * Reparte las utilidades del periodo entre el dueno y los trabajadores.
+   *
+   * Los porcentajes los da el usuario; los montos los calcula el backend. Un
+   * modelo de lenguaje no es de fiar haciendo aritmetica, y aqui el resultado
+   * es plata que alguien va a recibir.
+   */
+  private async handleProfitShare(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    if (!intent.profitShares.length) {
+      return this.needsClarification(
+        intent,
+        'Con gusto reparto las utilidades 😊 ¿Qué porcentaje te queda a ti y qué porcentaje va para los trabajadores?',
+        meta,
+      );
+    }
+
+    const suma = intent.profitShares.reduce(
+      (total, share) => total + share.percentage,
+      0,
+    );
+    if (Math.abs(suma - 100) > 0.01) {
+      return this.needsClarification(
+        intent,
+        `Los porcentajes que me diste suman ${round2(suma)}% y deberían sumar 100%. ¿Me los confirmas?`,
+        meta,
+      );
+    }
+
+    const summary = await this.buildSummary(
+      request.businessId,
+      intent.queryPeriod ?? 'month',
+      currency,
+      diaInicioDe(request),
+    );
+
+    if (summary.balance <= 0) {
+      return this.plainResult(
+        intent,
+        `Este periodo no hay utilidades para repartir: llevas ${formatMoney(summary.balance, currency)} de balance.`,
+        meta,
+      );
+    }
+
+    const shares = intent.profitShares.map((share) => ({
+      ...share,
+      amount: round2((summary.balance * share.percentage) / 100),
+    }));
+
+    if (request.persist) {
+      await this.financeData.saveProfitDistribution({
+        businessId: request.businessId,
+        total: summary.balance,
+        shares,
+        date: todayIso(),
+        groupId: randomUUID(),
+      });
+    }
+
+    return {
+      intent: { ...intent, profitShares: shares },
+      transactions: [],
+      transaction: null,
+      profitDistribution: { total: summary.balance, shares },
+      payment: null,
+      summary,
+      replyText: renderProfitShare(summary.balance, shares, currency),
+      meta,
+    };
+  }
+
+  // ---------------------------------------------------------------- consultas
+
+  /** Resumen, listado o busqueda, segun lo que pidio el usuario. */
+  private async handleQuery(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const period = intent.queryPeriod ?? 'month';
+    const diaInicio = diaInicioDe(request);
+
+    // Una busqueda sin termino no se puede hacer: cae al resumen.
+    if (intent.queryKind === 'search' && intent.concept) {
+      const encontrados = await this.searchTransactions(
+        request.businessId,
+        intent.concept,
+        diaInicio,
+      );
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderSearch(intent.concept, encontrados, currency),
+      };
+    }
+
+    const summary = await this.buildSummary(
+      request.businessId,
+      period,
+      currency,
+      diaInicio,
+    );
+
+    if (intent.queryKind === 'list') {
+      const { from, to } = periodRange(period, new Date(), diaInicio);
+      // Se traen todos y el renderizador recorta: si se pidieran solo los 20
+      // primeros, el encabezado diria "tus 20 movimientos" aunque hubiera 50,
+      // y no cuadraria con el conteo que el resumen acaba de dar.
+      const movimientos = await this.financeData.listTransactions({
+        businessId: request.businessId,
+        from,
+        to,
+        limit: 1_000,
+      });
+      return {
+        ...this.plainResult(intent, '', meta),
+        summary,
+        replyText: renderMovementList(movimientos, period, currency),
+      };
+    }
+
+    return {
+      ...this.plainResult(intent, '', meta),
+      summary,
+      replyText: renderSummary(summary),
+    };
+  }
+
+  // -------------------------------------------------------------- resultados
+
+  /** Resultado sin movimientos ni reparto: solo texto. */
+  private plainResult(
+    intent: MessageIntent,
+    replyText: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): WhatsAppMessageResult {
+    return {
+      intent,
+      transactions: [],
+      transaction: null,
+      profitDistribution: null,
+      payment: null,
+      summary: null,
+      replyText,
+      meta,
+    };
+  }
+
+  /**
+   * El mensaje se entendio a medias: se pregunta y no se guarda nada.
+   *
+   * Al degradar a "unclear" se limpian los campos del movimiento: dejarlos
+   * puestos haria creer que hay un registro a medio hacer.
+   */
+  private needsClarification(
+    intent: MessageIntent,
+    pregunta: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): WhatsAppMessageResult {
+    return this.plainResult(
+      {
+        ...intent,
+        type: 'unclear',
+        movements: [],
+        amount: null,
+        category: null,
+        payment: null,
+        queryKind: null,
+        queryPeriod: null,
+        // Si no se pudo completar, la interpretacion no puede considerarse
+        // buena por mucho que el modelo diga lo contrario.
+        confidence: Math.min(intent.confidence, 0.4),
+      },
+      pregunta,
+      meta,
+    );
   }
 
   // ------------------------------------------------------------ validacion
@@ -250,53 +830,85 @@ export class WhatsAppMessageService {
    */
   private normalizeIntent(output: WhatsAppIntentOutput): MessageIntent {
     const type = normalizeType(output?.type);
-    const amount = normalizeAmount(output?.amount);
-    const category = isTransactionType(type)
-      ? normalizeCategory(output?.category, type)
-      : null;
+    const movements = normalizeMovements(output?.movements);
+    const concept = cleanText(output?.concept);
+    const payment = normalizePayment(output?.payment);
+
+    // `amount` y `category` se derivan de los movimientos para que quien solo
+    // entiende un movimiento (n8n, el panel) siga leyendo algo coherente.
+    const amount = movements.length ? sumAmounts(movements) : null;
+    const category = movements.length === 1 ? movements[0].category : null;
+    // Con un solo movimiento su concepto es el del mensaje; con varios, no hay
+    // uno que represente al conjunto y se deja el que haya dado el modelo.
+    const conceptoEfectivo =
+      movements.length === 1 ? (movements[0].concept ?? concept) : concept;
 
     return {
       type,
+      movements,
+      declaredTotal: normalizeAmount(output?.declaredTotal),
+      profitShares: normalizeProfitShares(output?.profitShares),
+      correction: normalizeCorrection(output?.correction),
+      payment,
       amount,
       category,
-      concept: cleanText(output?.concept),
+      concept: conceptoEfectivo,
       responseText:
         cleanText(output?.responseText) ??
         'Recibí tu mensaje, pero no logré interpretarlo. ¿Me lo repites?',
+      queryKind:
+        type === 'query'
+          ? normalizeQueryKind(output?.queryKind, concept)
+          : null,
       queryPeriod:
-        type === 'query' ? normalizePeriod(output?.queryPeriod) : null,
+        type === 'query' || type === 'profit_share'
+          ? normalizePeriod(output?.queryPeriod)
+          : null,
       confidence: normalizeConfidence(output?.confidence, {
         type,
         amount,
-        concept: cleanText(output?.concept),
+        concept: conceptoEfectivo,
+        hasPayment: payment !== null,
       }),
     };
   }
 
-  private buildTransaction(
-    intent: MessageIntent,
-    type: TransactionType,
+  /**
+   * Convierte los movimientos entendidos por el modelo en filas listas para
+   * guardar.
+   *
+   * Cuando hay mas de uno comparten `groupId`: asi el panel puede mostrarlos
+   * juntos y se sabe que salieron del mismo mensaje.
+   */
+  private buildTransactions(
+    movements: MovementDraft[],
     request: WhatsAppMessageRequest,
     currency: string,
     referenceDate: string,
-  ): Transaction | null {
-    if (intent.amount === null || intent.amount <= 0) return null;
+    groupId?: string,
+  ): Transaction[] {
+    const grupo = groupId ?? (movements.length > 1 ? randomUUID() : null);
+    const createdAt = new Date().toISOString();
 
-    return {
+    return movements.map((movement) => ({
       id: randomUUID(),
       businessId: request.businessId,
-      date: referenceDate,
+      // La fecha que dijo el usuario manda; si no dijo ninguna, es hoy.
+      date: movement.date ?? referenceDate,
       description:
-        intent.concept ?? `Movimiento registrado por WhatsApp (${type})`,
-      category:
-        (intent.category as TransactionCategory | null) ??
-        DEFAULT_CATEGORY_BY_TYPE[type],
-      amount: intent.amount,
-      type,
+        movement.concept ??
+        `Movimiento registrado por WhatsApp (${movement.type})`,
+      category: movement.category,
+      amount: movement.amount,
+      type: movement.type,
       currency,
       source: 'whatsapp',
-      createdAt: new Date().toISOString(),
-    };
+      createdAt,
+      paymentMethod: movement.paymentMethod,
+      isCredit: movement.isCredit,
+      customerName: movement.customerName,
+      groupId: grupo,
+    }));
   }
 
   // -------------------------------------------------------------- consultas
@@ -312,8 +924,9 @@ export class WhatsAppMessageService {
   private async searchTransactions(
     businessId: string,
     termino: string,
+    diaInicioPeriodo: number,
   ): Promise<Transaction[]> {
-    const { from, to } = periodRange('month');
+    const { from, to } = periodRange('month', new Date(), diaInicioPeriodo);
 
     const rows = await this.financeData.listTransactions({
       businessId,
@@ -334,8 +947,9 @@ export class WhatsAppMessageService {
     businessId: string,
     period: QueryPeriod,
     currency: string,
+    diaInicioPeriodo: number,
   ): Promise<PeriodSummary> {
-    const { from, to } = periodRange(period);
+    const { from, to } = periodRange(period, new Date(), diaInicioPeriodo);
 
     const rows = await this.financeData.listTransactions({
       businessId,
@@ -345,9 +959,21 @@ export class WhatsAppMessageService {
     });
 
     const totals = { income: 0, expense: 0, investment: 0 };
+    // Una venta fiada NO es caja: se cuenta aparte y no toca los ingresos ni
+    // el balance. El dueno necesita saber cuanto tiene, no cuanto vendio.
+    let pendingCollection = 0;
     const byCategory = new Map<string, PeriodSummary['byCategory'][number]>();
 
     for (const row of rows) {
+      if (row.isCredit) {
+        // El SALDO, no lo vendido: lo que el cliente ya abono dejo de ser una
+        // cuenta por cobrar y entro a los ingresos por su lado, como abono.
+        pendingCollection += row.pendingAmount ?? row.amount;
+        // Tampoco entra en el desglose por categoria: si entrara, las
+        // categorias no sumarian los ingresos y el resumen se contradiria.
+        continue;
+      }
+
       totals[row.type] += row.amount;
 
       const key = `${row.type}:${row.category}`;
@@ -369,6 +995,7 @@ export class WhatsAppMessageService {
       expense: totals.expense,
       investment: totals.investment,
       balance: totals.income - totals.expense - totals.investment,
+      pendingCollection,
       transactionCount: rows.length,
       byCategory: [...byCategory.values()].sort((a, b) => b.total - a.total),
     };
@@ -377,15 +1004,24 @@ export class WhatsAppMessageService {
 
 // ------------------------------------------------------------------ helpers
 
+/**
+ * Tipos aceptados en tiempo de ejecucion.
+ *
+ * Tiene que incluir todos los de `MessageIntentType`: lo que no este aqui se
+ * degrada a "unclear" aunque el modelo lo haya devuelto bien.
+ */
 const INTENT_TYPES: MessageIntentType[] = [
   'income',
   'expense',
   'investment',
+  'breakdown',
+  'profit_share',
   'query',
   'correction',
   'unclear',
   'out_of_scope',
   'premium',
+  'payment',
 ];
 
 const TRANSACTION_TYPES: TransactionType[] = [
@@ -393,10 +1029,6 @@ const TRANSACTION_TYPES: TransactionType[] = [
   'expense',
   'investment',
 ];
-
-function isTransactionType(type: MessageIntentType): type is TransactionType {
-  return (TRANSACTION_TYPES as string[]).includes(type);
-}
 
 function normalizeType(value: unknown): MessageIntentType {
   return typeof value === 'string' && (INTENT_TYPES as string[]).includes(value)
@@ -407,7 +1039,215 @@ function normalizeType(value: unknown): MessageIntentType {
 function normalizeAmount(value: unknown): number | null {
   const amount = Math.abs(Number(value));
   if (!Number.isFinite(amount) || amount <= 0) return null;
-  return Math.round(amount * 100) / 100;
+  return round2(amount);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** Suma los montos de una lista de movimientos, sin errores de coma flotante. */
+function sumAmounts(movements: { amount: number }[]): number {
+  return round2(movements.reduce((total, row) => total + row.amount, 0));
+}
+
+/**
+ * Valida los movimientos que devolvio el modelo.
+ *
+ * Se descartan los que no tienen un monto usable en vez de inventarlo, y se
+ * corrige la categoria cuando no corresponde al tipo (un gasto no puede ser
+ * "ventas": desalinearia los reportes).
+ */
+/**
+ * Fecha declarada por el usuario, saneada.
+ *
+ * Se rechaza lo que no sea una fecha real en formato YYYY-MM-DD, lo que quede
+ * en el futuro (nadie registra una venta que no ha ocurrido, y un ano mal
+ * tecleado mandaria el movimiento a 2027) y lo anterior a dos anos, que a esta
+ * altura es siempre un error de interpretacion. En cualquiera de esos casos se
+ * devuelve null y el movimiento queda con la fecha de hoy.
+ */
+function normalizeMovementDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+
+  const texto = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(texto)) return null;
+
+  const fecha = new Date(`${texto}T12:00:00.000Z`);
+  if (Number.isNaN(fecha.getTime())) return null;
+  // "2026-02-31" pasa el regex pero se desborda a marzo: se compara de vuelta.
+  if (fecha.toISOString().slice(0, 10) !== texto) return null;
+
+  const hoy = new Date();
+  if (fecha.getTime() > hoy.getTime() + DIA_MS) return null;
+
+  const haceDosAnios = new Date(hoy);
+  haceDosAnios.setFullYear(haceDosAnios.getFullYear() - 2);
+  if (fecha.getTime() < haceDosAnios.getTime()) return null;
+
+  return texto;
+}
+
+const DIA_MS = 24 * 60 * 60 * 1000;
+
+function normalizeMovements(value: unknown): MovementDraft[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((raw): MovementDraft | null => {
+      const row = (raw ?? {}) as Record<string, unknown>;
+      const amount = normalizeAmount(row.amount);
+      if (amount === null) return null;
+
+      const type = normalizeMovementType(row.type);
+
+      return {
+        type,
+        amount,
+        category: normalizeCategory(row.category, type),
+        concept: cleanText(row.concept),
+        paymentMethod: normalizePaymentMethod(row.paymentMethod),
+        isCredit: row.isCredit === true,
+        customerName: cleanText(row.customerName),
+        date: normalizeMovementDate(row.date),
+      };
+    })
+    .filter((movement): movement is MovementDraft => movement !== null)
+    .slice(0, MAX_MOVEMENTS_PER_MESSAGE);
+}
+
+function normalizeMovementType(value: unknown): TransactionType {
+  return typeof value === 'string' &&
+    (TRANSACTION_TYPES as string[]).includes(value)
+    ? (value as TransactionType)
+    : 'expense';
+}
+
+function normalizePaymentMethod(value: unknown): PaymentMethod | null {
+  if (typeof value !== 'string') return null;
+  const candidate = value.trim().toLowerCase();
+  return (
+    PAYMENT_METHODS.find((method) => method === candidate) ??
+    (candidate ? 'otro' : null)
+  );
+}
+
+/** Porcentajes del reparto, saneados. Los montos se calculan en el servicio. */
+function normalizeProfitShares(value: unknown): ProfitShare[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((raw): ProfitShare | null => {
+      const row = (raw ?? {}) as Record<string, unknown>;
+      const percentage = Number(row.percentage);
+      if (!Number.isFinite(percentage) || percentage <= 0 || percentage > 100) {
+        return null;
+      }
+
+      const beneficiary =
+        typeof row.beneficiary === 'string' &&
+        (PROFIT_BENEFICIARIES as readonly string[]).includes(row.beneficiary)
+          ? (row.beneficiary as ProfitBeneficiary)
+          : 'trabajador';
+
+      return {
+        beneficiary,
+        name: cleanText(row.name),
+        percentage: round2(percentage),
+        // Provisional: lo reemplaza el servicio con la cifra real.
+        amount: 0,
+      };
+    })
+    .filter((share): share is ProfitShare => share !== null);
+}
+
+/**
+ * Correccion pedida por el usuario, saneada.
+ *
+ * Se descarta si el modelo no dijo una accion valida: aplicar una correccion a
+ * ciegas es peor que preguntar.
+ */
+function normalizeCorrection(value: unknown): CorrectionRequest | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const row = value as Record<string, unknown>;
+  const action = row.action === 'delete' ? 'delete' : 'update';
+
+  return {
+    action,
+    reference: cleanText(row.reference),
+    newAmount: normalizeAmount(row.newAmount),
+    newConcept: cleanText(row.newConcept),
+  };
+}
+
+/**
+ * Clase de consulta.
+ *
+ * Si el modelo no la dice pero dejo un termino de busqueda, es una busqueda:
+ * un modelo pequeno omite el campo nuevo antes que el que ya conocia.
+ */
+/**
+ * Saneamiento del abono.
+ *
+ * Sin nombre de cliente no se devuelve nada: el manejador lo trata como un
+ * mensaje incompleto y pregunta, que es preferible a aplicarle el pago a
+ * quien no era.
+ */
+function normalizePayment(value: unknown): PaymentDraft | null {
+  if (!value || typeof value !== 'object') return null;
+
+  const crudo = value as Record<string, unknown>;
+  const customerName = cleanText(crudo.customerName);
+  if (!customerName) return null;
+
+  const amount = normalizeAmount(crudo.amount);
+  // "Pago todo" tambien se deduce de la ausencia de monto: si el modelo no
+  // marco settlesDebt pero tampoco dijo cuanto, saldar la deuda entera es la
+  // unica lectura posible del mensaje.
+  const settlesDebt = crudo.settlesDebt === true || amount === null;
+
+  return {
+    customerName,
+    amount: settlesDebt ? null : amount,
+    settlesDebt,
+    date: normalizeMovementDate(crudo.date),
+  };
+}
+
+function normalizeQueryKind(value: unknown, concept: string | null): QueryKind {
+  if (value === 'summary' || value === 'list' || value === 'search') {
+    return value;
+  }
+  return concept ? 'search' : 'summary';
+}
+
+/** Descuadre entre el total declarado y la suma de las partes. */
+export interface BreakdownMismatch {
+  declared: number;
+  sum: number;
+  difference: number;
+}
+
+/**
+ * Comprueba que el desglose sume el total que dijo el usuario.
+ *
+ * Lo hace el backend y no el prompt a proposito: un modelo de lenguaje no es
+ * de fiar sumando, y aqui una suma mal hecha se convierte en contabilidad
+ * equivocada. Se tolera un peso de diferencia por los redondeos.
+ */
+export function checkBreakdown(
+  declaredTotal: number | null,
+  movements: { amount: number }[],
+): BreakdownMismatch | null {
+  if (declaredTotal === null || movements.length < 2) return null;
+
+  const sum = sumAmounts(movements);
+  const difference = round2(declaredTotal - sum);
+
+  return Math.abs(difference) <= BREAKDOWN_TOLERANCE
+    ? null
+    : { declared: declaredTotal, sum, difference };
 }
 
 function normalizeCategory(
@@ -438,6 +1278,7 @@ function normalizeConfidence(
     type: MessageIntentType;
     amount: number | null;
     concept: string | null;
+    hasPayment: boolean;
   },
 ): number {
   const reported = Number(value);
@@ -451,6 +1292,9 @@ function normalizeConfidence(
   if (intent.type === 'premium') return 0.9;
   if (intent.type === 'query') return 0.85;
   if (intent.type === 'correction') return 0.6;
+  // Un abono no lleva monto propio ("Rosa ya me pago" no dice cuanto): lo que
+  // lo hace interpretable es saber de quien es el pago, no la cifra.
+  if (intent.type === 'payment') return intent.hasPayment ? 0.9 : 0.4;
   if (intent.amount === null) return 0.4;
   return intent.concept ? 0.9 : 0.7;
 }
@@ -467,18 +1311,38 @@ function cleanText(value: unknown): string | null {
   return text.length ? text : null;
 }
 
+/**
+ * El dia de HOY en Colombia, no en la hora del contenedor.
+ *
+ * `toISOString()` da la fecha UTC: a las 7 p.m. en Colombia ya es el dia
+ * siguiente en UTC, y los movimientos se confirmaban con la fecha de manana
+ * aunque quedaran guardados con la de hoy. El resto del modulo ya calculaba
+ * sobre el dia colombiano; esta funcion era la ultima que faltaba.
+ */
+/**
+ * Dia de corte del periodo contable de este negocio.
+ *
+ * Si no viene en la peticion se asume mes calendario, que es lo que hace la
+ * mayoria: es mejor un default explicito que arrastrar un `undefined` hasta el
+ * calculo del rango.
+ */
+function diaInicioDe(request: WhatsAppMessageRequest): number {
+  return normalizarDiaInicio(request.diaInicioPeriodo);
+}
+
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return fechaColombiana(new Date());
 }
 
 /** Rangos de fecha para las consultas: hoy, semana en curso, mes en curso. */
 export function periodRange(
   period: QueryPeriod,
   now: Date = new Date(),
+  diaInicioPeriodo: number = DIA_INICIO_POR_DEFECTO,
 ): { from: string; to: string } {
   // Todo se calcula sobre el dia colombiano, no sobre la hora del contenedor:
   // asi el periodo es el mismo corra donde corra el proceso.
-  const { fecha: to, diaDeLaSemana, primeroDelMes } = partesDelDia(now);
+  const { fecha: to, diaDeLaSemana } = partesDelDia(now);
 
   if (period === 'day') return { from: to, to };
 
@@ -488,7 +1352,9 @@ export function periodRange(
     return { from: sumarDias(to, -desdeElLunes), to };
   }
 
-  return { from: primeroDelMes, to };
+  // "Este mes" es el periodo contable del negocio, que no siempre arranca el 1.
+  const periodo = periodoContableDe(to, diaInicioPeriodo);
+  return { from: periodo.desde, to };
 }
 
 const PERIOD_LABELS: Record<QueryPeriod, string> = {
@@ -520,6 +1386,15 @@ export function renderSummary(summary: PeriodSummary): string {
     lines.push(`Inversiones: ${money(summary.investment)}`);
   }
 
+  // Va aparte y despues del balance, para que quede claro que es plata que
+  // todavia no entro y no forma parte de los ingresos de arriba. Es el saldo
+  // vivo: lo que ya te abonaron dejo de estar aqui y esta en "Ingresos".
+  if (summary.pendingCollection > 0) {
+    lines.push(
+      `Aparte, te deben ${money(summary.pendingCollection)} de ventas fiadas.`,
+    );
+  }
+
   lines.push(
     `Balance: ${money(summary.balance)}`,
     `(${summary.transactionCount} movimientos entre ${summary.from} y ${summary.to})`,
@@ -532,6 +1407,13 @@ export function renderSummary(summary: PeriodSummary): string {
     );
   }
 
+  // El resumen y el listado quedan conectados: quien ve el conteo sabe que
+  // puede pedir el detalle, y el modelo tiene la pista para clasificar la
+  // respuesta como queryKind "list".
+  lines.push(
+    'Escríbeme "muéstrame los movimientos" si quieres verlos uno por uno.',
+  );
+
   return lines.join('\n');
 }
 
@@ -541,6 +1423,33 @@ function formatMoney(value: number, currency: string): string {
 }
 
 /** Ventana de busqueda hacia atras. Cuatro meses cubre lo que la gente recuerda. */
+/**
+ * Tope de movimientos por mensaje. Nadie dicta veinte gastos de una sentada;
+ * pasado ese punto es mas probable que el modelo se haya descarrilado.
+ */
+const MAX_MOVEMENTS_PER_MESSAGE = 15;
+
+/** Diferencia que se acepta entre el total declarado y la suma de las partes. */
+const BREAKDOWN_TOLERANCE = 1;
+
+/**
+ * Cuanto se mira hacia atras para encontrar el total que un desglose detalla.
+ * Dos dias cubren el "ayer se me olvido decirte como me pagaron".
+ */
+const BREAKDOWN_WINDOW_DAYS = 2;
+
+/** Cuantos movimientos caben comodos en un mensaje de WhatsApp. */
+const LIST_MAX_RESULTS = 20;
+
+/**
+ * Cuanto se mira hacia atras para encontrar el movimiento a corregir.
+ * Un mes cubre de sobra: nadie corrige por WhatsApp algo de hace un trimestre.
+ */
+const CORRECTION_WINDOW_DAYS = 31;
+
+/** Mas candidatos que esto no se listan: la pregunta se vuelve ilegible. */
+const CORRECTION_MAX_CANDIDATES = 5;
+
 const SEARCH_WINDOW_DAYS = 120;
 /** Mas de esto no se lee comodo en un WhatsApp. */
 const SEARCH_MAX_RESULTS = 8;
@@ -585,4 +1494,227 @@ export function renderSearch(
   return [encabezado, ...lineas, `Total: ${formatMoney(total, currency)}`].join(
     '\n',
   );
+}
+
+// ----------------------------------------------- respuestas de correcciones
+
+/**
+ * Confirmacion de una correccion.
+ *
+ * Se dicen el valor viejo y el nuevo: el usuario esta corrigiendo justamente
+ * porque una cifra estaba mal, y necesita ver que ahora quedo la que queria.
+ */
+/**
+ * Como quedo la deuda despues de un abono.
+ *
+ * El dato que el dueno quiere no es "registrado": es cuanto le siguen
+ * debiendo. Por eso lo escribe el backend y no el modelo, que no lo sabe.
+ */
+export function renderPayment(
+  resultado: PaymentResult,
+  currency: string,
+): string {
+  const money = (value: number) => formatMoney(value, currency);
+
+  if (!resultado.applied) {
+    return resultado.reason === 'sin_deuda'
+      ? `${resultado.customerName} no tiene fiados pendientes: ya está al día. ¿Era otro cliente?`
+      : `No encontré ningún fiado a nombre de ${resultado.customerName}. ¿Me confirmas cómo se llama en tus registros?`;
+  }
+
+  const lines: string[] = [];
+
+  if (resultado.remaining === 0) {
+    lines.push(
+      `🎉 ${resultado.customerName} quedó al día. Registré ${money(resultado.amount)} y ya no te debe nada.`,
+    );
+  } else {
+    lines.push(
+      `✅ Registré el abono de ${money(resultado.amount)} de ${resultado.customerName}.`,
+      `Le quedan ${money(resultado.remaining)} por pagarte.`,
+    );
+  }
+
+  // Cobrar de mas dejaria la deuda en negativo, asi que se recorta. Callarlo
+  // haria que el dueno creyera que registro una cifra que no registro.
+  if (resultado.excess > 0) {
+    lines.push(
+      `Ojo: solo te debía ${money(resultado.amount)}, así que los ${money(resultado.excess)} de más no los registré.`,
+    );
+  }
+
+  return lines.join('\n');
+}
+
+export function renderCorrected(
+  antes: Transaction,
+  despues: Transaction,
+  currency: string,
+): string {
+  const lineas = [`✅ Corregido: ${despues.description}`];
+
+  if (antes.amount !== despues.amount) {
+    lineas.push(
+      `Monto: ${formatMoney(antes.amount, currency)} → ${formatMoney(despues.amount, currency)}`,
+    );
+  }
+  if (antes.description !== despues.description) {
+    lineas.push(`Concepto: "${antes.description}" → "${despues.description}"`);
+  }
+
+  lineas.push('Ya quedó actualizado también en tu panel.');
+  return lineas.join('\n');
+}
+
+/** Confirmacion de un movimiento eliminado. */
+export function renderDeleted(
+  movimiento: Transaction,
+  currency: string,
+): string {
+  return [
+    `🗑️ Eliminé el movimiento: ${movimiento.description} · ${formatMoney(movimiento.amount, currency)}`,
+    'Ya no aparece en tu panel.',
+  ].join('\n');
+}
+
+/**
+ * Varios movimientos coinciden con lo que dijo el usuario.
+ *
+ * Se listan con su fecha y monto para que pueda distinguirlos. Elegir uno por
+ * el seria peor: corregir el movimiento equivocado deja el error escondido.
+ */
+export function renderAmbiguousCorrection(
+  candidatos: Transaction[],
+  currency: string,
+): string {
+  const lineas = candidatos.map((row) => movementLine(row, currency));
+
+  return [
+    `Encontré ${candidatos.length} movimientos que podrían ser:`,
+    ...lineas,
+    '¿Cuál de todos corrijo? Dime la fecha o el monto.',
+  ].join('\n');
+}
+
+// ------------------------------------------------- respuestas de movimientos
+
+/** Una linea por movimiento: "• 15 ago · Transporte · -$50.000 COP". */
+function movementLine(row: Transaction, currency: string): string {
+  const signo = row.type === 'income' ? '+' : '-';
+  const fecha = FECHA_CORTA.format(new Date(`${row.date}T12:00:00.000Z`));
+  const extras = [
+    row.paymentMethod ? PAYMENT_METHOD_LABELS[row.paymentMethod] : null,
+    row.isCredit ? 'fiado' : null,
+  ].filter(Boolean);
+
+  return (
+    `• ${fecha} · ${row.description} · ${signo}${formatMoney(row.amount, currency)}` +
+    (extras.length ? ` (${extras.join(', ')})` : '')
+  );
+}
+
+/**
+ * Confirmacion cuando el mensaje traia varios movimientos.
+ *
+ * Se detallan uno por uno a proposito: si el usuario dicto tres gastos y solo
+ * ve un total, no tiene forma de saber si se separaron bien.
+ */
+export function renderMovementsRegistered(
+  transactions: Transaction[],
+  currency: string,
+): string {
+  const total = sumAmounts(transactions);
+  const lineas = transactions.map((row) => movementLine(row, currency));
+
+  return [
+    `✅ Registré ${transactions.length} movimientos:`,
+    ...lineas,
+    `Total: ${formatMoney(total, currency)}`,
+  ].join('\n');
+}
+
+/** Confirmacion de un desglose que reemplazo a un total ya registrado. */
+export function renderBreakdown(
+  partes: Transaction[],
+  total: number,
+  currency: string,
+): string {
+  const lineas = partes.map((row) => movementLine(row, currency));
+
+  return [
+    `✅ Listo, separé los ${formatMoney(total, currency)} así:`,
+    ...lineas,
+    'El total no cambia, solo queda detallado.',
+  ].join('\n');
+}
+
+/**
+ * El desglose no cuadra con el total.
+ *
+ * Se dicen las dos cifras y la diferencia exacta: el usuario necesita saber
+ * cuanto falta para poder corregirlo, y asi no se registra nada inconsistente.
+ */
+export function renderMismatch(
+  mismatch: BreakdownMismatch,
+  currency: string,
+): string {
+  const falta = mismatch.difference > 0;
+
+  return [
+    `Me diste un total de ${formatMoney(mismatch.declared, currency)}, pero las partes suman ${formatMoney(mismatch.sum, currency)}.`,
+    falta
+      ? `Faltan ${formatMoney(Math.abs(mismatch.difference), currency)} por asignar.`
+      : `Sobran ${formatMoney(Math.abs(mismatch.difference), currency)}.`,
+    '¿Me confirmas las cifras para registrarlo bien?',
+  ].join('\n');
+}
+
+/** Confirmacion del reparto de utilidades, con el monto de cada quien. */
+export function renderProfitShare(
+  total: number,
+  shares: ProfitShare[],
+  currency: string,
+): string {
+  const lineas = shares.map((share) => {
+    const quien = share.name ?? PROFIT_BENEFICIARY_LABELS[share.beneficiary];
+    return `• ${quien}: ${share.percentage}% → ${formatMoney(share.amount, currency)}`;
+  });
+
+  return [
+    `💰 Reparto de utilidades sobre ${formatMoney(total, currency)}:`,
+    ...lineas,
+  ].join('\n');
+}
+
+/**
+ * El detalle de los movimientos del periodo, uno por uno.
+ *
+ * Responde a "¿cuales son esos 8 movimientos?": antes el resumen decia cuantos
+ * habia pero no habia forma de verlos, y volver a preguntar devolvia el mismo
+ * resumen.
+ */
+export function renderMovementList(
+  movimientos: Transaction[],
+  period: QueryPeriod,
+  currency: string,
+): string {
+  if (movimientos.length === 0) {
+    return `No tienes movimientos registrados ${PERIOD_LABELS[period]}.`;
+  }
+
+  const mostrados = movimientos.slice(0, LIST_MAX_RESULTS);
+  const lineas = mostrados.map((row) => movementLine(row, currency));
+  const encabezado =
+    movimientos.length === 1
+      ? `📋 Tienes 1 movimiento ${PERIOD_LABELS[period]}:`
+      : `📋 Tus ${movimientos.length} movimientos ${PERIOD_LABELS[period]}:`;
+
+  const pie =
+    movimientos.length > mostrados.length
+      ? [
+          `Te muestro los ${mostrados.length} más recientes. Pídeme un periodo más corto para ver el resto.`,
+        ]
+      : [];
+
+  return [encabezado, ...lineas, ...pie].join('\n');
 }

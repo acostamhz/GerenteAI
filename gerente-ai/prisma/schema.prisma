@@ -3,8 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
 
 enum Role {
@@ -19,6 +19,22 @@ enum RolGlobal {
 enum TipoVenta {
   CONTADO
   FIADO
+}
+
+/// Como entro o salio el dinero. Permite desglosar una venta total en sus
+/// partes ("1.500.000 en efectivo, 200.000 en transferencia") sin perder la
+/// relacion con el total, que se conserva en `grupoId`.
+enum MetodoPago {
+  EFECTIVO
+  TRANSFERENCIA
+  TARJETA
+  OTRO
+}
+
+/// A quien le corresponde una parte de las utilidades repartidas.
+enum BeneficiarioReparto {
+  DUENO
+  TRABAJADOR
 }
 
 enum CategoriaGasto {
@@ -53,27 +69,37 @@ model Usuario {
   nombre          String
   telefono        String?
   email           String    @unique // Login para el dashboard
-  password        String    // Contraseña encriptada para el dashboard
+  password        String // Contraseña encriptada para el dashboard
   emailVerificado Boolean   @default(false)
   rolGlobal       RolGlobal @default(CLIENTE)
   plan            Int       @default(1) // 1=Gratis (1 sede), 2=Básico (4 sedes), etc.
   createdAt       DateTime  @default(now())
 
   negocios UsuarioNegocio[] // Para dueños/socios del negocio
-  sedes    UsuarioSede[]    // Para administradores/empleados de sede
+  sedes    UsuarioSede[] // Para administradores/empleados de sede
   pagos    Pago[]
 }
 
 model Negocio {
-  id                 String   @id @default(uuid())
+  id                 String  @id @default(uuid())
   nombre             String
-  telefonoContacto   String?  // Teléfono general/administrativo (no usado por el bot)
+  telefonoContacto   String? // Teléfono general/administrativo (no usado por el bot)
   telefonoSecundario String?
-  contexto           String?  @db.Text // Contexto general de IA para el negocio
-  plan               Int      @default(1)
-  planVenceEl        DateTime?
-  createdAt          DateTime @default(now())
-  updatedAt          DateTime @updatedAt
+  contexto           String? @db.Text // Contexto general de IA para el negocio
+  /// Dia en que arranca el periodo contable del negocio (1 a 28).
+  ///
+  /// No todos cierran el mes calendario: hay negocios cuyo periodo va del 21 al
+  /// 20 del mes siguiente. El dia de cierre no se guarda porque se deduce
+  /// (inicio - 1) y guardar los dos permitiria dejarlos inconsistentes.
+  ///
+  /// Se limita a 28 para que exista en todos los meses: un periodo que empiece
+  /// el 30 no tendria fecha valida en febrero.
+  diaInicioPeriodo   Int     @default(1)
+
+  plan        Int       @default(1)
+  planVenceEl DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   usuariosNegocio UsuarioNegocio[]
   sedes           Sede[]
@@ -83,15 +109,15 @@ model Negocio {
 }
 
 model Sede {
-  id        String   @id @default(uuid())
-  nombre    String
-  telefono  String?  @unique // Línea de WhatsApp independiente para el bot de esta sede
-  whatsappUserId String? @unique
+  id               String   @id @default(uuid())
+  nombre           String
+  telefono         String?  @unique // Línea de WhatsApp independiente para el bot de esta sede
+  whatsappUserId   String?  @unique
   whatsappUsername String?
-  direccion String?
-  contexto  String?  @db.Text // Contexto de IA individual para la sede
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  direccion        String?
+  contexto         String?  @db.Text // Contexto de IA individual para la sede
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   negocioId String
   negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
@@ -107,33 +133,34 @@ model Sede {
   gastos       Gasto[]
   reportes     Reporte[]
   abonos       Abono[]
+  repartos     RepartoUtilidad[]
 
   @@index([negocioId, createdAt])
 }
 
 model UsuarioNegocio {
-  id        String @id @default(uuid())
-  role      Role   @default(ADMIN)
+  id   String @id @default(uuid())
+  role Role   @default(ADMIN)
 
   usuarioId String
   usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
   negocioId String
   negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
-  
+
   @@unique([usuarioId, negocioId])
 }
 
 model UsuarioSede {
-  id        String @id @default(uuid())
-  role      Role   @default(ADMIN)
+  id   String @id @default(uuid())
+  role Role   @default(ADMIN)
 
   usuarioId String
   usuario   Usuario @relation(fields: [usuarioId], references: [id], onDelete: Cascade)
 
-  sedeId    String
-  sede      Sede    @relation(fields: [sedeId], references: [id], onDelete: Cascade)
-  
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
   @@unique([usuarioId, sedeId])
 }
 
@@ -143,8 +170,8 @@ model Mensaje {
   contenido String     @db.Text
   fecha     DateTime   @default(now())
 
-  sedeId    String
-  sede      Sede       @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 }
 
 model Reporte {
@@ -154,22 +181,22 @@ model Reporte {
   fecha     DateTime @default(now())
 
   negocioId String
-  negocio   Negocio  @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
-  sedeId    String?
-  sede      Sede?    @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String?
+  sede   Sede?   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 }
 
 model Producto {
-  id           String   @id @default(uuid())
+  id           String  @id @default(uuid())
   nombre       String
-  stock        Int      @default(0)
-  stockMinimo  Int      @default(0)
+  stock        Int     @default(0)
+  stockMinimo  Int     @default(0)
   precioCompra Decimal
   precioVenta  Decimal
 
-  sedeId       String
-  sede         Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
   detallesVenta  DetalleVenta[]
   detallesCompra DetalleCompra[]
@@ -178,16 +205,16 @@ model Producto {
 }
 
 model Cliente {
-  id             String   @id @default(uuid())
+  id             String  @id @default(uuid())
   nombre         String
   telefono       String?
-  saldoPendiente Decimal  @default(0.0) // Para las ventas "FIADAS"
+  saldoPendiente Decimal @default(0.0) // Para las ventas "FIADAS"
 
-  sedeId         String
-  sede           Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
-  ventas         Venta[]
-  abonos         Abono[]
+  ventas Venta[]
+  abonos Abono[]
 }
 
 model Proveedor {
@@ -197,10 +224,10 @@ model Proveedor {
   correo    String?
   direccion String?
 
-  sedeId    String
-  sede      Sede    @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
-  compras   Compra[]
+  compras Compra[]
 }
 
 model Venta {
@@ -211,26 +238,55 @@ model Venta {
   fechaVencimiento DateTime?
   fecha            DateTime  @default(now())
 
+  /// Concepto en palabras ("Venta de panes", "Ventas del dia").
+  /// Sin esto no se puede buscar un ingreso por su nombre, como si se hace
+  /// con los gastos a traves de `Gasto.descripcion`.
+  descripcion String?
+  /// Como se recibio el dinero. null = no se especifico.
+  metodoPago  MetodoPago?
+  /// Agrupa las partes de un mismo total: la venta general y sus desgloses
+  /// por metodo de pago comparten `grupoId`. null = movimiento suelto.
+  grupoId     String?
+
   clienteId String?
-  cliente   Cliente?  @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  cliente   Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
 
-  sedeId    String
-  sede      Sede      @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
-  detalles  DetalleVenta[]
-  abonos    Abono[]
+  detalles DetalleVenta[]
+  abonos   Abono[]
+
+  recordatorios RecordatorioFiado[]
 
   @@index([sedeId, fecha])
   @@index([clienteId, saldoPendiente])
+  @@index([grupoId])
+}
+
+/// Constancia de que ya se avisó por un fiado sin cobrar.
+///
+/// Existe para no repetir el aviso: el job puede correr dos veces, o correr
+/// tarde si Render estuvo dormido, y el duenno no deberia recibir el mismo
+/// recordatorio cada dia. La unicidad sobre `ventaId` es la que lo garantiza.
+model RecordatorioFiado {
+  id        String   @id @default(uuid())
+  ventaId   String   @unique
+  venta     Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  /// Saldo que quedaba pendiente cuando se aviso, para poder auditarlo.
+  saldo     Decimal
+  enviadoEl DateTime @default(now())
+
+  @@index([enviadoEl])
 }
 
 model DetalleVenta {
-  id         String @id @default(uuid())
-  cantidad   Int
-  precio     Decimal // Precio al que se vendió en ese momento
+  id       String  @id @default(uuid())
+  cantidad Int
+  precio   Decimal // Precio al que se vendió en ese momento
 
-  ventaId    String
-  venta      Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+  ventaId String
+  venta   Venta  @relation(fields: [ventaId], references: [id], onDelete: Cascade)
 
   productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
@@ -239,28 +295,28 @@ model DetalleVenta {
 }
 
 model Compra {
-  id          String     @id @default(uuid())
-  total       Decimal
-  fecha       DateTime   @default(now())
+  id    String   @id @default(uuid())
+  total Decimal
+  fecha DateTime @default(now())
 
   proveedorId String?
   proveedor   Proveedor? @relation(fields: [proveedorId], references: [id], onDelete: SetNull)
 
-  sedeId      String
-  sede        Sede       @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
-  detalles    DetalleCompra[]
+  detalles DetalleCompra[]
 
   @@index([sedeId, fecha])
 }
 
 model DetalleCompra {
-  id         String @id @default(uuid())
-  cantidad   Int
-  costo      Decimal // Costo al que se compró en ese momento
+  id       String  @id @default(uuid())
+  cantidad Int
+  costo    Decimal // Costo al que se compró en ese momento
 
-  compraId   String
-  compra     Compra   @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  compraId String
+  compra   Compra @relation(fields: [compraId], references: [id], onDelete: Cascade)
 
   productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
@@ -275,25 +331,57 @@ model Gasto {
   categoria   CategoriaGasto
   fecha       DateTime       @default(now())
 
-  sedeId      String
-  sede        Sede           @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  /// Como se pago. null = no se especifico.
+  metodoPago MetodoPago?
+  /// Agrupa las partes de un mismo total (ver `Venta.grupoId`).
+  grupoId    String?
+
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
   @@index([sedeId, fecha])
+  @@index([grupoId])
+}
+
+/// Reparto de utilidades entre el dueno y los trabajadores.
+///
+/// Va en su propia tabla y no como un gasto mas: repartir ganancias no es un
+/// costo del negocio, y mezclarlo con los gastos distorsionaria los margenes.
+model RepartoUtilidad {
+  id             String              @id @default(uuid())
+  beneficiario   BeneficiarioReparto
+  /// Nombre concreto cuando se conoce ("Maria", "Don Jose").
+  nombre         String?
+  /// Porcentaje del total repartido, de 0 a 100.
+  porcentaje     Decimal
+  /// Monto que le corresponde, ya calculado.
+  monto          Decimal
+  /// Utilidad total que se repartio, para poder reconstruir el calculo.
+  totalRepartido Decimal
+  /// Une las partes de un mismo reparto.
+  grupoId        String
+  fecha          DateTime            @default(now())
+
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  @@index([sedeId, fecha])
+  @@index([grupoId])
 }
 
 model Abono {
-  id        String   @id @default(uuid())
-  monto     Decimal
-  fecha     DateTime @default(now())
+  id    String   @id @default(uuid())
+  monto Decimal
+  fecha DateTime @default(now())
 
   clienteId String
-  cliente   Cliente  @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  cliente   Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
 
-  sedeId    String
-  sede      Sede     @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+  sedeId String
+  sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
-  ventaId   String?
-  venta     Venta?   @relation(fields: [ventaId], references: [id], onDelete: SetNull)
+  ventaId String?
+  venta   Venta?  @relation(fields: [ventaId], references: [id], onDelete: SetNull)
 
   @@index([sedeId, fecha])
   @@index([clienteId])
@@ -301,14 +389,14 @@ model Abono {
 
 model Pago {
   id                 String     @id @default(uuid())
-  referencia         String     @unique   // la que viaja a Wompi; es la llave con la que el webhook encuentra el pago
-  plan               Int                  // 1..4, el mismo número que Negocio.plan
+  referencia         String     @unique // la que viaja a Wompi; es la llave con la que el webhook encuentra el pago
+  plan               Int // 1..4, el mismo número que Negocio.plan
   ciclo              CicloPago
-  montoEnCentavos    Int                  // Wompi trabaja en centavos, no en pesos
+  montoEnCentavos    Int // Wompi trabaja en centavos, no en pesos
   moneda             String     @default("COP")
   estado             EstadoPago @default(PENDIENTE)
-  wompiTransaccionId String?    @unique   // lo devuelve Wompi; único para que un evento repetido no se procese dos veces
-  datosWompi         Json?                // el evento crudo, para depurar cuando algo no cuadre
+  wompiTransaccionId String?    @unique // lo devuelve Wompi; único para que un evento repetido no se procese dos veces
+  datosWompi         Json? // el evento crudo, para depurar cuando algo no cuadre
   procesadoEl        DateTime?
   createdAt          DateTime   @default(now())
   updatedAt          DateTime   @updatedAt
@@ -324,7 +412,7 @@ model Pago {
 
 model NotificacionPlan {
   id        String   @id @default(uuid())
-  tipo      String   // "previo" | "vencido" | "vencido_seguimiento"
+  tipo      String // "previo" | "vencido" | "vencido_seguimiento"
   venceEl   DateTime // el vencimiento al que corresponde este aviso
   enviadoEl DateTime @default(now())
 

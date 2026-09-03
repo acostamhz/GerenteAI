@@ -1,11 +1,19 @@
 import type { LlmResponse } from '../../../ai/core/llm.types';
 import type { LlmService } from '../../../ai/services/llm.service';
 import type { PeriodSummary, Transaction } from '../domain/finance.types';
-import type { FinanceDataPort } from '../ports/finance-data.port';
+import type {
+  FinanceDataPort,
+  ProfitDistribution,
+  PaymentRequest,
+  PaymentResult,
+  TransactionChanges,
+} from '../ports/finance-data.port';
 import type { WhatsAppIntentOutput } from '../prompts/whatsapp-assistant.prompt';
 import {
   WhatsAppMessageService,
+  checkBreakdown,
   periodRange,
+  renderMovementList,
   renderSummary,
 } from './whatsapp-message.service';
 
@@ -31,16 +39,34 @@ function fakeLlm(intent: Partial<WhatsAppIntentOutput>): LlmService {
       Promise.resolve({
         data: {
           type: 'unclear',
-          amount: null,
-          category: null,
+          movements: [],
+          declaredTotal: null,
+          profitShares: [],
           concept: null,
-          responseText: 'ok',
+          queryKind: null,
           queryPeriod: null,
+          responseText: 'ok',
           ...intent,
         },
         response,
       }),
   } as unknown as LlmService;
+}
+
+/** Atajo para no repetir los campos que casi nunca cambian en las pruebas. */
+function movimiento(
+  parcial: Partial<NonNullable<WhatsAppIntentOutput['movements']>[number]>,
+): NonNullable<WhatsAppIntentOutput['movements']>[number] {
+  return {
+    type: 'expense',
+    amount: 1000,
+    category: 'otros_gastos',
+    concept: null,
+    paymentMethod: null,
+    isCredit: false,
+    customerName: null,
+    ...parcial,
+  };
 }
 
 const SEED: Transaction[] = [
@@ -70,21 +96,88 @@ const SEED: Transaction[] = [
   },
 ];
 
-function fakeFinanceData(): FinanceDataPort & { saved: Transaction[] } {
+interface FakeFinanceData extends FinanceDataPort {
+  saved: Transaction[];
+  replaced: { id: string; parts: Transaction[] }[];
+  distributions: ProfitDistribution[];
+  updated: { id: string; changes: TransactionChanges }[];
+  deleted: string[];
+  /** Abonos que se pidieron aplicar, para comprobar que llegan bien. */
+  payments: PaymentRequest[];
+  /** Lo que devolvera `registerPayment`. Cada prueba lo ajusta a su caso. */
+  paymentResult: PaymentResult;
+}
+
+function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
+  const payments: PaymentRequest[] = [];
   const saved: Transaction[] = [];
-  return {
+  const replaced: { id: string; parts: Transaction[] }[] = [];
+  const distributions: ProfitDistribution[] = [];
+  const updated: { id: string; changes: TransactionChanges }[] = [];
+  const deleted: string[] = [];
+
+  const fake: FakeFinanceData = {
     saved,
+    replaced,
+    distributions,
+    payments,
+    paymentResult: {
+      applied: true,
+      reason: null,
+      customerName: 'Doña Rosa',
+      amount: 20_000,
+      remaining: 30_000,
+      excess: 0,
+      settledSales: 0,
+    },
+    registerPayment: (payment: PaymentRequest) => {
+      payments.push(payment);
+      return Promise.resolve(fake.paymentResult);
+    },
+    listReceivables: () => Promise.resolve([]),
     getSnapshot: () => Promise.reject(new Error('no usado en estas pruebas')),
-    listTransactions: () => Promise.resolve(SEED),
+    listTransactions: () => Promise.resolve(rows),
     saveTransactions: (transactions: Transaction[]) => {
       saved.push(...transactions);
       return Promise.resolve(transactions);
     },
+    replaceTransaction: (
+      _businessId: string,
+      transactionId: string,
+      parts: Transaction[],
+    ) => {
+      replaced.push({ id: transactionId, parts });
+      return Promise.resolve(parts);
+    },
+    saveProfitDistribution: (distribution: ProfitDistribution) => {
+      distributions.push(distribution);
+      return Promise.resolve(distribution);
+    },
+    updated,
+    deleted,
+    updateTransaction: (
+      _businessId: string,
+      transactionId: string,
+      changes: TransactionChanges,
+    ) => {
+      updated.push({ id: transactionId, changes });
+      const fila = rows.find((row) => row.id === transactionId);
+      return Promise.resolve(fila ? { ...fila, ...changes } : null);
+    },
+    deleteTransaction: (_businessId: string, transactionId: string) => {
+      deleted.push(transactionId);
+      return Promise.resolve(true);
+    },
   };
+
+  return fake;
 }
 
-function buildService(intent: Partial<WhatsAppIntentOutput>) {
-  const financeData = fakeFinanceData();
+function buildService(
+  intent: Partial<WhatsAppIntentOutput>,
+  rows: Transaction[] = SEED,
+) {
+  const financeData = fakeFinanceData(rows);
   const service = new WhatsAppMessageService(fakeLlm(intent), financeData);
   return { service, financeData };
 }
@@ -99,9 +192,13 @@ describe('WhatsAppMessageService', () => {
   it('registra un gasto y responde con el texto del modelo', async () => {
     const { service, financeData } = buildService({
       type: 'expense',
-      amount: 8000,
-      category: 'mercancia',
-      concept: 'Compra de mercancía',
+      movements: [
+        movimiento({
+          amount: 8000,
+          category: 'mercancia',
+          concept: 'Compra de mercancía',
+        }),
+      ],
       responseText: '✅ Registré un gasto de $8.000 en mercancía.',
     });
 
@@ -121,8 +218,9 @@ describe('WhatsAppMessageService', () => {
   it('no guarda nada si no se pidió persistir', async () => {
     const { service, financeData } = buildService({
       type: 'income',
-      amount: 750,
-      category: 'ventas',
+      movements: [
+        movimiento({ type: 'income', amount: 750, category: 'ventas' }),
+      ],
       responseText: 'ok',
     });
 
@@ -136,8 +234,7 @@ describe('WhatsAppMessageService', () => {
     // "ventas" es categoría de ingreso: en un gasto no puede pasar.
     const { service } = buildService({
       type: 'expense',
-      amount: 5000,
-      category: 'ventas',
+      movements: [movimiento({ amount: 5000, category: 'ventas' })],
       responseText: 'ok',
     });
 
@@ -148,8 +245,7 @@ describe('WhatsAppMessageService', () => {
   it('convierte montos negativos en positivos', async () => {
     const { service } = buildService({
       type: 'expense',
-      amount: -3000,
-      category: 'insumos',
+      movements: [movimiento({ amount: -3000, category: 'insumos' })],
       responseText: 'ok',
     });
 
@@ -160,8 +256,7 @@ describe('WhatsAppMessageService', () => {
   it('pide aclaración si el modelo dice "gasto" pero no deja monto', async () => {
     const { service, financeData } = buildService({
       type: 'expense',
-      amount: null,
-      category: 'insumos',
+      movements: [movimiento({ amount: null, category: 'insumos' })],
       responseText: 'ok',
     });
 
@@ -198,8 +293,7 @@ describe('WhatsAppMessageService', () => {
   it('respeta la confianza que reporta el modelo', async () => {
     const { service } = buildService({
       type: 'expense',
-      amount: 8000,
-      category: 'mercancia',
+      movements: [movimiento({ amount: 8000, category: 'mercancia' })],
       confidence: 0.95,
       responseText: 'ok',
     });
@@ -212,9 +306,13 @@ describe('WhatsAppMessageService', () => {
     // Modelo pequeño que ignora el campo: se infiere de lo que sí extrajo.
     const sinCampo = buildService({
       type: 'expense',
-      amount: 8000,
-      category: 'mercancia',
-      concept: 'Compra de harina',
+      movements: [
+        movimiento({
+          amount: 8000,
+          category: 'mercancia',
+          concept: 'Compra de harina',
+        }),
+      ],
       responseText: 'ok',
       confidence: undefined,
     });
@@ -235,8 +333,7 @@ describe('WhatsAppMessageService', () => {
   it('baja la confianza cuando degrada el mensaje a unclear', async () => {
     const { service } = buildService({
       type: 'expense',
-      amount: null,
-      category: 'insumos',
+      movements: [movimiento({ amount: null, category: 'insumos' })],
       confidence: 0.99,
       responseText: 'ok',
     });
@@ -248,8 +345,8 @@ describe('WhatsAppMessageService', () => {
 
   it('trata un tipo desconocido como unclear', async () => {
     const { service } = buildService({
-      type: 'transferencia' as WhatsAppIntentOutput['type'],
-      amount: 1000,
+      type: 'transferencia',
+      movements: [movimiento({ amount: 1000 })],
       responseText: 'ok',
     });
 
@@ -303,6 +400,7 @@ describe('renderSummary', () => {
     expense: 900_000,
     investment: 0,
     balance: 600_000,
+    pendingCollection: 0,
     transactionCount: 4,
     byCategory: [
       { category: 'mercancia', type: 'expense', total: 700_000 },
@@ -349,11 +447,13 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
         return Promise.resolve({
           data: {
             type: 'unclear',
-            amount: null,
-            category: null,
+            movements: [],
+            declaredTotal: null,
+            profitShares: [],
             concept: null,
-            responseText: 'ok',
+            queryKind: null,
             queryPeriod: null,
+            responseText: 'ok',
             confidence: 0.9,
             ...intent,
           },
@@ -476,5 +576,1473 @@ describe('WhatsAppMessageService · búsqueda por concepto', () => {
 
     const result = await service.handleMessage(BASE_REQUEST);
     expect(result.summary).not.toBeNull();
+  });
+});
+
+// ===========================================================================
+// Error 2 - varios movimientos en un mismo mensaje
+// ===========================================================================
+
+describe('WhatsAppMessageService - varios movimientos', () => {
+  it('registra un movimiento por cada gasto, no la suma', async () => {
+    // "Pague 50.000 de transporte y 30.000 de almuerzo" terminaba como un solo
+    // gasto de 80.000, y despues no habia forma de consultar uno por separado.
+    const { service, financeData } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({
+          amount: 50_000,
+          category: 'transporte',
+          concept: 'Transporte',
+        }),
+        movimiento({
+          amount: 30_000,
+          category: 'otros_gastos',
+          concept: 'Almuerzo',
+        }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.transactions).toHaveLength(2);
+    expect(result.transactions.map((row) => row.amount)).toEqual([
+      50_000, 30_000,
+    ]);
+    expect(result.transactions.map((row) => row.description)).toEqual([
+      'Transporte',
+      'Almuerzo',
+    ]);
+    expect(financeData.saved).toHaveLength(2);
+  });
+
+  it('agrupa los movimientos del mismo mensaje con un groupId comun', async () => {
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 50_000, concept: 'Transporte' }),
+        movimiento({ amount: 30_000, concept: 'Almuerzo' }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    const grupos = new Set(result.transactions.map((row) => row.groupId));
+
+    expect(grupos.size).toBe(1);
+    expect([...grupos][0]).toBeTruthy();
+  });
+
+  it('un solo movimiento no se agrupa: no hay nada que agrupar', async () => {
+    const { service } = buildService({
+      type: 'expense',
+      movements: [movimiento({ amount: 50_000 })],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].groupId).toBeNull();
+  });
+
+  it('el texto de respuesta detalla cada movimiento con su monto', async () => {
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 50_000, concept: 'Transporte' }),
+        movimiento({ amount: 30_000, concept: 'Almuerzo' }),
+      ],
+      responseText: 'Registre todo.',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.replyText).toContain('$50.000');
+    expect(result.replyText).toContain('$30.000');
+    expect(result.replyText).toContain('$80.000');
+  });
+
+  it('descarta los movimientos sin monto y conserva los validos', async () => {
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 50_000, concept: 'Transporte' }),
+        movimiento({ amount: null, concept: 'Algo sin precio' }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions).toHaveLength(1);
+    expect(result.transactions[0].amount).toBe(50_000);
+  });
+});
+
+// ===========================================================================
+// Error 1 - total general, desglose y validacion de la suma
+// ===========================================================================
+
+describe('checkBreakdown', () => {
+  it('acepta un desglose que cuadra con el total', () => {
+    expect(
+      checkBreakdown(2_000_000, [
+        { amount: 1_500_000 },
+        { amount: 200_000 },
+        { amount: 300_000 },
+      ]),
+    ).toBeNull();
+  });
+
+  it('detecta cuando faltan pesos por asignar', () => {
+    const descuadre = checkBreakdown(2_000_000, [
+      { amount: 1_500_000 },
+      { amount: 200_000 },
+    ]);
+
+    expect(descuadre).not.toBeNull();
+    expect(descuadre?.sum).toBe(1_700_000);
+    expect(descuadre?.difference).toBe(300_000);
+  });
+
+  it('detecta cuando las partes se pasan del total', () => {
+    const descuadre = checkBreakdown(1_000_000, [
+      { amount: 800_000 },
+      { amount: 500_000 },
+    ]);
+    expect(descuadre?.difference).toBe(-300_000);
+  });
+
+  it('sin total declarado no hay nada que verificar', () => {
+    expect(checkBreakdown(null, [{ amount: 100 }, { amount: 200 }])).toBeNull();
+  });
+
+  it('tolera un peso de diferencia por redondeos', () => {
+    expect(
+      checkBreakdown(1_000_000, [{ amount: 999_999.5 }, { amount: 0.5 }]),
+    ).toBeNull();
+  });
+});
+
+describe('WhatsAppMessageService - total con desglose', () => {
+  it('registra las partes cuando el desglose cuadra con el total', async () => {
+    const { service, financeData } = buildService({
+      type: 'income',
+      declaredTotal: 2_000_000,
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 1_500_000,
+          category: 'ventas',
+          concept: 'Ventas en efectivo',
+          paymentMethod: 'efectivo',
+        }),
+        movimiento({
+          type: 'income',
+          amount: 500_000,
+          category: 'ventas',
+          concept: 'Ventas con tarjeta',
+          paymentMethod: 'tarjeta',
+        }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.transactions).toHaveLength(2);
+    expect(result.transactions[0].paymentMethod).toBe('efectivo');
+    expect(result.transactions[1].paymentMethod).toBe('tarjeta');
+    expect(financeData.saved).toHaveLength(2);
+  });
+
+  it('NO registra nada cuando el desglose no cuadra: pregunta', async () => {
+    // Registrar cifras que no suman es peor que no registrar: el error queda
+    // escondido dentro de la contabilidad.
+    const { service, financeData } = buildService({
+      type: 'income',
+      declaredTotal: 2_000_000,
+      movements: [
+        movimiento({ type: 'income', amount: 1_500_000, category: 'ventas' }),
+        movimiento({ type: 'income', amount: 200_000, category: 'ventas' }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.intent.type).toBe('unclear');
+    expect(result.transactions).toHaveLength(0);
+    expect(financeData.saved).toHaveLength(0);
+    expect(result.replyText).toContain('$2.000.000');
+    expect(result.replyText).toContain('$1.700.000');
+    expect(result.replyText).toContain('$300.000');
+  });
+});
+
+describe('WhatsAppMessageService - desglose de un total ya registrado', () => {
+  /** El total que el usuario registro antes, listo para ser desglosado. */
+  const TOTAL_PREVIO: Transaction[] = [
+    {
+      id: 'venta-total',
+      businessId: 'b1',
+      date: '2026-07-15',
+      description: 'Ventas del dia',
+      category: 'ventas',
+      amount: 2_000_000,
+      type: 'income',
+      currency: 'COP',
+      source: 'whatsapp',
+      createdAt: '2026-07-15T12:00:00.000Z',
+      groupId: null,
+    },
+  ];
+
+  const PARTES = [
+    movimiento({
+      type: 'income',
+      amount: 1_500_000,
+      category: 'ventas',
+      concept: 'Ventas en efectivo',
+      paymentMethod: 'efectivo',
+    }),
+    movimiento({
+      type: 'income',
+      amount: 500_000,
+      category: 'ventas',
+      concept: 'Ventas con tarjeta',
+      paymentMethod: 'tarjeta',
+    }),
+  ];
+
+  it('reemplaza el total por sus partes en vez de duplicar el dinero', async () => {
+    const { service, financeData } = buildService(
+      { type: 'breakdown', movements: PARTES, responseText: 'ok' },
+      TOTAL_PREVIO,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.replaced).toHaveLength(1);
+    expect(financeData.replaced[0].id).toBe('venta-total');
+    expect(financeData.replaced[0].parts).toHaveLength(2);
+    // Nada se guarda por la via normal: seria plata contada dos veces.
+    expect(financeData.saved).toHaveLength(0);
+    expect(result.replyText).toContain('$2.000.000');
+  });
+
+  it('las partes heredan la relacion con el total original', async () => {
+    const conGrupo: Transaction[] = [{ ...TOTAL_PREVIO[0], groupId: null }];
+    const { service, financeData } = buildService(
+      { type: 'breakdown', movements: PARTES, responseText: 'ok' },
+      conGrupo,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+    const grupos = new Set(
+      financeData.replaced[0].parts.map((row) => row.groupId),
+    );
+
+    expect(grupos.size).toBe(1);
+    expect([...grupos][0]).toBeTruthy();
+  });
+
+  it('si no encuentra el total previo, registra las partes como nuevas', async () => {
+    // El usuario puede desglosar algo que nunca registro: mejor guardarlo que
+    // perderlo.
+    const { service, financeData } = buildService(
+      { type: 'breakdown', movements: PARTES, responseText: 'ok' },
+      [],
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.replaced).toHaveLength(0);
+    expect(financeData.saved).toHaveLength(2);
+  });
+
+  it('no toca un movimiento que ya estaba desglosado', async () => {
+    const yaDesglosado: Transaction[] = [
+      { ...TOTAL_PREVIO[0], groupId: 'grupo-existente' },
+    ];
+    const { service, financeData } = buildService(
+      { type: 'breakdown', movements: PARTES, responseText: 'ok' },
+      yaDesglosado,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.replaced).toHaveLength(0);
+    expect(financeData.saved).toHaveLength(2);
+  });
+});
+
+// ===========================================================================
+// Error 3 - fiados
+// ===========================================================================
+
+describe('WhatsAppMessageService - fiados', () => {
+  it('marca la venta como fiada y guarda a quien se le fio', async () => {
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 50_000,
+          category: 'ventas',
+          concept: 'Venta fiada a dona Rosa',
+          isCredit: true,
+          customerName: 'Dona Rosa',
+        }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.transactions[0].isCredit).toBe(true);
+    expect(result.transactions[0].customerName).toBe('Dona Rosa');
+    expect(financeData.saved[0].isCredit).toBe(true);
+  });
+
+  it('una venta normal no queda marcada como fiada', async () => {
+    const { service } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({ type: 'income', amount: 50_000, category: 'ventas' }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].isCredit).toBe(false);
+  });
+
+  it('el resumen separa lo fiado de lo cobrado', async () => {
+    // Lo fiado suma como ingreso (la venta ocurrio) pero todavia no es caja.
+    const conFiado: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-07-15',
+        description: 'Venta fiada',
+        category: 'ventas',
+        amount: 300_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-15T12:00:00.000Z',
+        isCredit: true,
+      },
+      {
+        id: 'f2',
+        businessId: 'b1',
+        date: '2026-07-15',
+        description: 'Venta de contado',
+        category: 'ventas',
+        amount: 700_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-15T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      conFiado,
+    );
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    // Los ingresos son SOLO lo cobrado: los 300.000 fiados no entran.
+    // Sumarlos daba un ingreso que el duenno no tiene en el bolsillo y un
+    // balance que no cuadraba con su caja.
+    expect(result.summary?.income).toBe(700_000);
+    expect(result.summary?.pendingCollection).toBe(300_000);
+    expect(result.summary?.balance).toBe(700_000);
+    expect(result.replyText).toContain('te deben');
+  });
+});
+
+// ===========================================================================
+// Error 4 - buscar ingresos por concepto, igual que los gastos
+// ===========================================================================
+
+describe('WhatsAppMessageService - busqueda de ingresos', () => {
+  const MOVIMIENTOS: Transaction[] = [
+    {
+      id: 'g1',
+      businessId: 'b1',
+      date: '2026-07-14',
+      description: 'Compra en Postobon',
+      category: 'mercancia',
+      amount: 200_000,
+      type: 'expense',
+      currency: 'COP',
+      source: 'whatsapp',
+      createdAt: '2026-07-14T12:00:00.000Z',
+    },
+    {
+      id: 'i1',
+      businessId: 'b1',
+      date: '2026-07-15',
+      description: 'Ganancia por ventas de gaseosa',
+      category: 'ventas',
+      amount: 3_000_000,
+      type: 'income',
+      currency: 'COP',
+      source: 'whatsapp',
+      createdAt: '2026-07-15T12:00:00.000Z',
+    },
+  ];
+
+  it('encuentra un ingreso por su concepto', async () => {
+    // Antes solo funcionaba con gastos: las ventas se guardaban sin concepto.
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'search',
+        concept: 'gaseosa',
+        responseText: 'ok',
+      },
+      MOVIMIENTOS,
+    );
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.replyText).toContain('Ganancia por ventas de gaseosa');
+    expect(result.replyText).toContain('$3.000.000');
+    expect(result.replyText).toContain('+');
+  });
+
+  it('sigue encontrando gastos por su concepto', async () => {
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'search',
+        concept: 'Postobon',
+        responseText: 'ok',
+      },
+      MOVIMIENTOS,
+    );
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.replyText).toContain('Compra en Postobon');
+    expect(result.replyText).toContain('$200.000');
+  });
+});
+
+// ===========================================================================
+// Error 5 - listar los movimientos, no solo contarlos
+// ===========================================================================
+
+describe('WhatsAppMessageService - listado de movimientos', () => {
+  it('devuelve el detalle de cada movimiento cuando lo piden', async () => {
+    // El resumen decia "tienes 2 movimientos" y al preguntar cuales eran
+    // devolvia el mismo resumen: un callejon sin salida.
+    const { service } = buildService({
+      type: 'query',
+      queryKind: 'list',
+      queryPeriod: 'month',
+      responseText: 'Te los detallo.',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.replyText).toContain('Compra de harina');
+    expect(result.replyText).toContain('$700.000');
+    expect(result.replyText).toContain('Ventas del dia');
+    expect(result.replyText).toContain('$1.500.000');
+  });
+
+  it('el resumen le dice al usuario que puede pedir el detalle', async () => {
+    const { service } = buildService({
+      type: 'query',
+      queryKind: 'summary',
+      queryPeriod: 'month',
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.replyText).toContain('movimientos');
+    expect(result.replyText.toLowerCase()).toContain('uno por uno');
+  });
+});
+
+describe('renderMovementList', () => {
+  const FILAS: Transaction[] = [
+    {
+      id: '1',
+      businessId: 'b1',
+      date: '2026-07-15',
+      description: 'Compra de harina',
+      category: 'mercancia',
+      amount: 700_000,
+      type: 'expense',
+      currency: 'COP',
+      source: 'whatsapp',
+      createdAt: '2026-07-15T12:00:00.000Z',
+      paymentMethod: 'efectivo',
+    },
+    {
+      id: '2',
+      businessId: 'b1',
+      date: '2026-07-15',
+      description: 'Venta fiada',
+      category: 'ventas',
+      amount: 300_000,
+      type: 'income',
+      currency: 'COP',
+      source: 'whatsapp',
+      createdAt: '2026-07-15T12:00:00.000Z',
+      isCredit: true,
+    },
+  ];
+
+  it('muestra tipo, concepto, valor y fecha de cada movimiento', () => {
+    const texto = renderMovementList(FILAS, 'month', 'COP');
+
+    expect(texto).toContain('Compra de harina');
+    expect(texto).toContain('-$700.000');
+    expect(texto).toContain('Venta fiada');
+    expect(texto).toContain('+$300.000');
+    // El formato corto local incluye "de": "15 de jul".
+    expect(texto).toContain('15 de jul');
+  });
+
+  it('anota la forma de pago y si fue fiado', () => {
+    const texto = renderMovementList(FILAS, 'month', 'COP');
+    expect(texto).toContain('Efectivo');
+    expect(texto).toContain('fiado');
+  });
+
+  it('avisa cuando no hay movimientos, sin inventar', () => {
+    const texto = renderMovementList([], 'week', 'COP');
+    expect(texto).toContain('No tienes movimientos');
+    expect(texto).not.toContain('$');
+  });
+
+  it('no usa markdown: el texto va a WhatsApp', () => {
+    expect(renderMovementList(FILAS, 'month', 'COP')).not.toMatch(/[*_`#]/);
+  });
+});
+
+// ===========================================================================
+// Error 1 - reparto de utilidades
+// ===========================================================================
+
+describe('WhatsAppMessageService - reparto de utilidades', () => {
+  it('calcula el monto de cada quien sobre la utilidad real', async () => {
+    // SEED deja un balance de 800.000 (1.500.000 - 700.000).
+    const { service, financeData } = buildService({
+      type: 'profit_share',
+      profitShares: [
+        { beneficiary: 'dueno', name: null, percentage: 60 },
+        { beneficiary: 'trabajador', name: null, percentage: 40 },
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.profitDistribution?.total).toBe(800_000);
+    expect(result.profitDistribution?.shares[0].amount).toBe(480_000);
+    expect(result.profitDistribution?.shares[1].amount).toBe(320_000);
+    expect(financeData.distributions).toHaveLength(1);
+    expect(result.replyText).toContain('$480.000');
+  });
+
+  it('pide los porcentajes cuando no los dan', async () => {
+    const { service, financeData } = buildService({
+      type: 'profit_share',
+      profitShares: [],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.intent.type).toBe('unclear');
+    expect(result.replyText).toContain('porcentaje');
+    expect(financeData.distributions).toHaveLength(0);
+  });
+
+  it('rechaza porcentajes que no suman 100', async () => {
+    const { service, financeData } = buildService({
+      type: 'profit_share',
+      profitShares: [
+        { beneficiary: 'dueno', name: null, percentage: 60 },
+        { beneficiary: 'trabajador', name: null, percentage: 30 },
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('100%');
+    expect(financeData.distributions).toHaveLength(0);
+  });
+
+  it('no reparte cuando no hay utilidades', async () => {
+    const enPerdida: Transaction[] = [
+      {
+        id: 'p1',
+        businessId: 'b1',
+        date: '2026-07-15',
+        description: 'Compra grande',
+        category: 'mercancia',
+        amount: 900_000,
+        type: 'expense',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-15T12:00:00.000Z',
+      },
+    ];
+
+    const { service, financeData } = buildService(
+      {
+        type: 'profit_share',
+        profitShares: [{ beneficiary: 'dueno', name: null, percentage: 100 }],
+        responseText: 'ok',
+      },
+      enPerdida,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('no hay utilidades');
+    expect(financeData.distributions).toHaveLength(0);
+  });
+});
+
+describe('WhatsAppMessageService - el desglose encuentra el total aunque venga de la base', () => {
+  it('no exige que el origen sea whatsapp', async () => {
+    // El adaptador de Prisma devuelve source "manual" para todo, porque la
+    // base no guarda el origen. Si el buscador exigiera "whatsapp", en
+    // produccion nunca encontraria el total y duplicaria el dinero.
+    const totalDesdeLaBase: Transaction[] = [
+      {
+        id: 'venta-total',
+        businessId: 'b1',
+        date: '2026-07-15',
+        description: 'Ventas del dia',
+        category: 'ventas',
+        amount: 900_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'manual',
+        createdAt: '2026-07-15T12:00:00.000Z',
+        groupId: null,
+      },
+    ];
+
+    const { service, financeData } = buildService(
+      {
+        type: 'breakdown',
+        movements: [
+          movimiento({
+            type: 'income',
+            amount: 600_000,
+            category: 'ventas',
+            paymentMethod: 'efectivo',
+          }),
+          movimiento({
+            type: 'income',
+            amount: 300_000,
+            category: 'ventas',
+            paymentMethod: 'tarjeta',
+          }),
+        ],
+        responseText: 'ok',
+      },
+      totalDesdeLaBase,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.replaced).toHaveLength(1);
+    expect(financeData.saved).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// La fecha del movimiento es la de Colombia, no la del contenedor
+// ===========================================================================
+
+describe('WhatsAppMessageService - fecha colombiana', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('registra con el dia colombiano aunque en UTC ya sea manana', async () => {
+    // 1 de septiembre, 7:53 p.m. en Colombia = 2 de septiembre 00:53 UTC.
+    // La confirmacion decia "2 de sept" mientras el movimiento quedaba
+    // guardado el 1: la fecha se calculaba con toISOString(), que da UTC.
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-02T00:53:00.000Z'));
+
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({
+          amount: 50_000,
+          category: 'transporte',
+          concept: 'Transporte',
+        }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe('2026-09-01');
+  });
+
+  it('el texto de confirmacion muestra esa misma fecha', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-02T00:53:00.000Z'));
+
+    const { service } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 50_000, concept: 'Transporte' }),
+        movimiento({ amount: 30_000, concept: 'Almuerzo' }),
+      ],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.replyText).toContain('1 de sept');
+    expect(result.replyText).not.toContain('2 de sept');
+  });
+
+  it('antes de las 7 p.m. no hay diferencia', async () => {
+    // Mediodia en Colombia: el dia UTC y el colombiano coinciden.
+    jest.useFakeTimers().setSystemTime(new Date('2026-09-01T17:00:00.000Z'));
+
+    const { service } = buildService({
+      type: 'expense',
+      movements: [movimiento({ amount: 50_000 })],
+      responseText: 'ok',
+    });
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].date).toBe('2026-09-01');
+  });
+});
+
+// ===========================================================================
+// Pendiente 1 - corregir movimientos desde WhatsApp
+// ===========================================================================
+
+/** Movimientos recientes sobre los que se puede corregir. */
+const RECIENTES: Transaction[] = [
+  {
+    id: 'ultimo',
+    businessId: 'b1',
+    date: '2026-09-01',
+    description: 'Transporte',
+    category: 'transporte',
+    amount: 50_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-01T18:00:00.000Z',
+  },
+  {
+    id: 'almuerzo',
+    businessId: 'b1',
+    date: '2026-09-01',
+    description: 'Almuerzo',
+    category: 'otros_gastos',
+    amount: 30_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-01T17:00:00.000Z',
+  },
+];
+
+function correccion(parcial: Record<string, unknown>) {
+  return {
+    action: 'update',
+    reference: null,
+    newAmount: null,
+    newConcept: null,
+    ...parcial,
+  };
+}
+
+describe('WhatsAppMessageService - correcciones', () => {
+  it('corrige el monto del ultimo movimiento', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'ultimo', changes: { amount: 60_000 } },
+    ]);
+    expect(result.replyText).toContain('$50.000');
+    expect(result.replyText).toContain('$60.000');
+  });
+
+  it('avisa que el cambio tambien quedo en el panel', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+    expect(result.replyText.toLowerCase()).toContain('panel');
+  });
+
+  it('ubica el movimiento por su concepto', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ reference: 'almuerzo', newAmount: 35_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+    expect(financeData.updated[0].id).toBe('almuerzo');
+  });
+
+  it('corrige el concepto sin tocar el monto', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          reference: 'almuerzo',
+          newConcept: 'Transporte',
+        }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+    expect(financeData.updated[0].changes).toEqual({
+      description: 'Transporte',
+    });
+  });
+
+  it('borra un movimiento cuando lo piden', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete', reference: 'almuerzo' }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.deleted).toEqual(['almuerzo']);
+    expect(result.replyText).toContain('Eliminé');
+  });
+});
+
+describe('WhatsAppMessageService - correcciones ambiguas o imposibles', () => {
+  it('pregunta cual corregir cuando hay varios parecidos', async () => {
+    // Corregir el equivocado deja el error escondido: mejor preguntar.
+    const dosIguales: Transaction[] = [
+      { ...RECIENTES[0], id: 'a', description: 'Transporte a la plaza' },
+      { ...RECIENTES[0], id: 'b', description: 'Transporte de vuelta' },
+    ];
+
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ reference: 'transporte', newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      dosIguales,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(result.replyText).toContain('Cuál');
+  });
+
+  it('lo dice claro cuando no encuentra el movimiento', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ reference: 'jabones', newAmount: 1000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(result.replyText).toContain('jabones');
+  });
+
+  it('pide el valor si dicen corregir pero no dicen cual', async () => {
+    const { service, financeData } = buildService(
+      { type: 'correction', correction: correccion({}), responseText: 'ok' },
+      RECIENTES,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(result.replyText).toContain('valor correcto');
+  });
+
+  it('no toca la base si no se pidio persistir', async () => {
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ newAmount: 60_000 }),
+        responseText: 'ok',
+      },
+      RECIENTES,
+    );
+
+    await service.handleMessage(BASE_REQUEST);
+    expect(financeData.updated).toHaveLength(0);
+    expect(financeData.deleted).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// Pendiente 2 - periodo contable configurable
+// ===========================================================================
+
+describe('periodRange con periodo contable propio', () => {
+  const enSeptiembre = new Date('2026-09-05T17:00:00.000Z');
+
+  it('sin configurar, el mes es el calendario', () => {
+    expect(periodRange('month', enSeptiembre)).toEqual({
+      from: '2026-09-01',
+      to: '2026-09-05',
+    });
+  });
+
+  it('con corte el 21, el mes arranca el 21 del mes anterior', () => {
+    expect(periodRange('month', enSeptiembre, 21)).toEqual({
+      from: '2026-08-21',
+      to: '2026-09-05',
+    });
+  });
+
+  it('el dia y la semana no dependen del corte', () => {
+    expect(periodRange('day', enSeptiembre, 21).from).toBe('2026-09-05');
+    expect(periodRange('week', enSeptiembre, 21).from).toBe('2026-08-31');
+  });
+});
+
+describe('WhatsAppMessageService · fecha del movimiento', () => {
+  /**
+   * Quien el lunes registra lo del fin de semana espera verlo en el fin de
+   * semana. Antes todo se guardaba con la fecha en que se le escribió al bot y
+   * los reportes por día quedaban descuadrados.
+   */
+  const HOY = new Date().toISOString().slice(0, 10);
+
+  const enFecha = (fecha: string | null) => ({
+    type: 'income' as const,
+    movements: [
+      {
+        type: 'income' as const,
+        amount: 2_000_000,
+        category: 'ventas',
+        concept: 'Cama nube',
+        paymentMethod: null,
+        isCredit: false,
+        customerName: null,
+        date: fecha,
+      },
+    ],
+    responseText: 'ok',
+  });
+
+  it('usa la fecha que dijo el usuario', async () => {
+    const { service } = buildService(enFecha('2026-08-23'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe('2026-08-23');
+  });
+
+  it('usa hoy cuando el usuario no dice ninguna fecha', async () => {
+    const { service } = buildService(enFecha(null));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+
+  it('ignora una fecha futura: nadie registra lo que no ha pasado', async () => {
+    // Un año mal tecleado mandaría el movimiento a 2027 y lo sacaría de todos
+    // los reportes sin que nadie lo note.
+    const { service } = buildService(enFecha('2027-08-23'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+
+  it('ignora una fecha inválida', async () => {
+    const { service } = buildService(enFecha('23/08/2026'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+
+  it('ignora un día que no existe', async () => {
+    // "2026-02-31" pasa el formato pero se desbordaría a marzo.
+    const { service } = buildService(enFecha('2026-02-31'));
+
+    const result = await service.handleMessage(BASE_REQUEST);
+    expect(result.transactions[0].date).toBe(HOY);
+  });
+});
+
+describe('WhatsAppMessageService · lo fiado no infla las categorías', () => {
+  it('el desglose por categoría cuadra con los ingresos', async () => {
+    // Si lo fiado entrara en el desglose, las categorías sumarían más que los
+    // ingresos y el resumen se contradiría a sí mismo.
+    const conFiado: Transaction[] = [
+      {
+        id: 'c1',
+        businessId: 'b1',
+        date: '2026-07-10',
+        description: 'Comedor fiado',
+        category: 'ventas',
+        amount: 3_200_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        isCredit: true,
+      },
+      {
+        id: 'c2',
+        businessId: 'b1',
+        date: '2026-07-11',
+        description: 'Venta de contado',
+        category: 'ventas',
+        amount: 500_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-11T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      conFiado,
+    );
+
+    const result = await service.handleMessage(BASE_REQUEST);
+
+    const ventas = result.summary?.byCategory.find(
+      (fila) => fila.category === 'ventas',
+    );
+
+    expect(ventas?.total).toBe(500_000);
+    expect(result.summary?.income).toBe(500_000);
+    expect(result.summary?.pendingCollection).toBe(3_200_000);
+  });
+});
+
+// ===========================================================================
+// ABONOS: cobrar un fiado baja la deuda, no crea una venta nueva
+// ===========================================================================
+
+describe('WhatsAppMessageService · abonos de fiados', () => {
+  const CON_ABONO: Partial<WhatsAppIntentOutput> = {
+    type: 'payment',
+    movements: [],
+    payment: {
+      customerName: 'Doña Rosa',
+      amount: 20_000,
+      settlesDebt: false,
+      date: null,
+    },
+    responseText: 'Listo, registro el abono.',
+  };
+
+  it('aplica el abono al cliente y no registra ningún movimiento', async () => {
+    // El error que se está corrigiendo: el cobro entraba como venta, la misma
+    // plata quedaba contada dos veces y la deuda seguía intacta.
+    const { service, financeData } = buildService(CON_ABONO);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(financeData.payments).toHaveLength(1);
+    expect(financeData.payments[0].customerName).toBe('Doña Rosa');
+    expect(financeData.payments[0].amount).toBe(20_000);
+    expect(result.transactions).toHaveLength(0);
+    expect(result.payment?.applied).toBe(true);
+  });
+
+  it('dice cuánto queda debiendo, que es lo que el dueño quiere saber', async () => {
+    const { service } = buildService(CON_ABONO);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('$20.000');
+    expect(result.replyText).toContain('$30.000');
+  });
+
+  it('avisa cuando el cliente queda al día', async () => {
+    const { service, financeData } = buildService(CON_ABONO);
+    financeData.paymentResult = {
+      applied: true,
+      reason: null,
+      customerName: 'Doña Rosa',
+      amount: 50_000,
+      remaining: 0,
+      excess: 0,
+      settledSales: 2,
+    };
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('al día');
+    expect(result.replyText).toContain('ya no te debe nada');
+  });
+
+  it('"ya me pagó todo" salda la deuda sin inventar un monto', async () => {
+    const { service, financeData } = buildService({
+      ...CON_ABONO,
+      payment: {
+        customerName: 'Juan',
+        amount: null,
+        settlesDebt: true,
+        date: null,
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    // null significa "lo que deba": el sistema sí sabe cuánto es, el modelo no.
+    expect(financeData.payments[0].amount).toBeNull();
+  });
+
+  it('respeta la fecha del pago cuando el usuario la dice', async () => {
+    const { service, financeData } = buildService({
+      ...CON_ABONO,
+      payment: {
+        customerName: 'Doña Rosa',
+        amount: 20_000,
+        settlesDebt: false,
+        date: '2026-08-23',
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.payments[0].date).toBe('2026-08-23');
+  });
+
+  it('sin nombre de cliente pregunta en vez de adivinar a quién cobrarle', async () => {
+    // Aplicárselo al cliente equivocado descuadra dos cuentas a la vez.
+    const { service, financeData } = buildService({
+      ...CON_ABONO,
+      payment: null,
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.payments).toHaveLength(0);
+    expect(result.intent.type).toBe('unclear');
+    expect(result.replyText).toContain('¿De quién es el pago?');
+  });
+
+  it('cuando no hay a quién aplicarlo lo dice, no falla', async () => {
+    const { service, financeData } = buildService(CON_ABONO);
+    financeData.paymentResult = {
+      applied: false,
+      reason: 'cliente_no_encontrado',
+      customerName: 'Doña Rosa',
+      amount: 0,
+      remaining: 0,
+      excess: 0,
+      settledSales: 0,
+    };
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('No encontré');
+    expect(result.replyText).toContain('Doña Rosa');
+  });
+
+  it('avisa cuando le pagaron más de lo que debía', async () => {
+    const { service, financeData } = buildService(CON_ABONO);
+    financeData.paymentResult = {
+      applied: true,
+      reason: null,
+      customerName: 'Doña Rosa',
+      amount: 50_000,
+      remaining: 0,
+      excess: 30_000,
+      settledSales: 1,
+    };
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    // Callarlo haría creer al dueño que registró una cifra que no registró.
+    expect(result.replyText).toContain('$30.000');
+    expect(result.replyText).toContain('no los registré');
+  });
+});
+
+describe('WhatsAppMessageService · las cuentas por cobrar bajan con los abonos', () => {
+  it('el resumen muestra el saldo, no lo que se fió', async () => {
+    // Este era el síntoma: el fiado seguía apareciendo entero por mucho que el
+    // cliente abonara.
+    const conSaldo: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-07-10',
+        description: 'Fiado a Doña Rosa',
+        category: 'ventas',
+        amount: 300_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        isCredit: true,
+        pendingAmount: 200_000,
+        customerName: 'Doña Rosa',
+      },
+      {
+        id: 'a1',
+        businessId: 'b1',
+        date: '2026-07-20',
+        description: 'Abono de Doña Rosa',
+        category: 'cobros',
+        amount: 100_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-20T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      conSaldo,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    // Lo cobrado es ingreso; lo que falta por cobrar, cuenta por cobrar.
+    expect(result.summary?.income).toBe(100_000);
+    expect(result.summary?.pendingCollection).toBe(200_000);
+  });
+
+  it('un fiado ya pagado deja de ser cuenta por cobrar', async () => {
+    const saldado: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-07-10',
+        description: 'Fiado a Juan',
+        category: 'ventas',
+        amount: 80_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-10T12:00:00.000Z',
+        isCredit: true,
+        pendingAmount: 0,
+        customerName: 'Juan',
+      },
+      {
+        id: 'a1',
+        businessId: 'b1',
+        date: '2026-07-11',
+        description: 'Abono de Juan',
+        category: 'cobros',
+        amount: 80_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-07-11T12:00:00.000Z',
+        isCredit: false,
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'summary',
+        queryPeriod: 'month',
+        responseText: 'ok',
+      },
+      saldado,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.summary?.pendingCollection).toBe(0);
+    expect(result.summary?.income).toBe(80_000);
+    expect(result.replyText).not.toContain('te deben');
+  });
+});
+
+describe('WhatsAppMessageService · un fiado necesita saber de quién es', () => {
+  it('pregunta el nombre en vez de registrar una deuda que nadie podrá cobrar', async () => {
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 20_000,
+          category: 'ventas',
+          concept: 'Venta fiada',
+          isCredit: true,
+          customerName: null,
+        }),
+      ],
+      responseText: 'Registré el fiado.',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(result.intent.type).toBe('unclear');
+    expect(result.replyText).toContain('¿A quién le fiaste?');
+  });
+
+  it('con nombre lo registra sin preguntar nada', async () => {
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 20_000,
+          category: 'ventas',
+          concept: 'Venta fiada',
+          isCredit: true,
+          customerName: 'Doña Rosa',
+        }),
+      ],
+      responseText: 'Registré el fiado de doña Rosa.',
+    });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(financeData.saved).toHaveLength(1);
+    expect(financeData.saved[0].customerName).toBe('Doña Rosa');
+    expect(financeData.saved[0].isCredit).toBe(true);
+    expect(result.intent.type).toBe('income');
   });
 });

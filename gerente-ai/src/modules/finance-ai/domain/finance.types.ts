@@ -11,10 +11,28 @@ export type MessageIntentType =
   | 'query'
   | 'correction'
   | 'unclear'
+  /**
+   * Desglose de un total que ya se registro antes ("de esos 2 millones,
+   * 1.500.000 fueron en efectivo"). No suma dinero nuevo: reemplaza el
+   * movimiento total por sus partes.
+   */
+  | 'breakdown'
+  /** Reparto de utilidades entre el dueno y los trabajadores. */
+  | 'profit_share'
   /** Le pidieron algo que no son las finanzas del negocio (codigo, poemas...). */
   | 'out_of_scope'
   /** Pidio una funcion que solo existe en los planes pagos. */
-  | 'premium';
+  | 'premium'
+  /**
+   * Le pagaron un fiado, entero o en parte ("Rosa me abono 20.000",
+   * "Juan ya me pago todo").
+   *
+   * No es un movimiento nuevo: es el cobro de una venta a credito que ya
+   * estaba registrada. Antes caia en "income" y se registraba como una venta
+   * aparte, con lo cual el dinero se contaba dos veces y la deuda del cliente
+   * nunca bajaba.
+   */
+  | 'payment';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';
@@ -95,15 +113,157 @@ export const CATEGORY_LABELS: Record<TransactionCategory, string> = {
 };
 
 /**
+ * Como entro o salio el dinero. Espeja el enum `MetodoPago` de la base.
+ *
+ * Sirve para desglosar un total en sus partes ("de los $2.000.000, $1.500.000
+ * fueron en efectivo") sin perder la relacion con el total: las partes se
+ * agrupan con `groupId`.
+ */
+export const PAYMENT_METHODS = [
+  'efectivo',
+  'transferencia',
+  'tarjeta',
+  'otro',
+] as const;
+
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  efectivo: 'Efectivo',
+  transferencia: 'Transferencia',
+  tarjeta: 'Tarjeta',
+  otro: 'Otro',
+};
+
+/** A quien le toca una parte de las utilidades repartidas. */
+export const PROFIT_BENEFICIARIES = ['dueno', 'trabajador'] as const;
+
+export type ProfitBeneficiary = (typeof PROFIT_BENEFICIARIES)[number];
+
+export const PROFIT_BENEFICIARY_LABELS: Record<ProfitBeneficiary, string> = {
+  dueno: 'Dueño',
+  trabajador: 'Trabajador',
+};
+
+/** Una parte del reparto de utilidades, ya validada. */
+export interface ProfitShare {
+  beneficiary: ProfitBeneficiary;
+  /** Nombre concreto si se dijo ("Maria"). null si solo se dijo el rol. */
+  name: string | null;
+  /** Porcentaje del total repartido, de 0 a 100. */
+  percentage: number;
+  /** Monto que le corresponde, ya calculado sobre el total. */
+  amount: number;
+}
+
+/**
+ * Un movimiento suelto tal como lo entendio el modelo.
+ *
+ * Un mensaje puede contener varios ("pague 50.000 de transporte y 30.000 de
+ * almuerzo"), y cada uno termina siendo una fila propia. Antes solo cabia uno
+ * y el modelo se veia obligado a sumarlos en un unico registro.
+ */
+export interface MovementDraft {
+  type: TransactionType;
+  /** Siempre positivo. */
+  amount: number;
+  category: TransactionCategory;
+  concept: string | null;
+  /** null = el usuario no dijo como pago. */
+  paymentMethod: PaymentMethod | null;
+  /** true = venta fiada: quedo registrada pero el dinero aun no entro. */
+  isCredit: boolean;
+  /** A quien se le fio, cuando se menciona. */
+  customerName: string | null;
+  /**
+   * Fecha del movimiento en YYYY-MM-DD, si el usuario la dijo.
+   *
+   * null = no la menciono, y entonces vale hoy. Sin esto, quien registra el
+   * lunes lo del fin de semana veia todo con la fecha de hoy y sus reportes
+   * por dia quedaban mal.
+   */
+  date: string | null;
+}
+
+/**
+ * Un pago que le hicieron al negocio sobre un fiado.
+ *
+ * El monto puede faltar: "Rosa ya me pago" no dice cuanto, y lo correcto es
+ * saldar toda su deuda, no adivinar una cifra.
+ */
+export interface PaymentDraft {
+  /** A quien se le cobro. Sin nombre no hay a que deuda aplicarlo. */
+  customerName: string | null;
+  /** Monto abonado. null cuando el mensaje dice que pago todo. */
+  amount: number | null;
+  /** true = "ya me pago todo": se salda el saldo completo del cliente. */
+  settlesDebt: boolean;
+  /** Fecha del pago en YYYY-MM-DD. null = hoy. */
+  date: string | null;
+}
+
+/**
+ * Lo que el usuario quiere cambiar de un movimiento ya registrado.
+ *
+ * La gente dicta mal por WhatsApp ("eran 60.000, no 50.000") y hasta ahora la
+ * unica salida era entrar al panel a corregirlo. Solo se admiten el monto y el
+ * concepto: cambiar el tipo implicaria mover la fila de tabla, y para eso es
+ * mas claro borrar y volver a registrar.
+ */
+export interface CorrectionRequest {
+  action: 'update' | 'delete';
+  /**
+   * Como ubicar el movimiento: el texto que lo identifica ("el de transporte").
+   * null significa "el ultimo que registre", que es el caso mas comun.
+   */
+  reference: string | null;
+  newAmount: number | null;
+  newConcept: string | null;
+}
+
+/** Que clase de consulta hizo el usuario. */
+export type QueryKind =
+  /** "¿Como voy?" → totales del periodo. */
+  | 'summary'
+  /** "¿Cuales son esos 8 movimientos?" → el detalle, uno por uno. */
+  | 'list'
+  /** "¿Que dia compre jabones?" → busqueda por concepto. */
+  | 'search';
+
+/**
  * Lo que el modelo entiende de un mensaje. Es exactamente el JSON del
  * system prompt, ya validado y normalizado.
  */
 export interface MessageIntent {
   type: MessageIntentType;
+  /**
+   * Movimientos detectados en el mensaje, ya validados. Vacio si el mensaje no
+   * registraba nada (una consulta, un saludo).
+   */
+  movements: MovementDraft[];
+  /**
+   * Total general que el usuario declaro de viva voz ("hoy vendi $2.000.000").
+   * Se compara contra la suma de `movements` para detectar desgloses que no
+   * cuadran. null = no dijo un total, solo las partes.
+   */
+  declaredTotal: number | null;
+  /** Reparto de utilidades, cuando el mensaje lo menciona. */
+  profitShares: ProfitShare[];
+  /** Que corregir, cuando el mensaje pide arreglar algo ya registrado. */
+  correction: CorrectionRequest | null;
+  /** El abono, cuando el mensaje avisa que le pagaron un fiado. */
+  payment: PaymentDraft | null;
+  /**
+   * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
+   * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.
+   */
   amount: number | null;
+  /** Categoria del movimiento cuando hay exactamente uno. */
   category: string | null;
   concept: string | null;
   responseText: string;
+  /** Que clase de consulta es. Solo para type "query". */
+  queryKind: QueryKind | null;
   queryPeriod: QueryPeriod | null;
   /**
    * Que tan seguro esta el modelo de su propia interpretacion (0 a 1).
@@ -130,6 +290,27 @@ export interface Transaction {
   currency: string;
   source: 'whatsapp' | 'manual' | 'import';
   createdAt: string;
+  /**
+   * Campos opcionales: los movimientos antiguos y los creados desde el panel
+   * no los tienen, y todo el codigo existente sigue funcionando sin ellos.
+   */
+  /** Como se movio el dinero. */
+  paymentMethod?: PaymentMethod | null;
+  /** true = venta fiada: registrada, pero todavia por cobrar. */
+  isCredit?: boolean;
+  /**
+   * Lo que TODAVIA se debe de esta venta fiada. null en las de contado.
+   *
+   * Es distinto de `amount`: `amount` es lo que se vendio y no cambia nunca;
+   * `pendingAmount` baja con cada abono y llega a 0 cuando el cliente termina
+   * de pagar. Sin este campo, un fiado ya cobrado seguia apareciendo entero en
+   * las cuentas por cobrar.
+   */
+  pendingAmount?: number | null;
+  /** Cliente al que se le fio. */
+  customerName?: string | null;
+  /** Une el total con sus desgloses por metodo de pago. */
+  groupId?: string | null;
 }
 
 export interface MonthlyTotals {
@@ -155,8 +336,47 @@ export interface PeriodSummary {
   expense: number;
   investment: number;
   balance: number;
+  /**
+   * Lo que queda por cobrar de las ventas fiadas del periodo.
+   *
+   * Es el SALDO, no lo vendido: si se fiaron 300.000 y el cliente ya abono
+   * 100.000, aqui hay 200.000. Antes se sumaba la venta completa y la cuenta
+   * por cobrar seguia igual por mucho que el cliente pagara.
+   *
+   * NO esta incluido en `income`. Lo fiado entra a los ingresos cuando se
+   * cobra, y entonces lo hace como abono, con la fecha del cobro.
+   */
+  pendingCollection: number;
   transactionCount: number;
   byCategory: CategoryTotal[];
+}
+
+/**
+ * Lo que un cliente concreto le debe al negocio.
+ *
+ * Existe para que las recomendaciones puedan decir "Rosa te debe 200.000 desde
+ * hace 47 dias" en vez de un total anonimo: al dueno lo que le sirve es saber
+ * a quien llamar.
+ */
+export interface Receivable {
+  customerId: string;
+  customerName: string;
+  /** Lo que aun debe, sumando todas sus ventas fiadas abiertas. */
+  pending: number;
+  /** Lo que ya abono sobre esas ventas. 0 si nunca ha pagado nada. */
+  paid: number;
+  /** Lo que se le fio en total (pending + paid). */
+  total: number;
+  /** Fecha del fiado sin pagar mas antiguo, en YYYY-MM-DD. */
+  oldestSince: string;
+  /** Dias transcurridos desde ese fiado. Es la antiguedad de la deuda. */
+  daysOutstanding: number;
+  /** Fecha del ultimo abono. null si nunca ha abonado. */
+  lastPaymentDate: string | null;
+  /** Dias desde el ultimo abono. null si nunca ha abonado. */
+  daysSinceLastPayment: number | null;
+  /** Cuantas ventas fiadas suyas siguen abiertas. */
+  openSales: number;
 }
 
 /** Foto del negocio que se le entrega al modelo para razonar. */
@@ -166,10 +386,22 @@ export interface BusinessSnapshot {
   currency: string;
   periodStart: string;
   periodEnd: string;
+  /** Solo caja: no incluye las ventas fiadas. */
   totalIncome: number;
   totalExpense: number;
   totalInvestment: number;
   balance: number;
+  /** Vendido a credito en el periodo. Nunca sumado a `totalIncome`. */
+  totalCreditSales: number;
+  /**
+   * Lo que le deben al negocio HOY, sin importar cuando se fio.
+   *
+   * Distinto de `totalCreditSales`: aquel dice cuanto se vendio a credito en
+   * el periodo, este cuanto falta por cobrar despues de los abonos.
+   */
+  totalReceivable: number;
+  /** Quien debe, cuanto y desde cuando. Ordenado por deuda mas antigua. */
+  receivables: Receivable[];
   monthly: MonthlyTotals[];
   topCategories: CategoryTotal[];
   recentTransactions: Transaction[];

@@ -9,7 +9,7 @@ import {
  * panel: alertas y oportunidades derivadas de sus propios numeros.
  */
 
-export const INSIGHTS_PROMPT_VERSION = 'insights-negocio/v1';
+export const INSIGHTS_PROMPT_VERSION = 'insights-negocio/v2';
 
 export interface InsightsModelOutput {
   insights: {
@@ -81,6 +81,14 @@ export function buildInsightsSystemPrompt(currency: string): string {
     '5. Si los datos son insuficientes para una conclusion, dilo en un insight de',
     '   tipo "info" en vez de especular.',
     '6. Escribe en espanol claro, sin jerga contable innecesaria, tuteando al dueno.',
+    '7. Si hay cuentas por cobrar, NOMBRA al cliente, di cuanto debe, cuanto',
+    '   ha abonado y cuantos dias lleva la deuda. "Tienes cartera vencida" no',
+    '   sirve; "Rosa te debe 200.000 desde hace 47 dias y no ha abonado nada"',
+    '   si, porque el dueno sabe a quien llamar. La accion es concreta:',
+    '   escribirle o pasar por su casa.',
+    '8. Una deuda de mas de 30 dias es un "warning". Si el cliente viene',
+    '   abonando, reconocelo y sugiere cerrar el saldo; si nunca ha abonado,',
+    '   es mas urgente.',
   ].join('\n');
 }
 
@@ -95,7 +103,8 @@ export function buildInsightsUserPrompt(snapshot: BusinessSnapshot): string {
   const lines: string[] = [
     `Negocio: ${snapshot.businessName}`,
     `Periodo analizado: ${snapshot.periodStart} a ${snapshot.periodEnd}`,
-    `Ingresos totales: ${money(snapshot.totalIncome)}`,
+    `Ingresos totales (solo lo cobrado): ${money(snapshot.totalIncome)}`,
+    `Vendido a credito en el periodo: ${money(snapshot.totalCreditSales)}`,
     `Gastos totales: ${money(snapshot.totalExpense)}`,
     `Inversiones totales: ${money(snapshot.totalInvestment)}`,
     `Balance: ${money(snapshot.balance)}`,
@@ -114,6 +123,27 @@ export function buildInsightsUserPrompt(snapshot: BusinessSnapshot): string {
     lines.push(
       `- ${CATEGORY_LABELS[category.category]} | ${category.type} | ${money(category.total)}`,
     );
+  }
+
+  // Las cuentas por cobrar van antes de los movimientos porque suelen ser el
+  // hallazgo mas accionable: es plata que ya se vendio y solo falta recoger.
+  if (snapshot.receivables.length) {
+    lines.push(
+      '',
+      `Cuentas por cobrar (total ${money(snapshot.totalReceivable)}):`,
+      'cliente | debe | ya abono | dias desde el fiado | ultimo abono',
+    );
+
+    for (const cliente of snapshot.receivables) {
+      const ultimo =
+        cliente.daysSinceLastPayment === null
+          ? 'nunca ha abonado'
+          : `hace ${cliente.daysSinceLastPayment} dias`;
+
+      lines.push(
+        `- ${cliente.customerName} | ${money(cliente.pending)} | ${money(cliente.paid)} | ${cliente.daysOutstanding} dias | ${ultimo}`,
+      );
+    }
   }
 
   lines.push(

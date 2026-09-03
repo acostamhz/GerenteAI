@@ -366,7 +366,7 @@ export function InsightsView() {
             <QuotaExceededCard
               onUpgrade={() =>
                 abrirPaywall(
-                  "Has alcanzado el límite mensual de mensajes de IA. Mejora al Plan Administrador para obtener 5.000 mensajes mensuales.",
+                  "Has alcanzado el límite mensual de mensajes de IA. Mejora al Plan Administrador para obtener 10.000 mensajes mensuales.",
                   3,
                 )
               }

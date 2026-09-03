@@ -6,15 +6,15 @@ import {
 import { Prisma } from '@prisma/client';
 
 import { PrismaService } from './prisma.service';
+import {
+  DIA_INICIO_POR_DEFECTO,
+  normalizarDiaInicio,
+  periodoContableDe,
+} from '../modules/finance-ai/domain/periodo-contable';
 import { NegociosService } from './negocios.service';
-import {
-  PlanesService,
-  type Funcionalidad,
-} from './planes.service';
+import { PlanesService, type Funcionalidad } from './planes.service';
 
-import {
-  Periodo,
-} from '../dto/reportes/reporte-query.dto';
+import { Periodo } from '../dto/reportes/reporte-query.dto';
 
 const OFFSET_HORAS = -5;
 const UNA_HORA_MS = 3_600_000;
@@ -56,11 +56,7 @@ export class ReportesService {
     periodo: Periodo,
     fecha?: string,
   ) {
-    const sede = await this.buscarSedeConAcceso(
-      sedeId,
-      userId,
-      rolGlobal,
-    );
+    const sede = await this.buscarSedeConAcceso(sedeId, userId, rolGlobal);
 
     await this.exigirFuncionalidad(
       sede.negocioId,
@@ -68,7 +64,11 @@ export class ReportesService {
       rolGlobal,
     );
 
-    const rango = this.calcularRango(periodo, fecha);
+    const rango = this.calcularRango(
+      periodo,
+      fecha,
+      await this.diaInicioDelNegocio(sede.negocioId),
+    );
 
     const detalles = await this.prisma.detalleVenta.findMany({
       where: {
@@ -114,9 +114,7 @@ export class ReportesService {
       acumulado.set(detalle.productoId, {
         nombre: previo.nombre,
         unidades: previo.unidades + detalle.cantidad,
-        ingresos: previo.ingresos.add(
-          detalle.precio.mul(detalle.cantidad),
-        ),
+        ingresos: previo.ingresos.add(detalle.precio.mul(detalle.cantidad)),
         costo: previo.costo.add(
           detalle.producto.precioCompra.mul(detalle.cantidad),
         ),
@@ -125,8 +123,7 @@ export class ReportesService {
     }
 
     const totalIngresos = [...acumulado.values()].reduce(
-      (suma, producto) =>
-        suma.add(producto.ingresos),
+      (suma, producto) => suma.add(producto.ingresos),
       new Prisma.Decimal(0),
     );
 
@@ -136,18 +133,11 @@ export class ReportesService {
         nombre: producto.nombre,
         unidades: producto.unidades,
         ingresos: producto.ingresos.toNumber(),
-        margenEstimado: producto.ingresos
-          .sub(producto.costo)
-          .toNumber(),
+        margenEstimado: producto.ingresos.sub(producto.costo).toNumber(),
         vecesVendido: producto.lineas,
         participacion: totalIngresos.isZero()
           ? 0
-          : Number(
-              producto.ingresos
-                .div(totalIngresos)
-                .mul(100)
-                .toFixed(2),
-            ),
+          : Number(producto.ingresos.div(totalIngresos).mul(100).toFixed(2)),
       }))
       .sort((a, b) => b.ingresos - a.ingresos);
 
@@ -164,22 +154,10 @@ export class ReportesService {
     };
   }
 
-  async fiados(
-    sedeId: string,
-    userId: string,
-    rolGlobal: string,
-  ) {
-    const sede = await this.buscarSedeConAcceso(
-      sedeId,
-      userId,
-      rolGlobal,
-    );
+  async fiados(sedeId: string, userId: string, rolGlobal: string) {
+    const sede = await this.buscarSedeConAcceso(sedeId, userId, rolGlobal);
 
-    await this.exigirFuncionalidad(
-      sede.negocioId,
-      'reporte_fiados',
-      rolGlobal,
-    );
+    await this.exigirFuncionalidad(sede.negocioId, 'reporte_fiados', rolGlobal);
 
     const ventas = await this.prisma.venta.findMany({
       where: {
@@ -228,55 +206,36 @@ export class ReportesService {
         continue;
       }
 
-      const detalle = this.describirVentaFiada(
-        venta,
-        ahora,
-      );
+      const detalle = this.describirVentaFiada(venta, ahora);
 
-      const previo = porCliente.get(
-        venta.cliente.id,
-      ) ?? {
+      const previo = porCliente.get(venta.cliente.id) ?? {
         cliente: venta.cliente,
         saldo: new Prisma.Decimal(0),
         vencido: new Prisma.Decimal(0),
         ventas: [],
       };
 
-      previo.saldo = previo.saldo.add(
-        venta.saldoPendiente,
-      );
+      previo.saldo = previo.saldo.add(venta.saldoPendiente);
 
       if (detalle.vencida) {
-        previo.vencido = previo.vencido.add(
-          venta.saldoPendiente,
-        );
+        previo.vencido = previo.vencido.add(venta.saldoPendiente);
       }
 
       previo.ventas.push(detalle);
 
-      porCliente.set(
-        venta.cliente.id,
-        previo,
-      );
+      porCliente.set(venta.cliente.id, previo);
     }
 
     const clientes = [...porCliente.values()]
       .map((cliente) => ({
         ...cliente.cliente,
-        saldoPendiente:
-          cliente.saldo.toNumber(),
-        vencido:
-          cliente.vencido.toNumber(),
-        diasDeLaDeudaMasAntigua:
-          cliente.ventas[0]
-            ?.diasDesdeLaVenta ?? 0,
+        saldoPendiente: cliente.saldo.toNumber(),
+        vencido: cliente.vencido.toNumber(),
+        diasDeLaDeudaMasAntigua: cliente.ventas[0]?.diasDesdeLaVenta ?? 0,
         ventas: cliente.ventas,
       }))
       .sort(
-        (a, b) =>
-          b.vencido - a.vencido ||
-          b.saldoPendiente -
-            a.saldoPendiente,
+        (a, b) => b.vencido - a.vencido || b.saldoPendiente - a.saldoPendiente,
       );
 
     return {
@@ -284,23 +243,15 @@ export class ReportesService {
         id: sede.id,
         nombre: sede.nombre,
       },
-      generadoEl:
-        new Date().toISOString(),
+      generadoEl: new Date().toISOString(),
       totales: {
         porCobrar: clientes.reduce(
-          (suma, cliente) =>
-            suma + cliente.saldoPendiente,
+          (suma, cliente) => suma + cliente.saldoPendiente,
           0,
         ),
-        vencido: clientes.reduce(
-          (suma, cliente) =>
-            suma + cliente.vencido,
-          0,
-        ),
-        clientesConDeuda:
-          clientes.length,
-        ventasPendientes:
-          ventas.length,
+        vencido: clientes.reduce((suma, cliente) => suma + cliente.vencido, 0),
+        clientesConDeuda: clientes.length,
+        ventasPendientes: ventas.length,
       },
       clientes,
     };
@@ -313,37 +264,23 @@ export class ReportesService {
     periodo: Periodo,
     fecha?: string,
   ) {
-    const sede =
-      await this.buscarSedeConAcceso(
-        sedeId,
-        userId,
-        rolGlobal,
-      );
+    const sede = await this.buscarSedeConAcceso(sedeId, userId, rolGlobal);
 
     const rango = this.calcularRango(
       periodo,
       fecha,
+      await this.diaInicioDelNegocio(sede.negocioId),
     );
 
-    const movimientos =
-      await this.movimientosDeSede(
-        sedeId,
-        rango,
-      );
+    const movimientos = await this.movimientosDeSede(sedeId, rango);
 
     return {
-      periodo:
-        this.describirPeriodo(
-          periodo,
-          rango,
-        ),
+      periodo: this.describirPeriodo(periodo, rango),
       sede: {
         id: sede.id,
         nombre: sede.nombre,
       },
-      ...this.armarCifras(
-        movimientos,
-      ),
+      ...this.armarCifras(movimientos),
     };
   }
 
@@ -354,17 +291,14 @@ export class ReportesService {
     periodo: Periodo,
     fecha?: string,
   ) {
-    const negocio =
-      await this.prisma.negocio.findUnique({
-        where: {
-          id: negocioId,
-        },
-      });
+    const negocio = await this.prisma.negocio.findUnique({
+      where: {
+        id: negocioId,
+      },
+    });
 
     if (!negocio) {
-      throw new NotFoundException(
-        `Negocio con id ${negocioId} no encontrado`,
-      );
+      throw new NotFoundException(`Negocio con id ${negocioId} no encontrado`);
     }
 
     await this.negociosService.verificarPropietario(
@@ -373,81 +307,47 @@ export class ReportesService {
       rolGlobal,
     );
 
-    const rango =
-      this.calcularRango(
-        periodo,
-        fecha,
-      );
+    const rango = this.calcularRango(
+      periodo,
+      fecha,
+      await this.diaInicioDelNegocio(negocioId),
+    );
 
-    const sedes =
-      await this.prisma.sede.findMany({
-        where: {
-          negocioId,
+    const sedes = await this.prisma.sede.findMany({
+      where: {
+        negocioId,
+      },
+      orderBy: {
+        nombre: 'asc',
+      },
+    });
+
+    const movimientosPorSede = await Promise.all(
+      sedes.map(async (sede) => ({
+        sede,
+        movimientos: await this.movimientosDeSede(sede.id, rango),
+      })),
+    );
+
+    const totales = movimientosPorSede.reduce(
+      (acumulado, { movimientos }) => ({
+        ventasContado: acumulado.ventasContado.add(movimientos.ventasContado),
+        ventasFiado: acumulado.ventasFiado.add(movimientos.ventasFiado),
+        abonos: acumulado.abonos.add(movimientos.abonos),
+        compras: acumulado.compras.add(movimientos.compras),
+        gastos: acumulado.gastos.add(movimientos.gastos),
+        conteos: {
+          ventas: acumulado.conteos.ventas + movimientos.conteos.ventas,
+          abonos: acumulado.conteos.abonos + movimientos.conteos.abonos,
+          compras: acumulado.conteos.compras + movimientos.conteos.compras,
+          gastos: acumulado.conteos.gastos + movimientos.conteos.gastos,
         },
-        orderBy: {
-          nombre: 'asc',
-        },
-      });
-
-    const movimientosPorSede =
-      await Promise.all(
-        sedes.map(async (sede) => ({
-          sede,
-          movimientos:
-            await this.movimientosDeSede(
-              sede.id,
-              rango,
-            ),
-        })),
-      );
-
-    const totales =
-      movimientosPorSede.reduce(
-        (acumulado, { movimientos }) => ({
-          ventasContado:
-            acumulado.ventasContado.add(
-              movimientos.ventasContado,
-            ),
-          ventasFiado:
-            acumulado.ventasFiado.add(
-              movimientos.ventasFiado,
-            ),
-          abonos:
-            acumulado.abonos.add(
-              movimientos.abonos,
-            ),
-          compras:
-            acumulado.compras.add(
-              movimientos.compras,
-            ),
-          gastos:
-            acumulado.gastos.add(
-              movimientos.gastos,
-            ),
-          conteos: {
-            ventas:
-              acumulado.conteos.ventas +
-              movimientos.conteos.ventas,
-            abonos:
-              acumulado.conteos.abonos +
-              movimientos.conteos.abonos,
-            compras:
-              acumulado.conteos.compras +
-              movimientos.conteos.compras,
-            gastos:
-              acumulado.conteos.gastos +
-              movimientos.conteos.gastos,
-          },
-        }),
-        this.movimientosVacios(),
-      );
+      }),
+      this.movimientosVacios(),
+    );
 
     return {
-      periodo:
-        this.describirPeriodo(
-          periodo,
-          rango,
-        ),
+      periodo: this.describirPeriodo(periodo, rango),
 
       negocio: {
         id: negocio.id,
@@ -456,36 +356,23 @@ export class ReportesService {
 
       ...this.armarCifras(totales),
 
-      sedes:
-        movimientosPorSede.map(
-          ({ sede, movimientos }) => ({
-            sede: {
-              id: sede.id,
-              nombre: sede.nombre,
-            },
-            ...this.armarCifras(
-              movimientos,
-            ),
-          }),
-        ),
+      sedes: movimientosPorSede.map(({ sede, movimientos }) => ({
+        sede: {
+          id: sede.id,
+          nombre: sede.nombre,
+        },
+        ...this.armarCifras(movimientos),
+      })),
     };
   }
 
-  private async movimientosDeSede(
-    sedeId: string,
-    rango: Rango,
-  ) {
+  private async movimientosDeSede(sedeId: string, rango: Rango) {
     const filtroFecha = {
       gte: rango.desde,
       lt: rango.hasta,
     };
 
-    const [
-      ventasPorTipo,
-      abonos,
-      compras,
-      gastos,
-    ] = await Promise.all([
+    const [ventasPorTipo, abonos, compras, gastos] = await Promise.all([
       this.prisma.venta.groupBy({
         by: ['tipo'],
         where: {
@@ -532,65 +419,37 @@ export class ReportesService {
       }),
     ]);
 
-    const contado =
-      ventasPorTipo.find(
-        (venta) =>
-          venta.tipo === 'CONTADO',
-      );
+    const contado = ventasPorTipo.find((venta) => venta.tipo === 'CONTADO');
 
-    const fiado =
-      ventasPorTipo.find(
-        (venta) =>
-          venta.tipo === 'FIADO',
-      );
+    const fiado = ventasPorTipo.find((venta) => venta.tipo === 'FIADO');
 
     return {
-      ventasContado:
-        contado?._sum.total ??
-        new Prisma.Decimal(0),
+      ventasContado: contado?._sum.total ?? new Prisma.Decimal(0),
 
-      ventasFiado:
-        fiado?._sum.total ??
-        new Prisma.Decimal(0),
+      ventasFiado: fiado?._sum.total ?? new Prisma.Decimal(0),
 
-      abonos:
-        abonos._sum.monto ??
-        new Prisma.Decimal(0),
+      abonos: abonos._sum.monto ?? new Prisma.Decimal(0),
 
-      compras:
-        compras._sum.total ??
-        new Prisma.Decimal(0),
+      compras: compras._sum.total ?? new Prisma.Decimal(0),
 
-      gastos:
-        gastos._sum.monto ??
-        new Prisma.Decimal(0),
+      gastos: gastos._sum.monto ?? new Prisma.Decimal(0),
 
       conteos: {
-        ventas:
-          (contado?._count ?? 0) +
-          (fiado?._count ?? 0),
-        abonos:
-          abonos._count,
-        compras:
-          compras._count,
-        gastos:
-          gastos._count,
+        ventas: (contado?._count ?? 0) + (fiado?._count ?? 0),
+        abonos: abonos._count,
+        compras: compras._count,
+        gastos: gastos._count,
       },
     };
   }
 
   private movimientosVacios() {
     return {
-      ventasContado:
-        new Prisma.Decimal(0),
-      ventasFiado:
-        new Prisma.Decimal(0),
-      abonos:
-        new Prisma.Decimal(0),
-      compras:
-        new Prisma.Decimal(0),
-      gastos:
-        new Prisma.Decimal(0),
+      ventasContado: new Prisma.Decimal(0),
+      ventasFiado: new Prisma.Decimal(0),
+      abonos: new Prisma.Decimal(0),
+      compras: new Prisma.Decimal(0),
+      gastos: new Prisma.Decimal(0),
       conteos: {
         ventas: 0,
         abonos: 0,
@@ -600,160 +459,97 @@ export class ReportesService {
     };
   }
 
-  private armarCifras(
-    movimientos: ReturnType<
-      typeof this.movimientosVacios
-    >,
-  ) {
-    const totalIngresos =
-      movimientos.ventasContado.add(
-        movimientos.abonos,
-      );
+  private armarCifras(movimientos: ReturnType<typeof this.movimientosVacios>) {
+    const totalIngresos = movimientos.ventasContado.add(movimientos.abonos);
 
-    const totalEgresos =
-      movimientos.compras.add(
-        movimientos.gastos,
-      );
+    const totalEgresos = movimientos.compras.add(movimientos.gastos);
 
     return {
       ingresos: {
-        ventasContado:
-          movimientos.ventasContado.toNumber(),
+        ventasContado: movimientos.ventasContado.toNumber(),
 
-        abonos:
-          movimientos.abonos.toNumber(),
+        abonos: movimientos.abonos.toNumber(),
 
-        total:
-          totalIngresos.toNumber(),
+        total: totalIngresos.toNumber(),
       },
 
       egresos: {
-        compras:
-          movimientos.compras.toNumber(),
+        compras: movimientos.compras.toNumber(),
 
-        gastos:
-          movimientos.gastos.toNumber(),
+        gastos: movimientos.gastos.toNumber(),
 
-        total:
-          totalEgresos.toNumber(),
+        total: totalEgresos.toNumber(),
       },
 
-      balance:
-        totalIngresos
-          .sub(totalEgresos)
-          .toNumber(),
+      balance: totalIngresos.sub(totalEgresos).toNumber(),
 
       informativo: {
-        ventasFiado:
-          movimientos.ventasFiado.toNumber(),
+        ventasFiado: movimientos.ventasFiado.toNumber(),
 
-        ventasTotales:
-          movimientos.ventasContado
-            .add(
-              movimientos.ventasFiado,
-            )
-            .toNumber(),
+        ventasTotales: movimientos.ventasContado
+          .add(movimientos.ventasFiado)
+          .toNumber(),
 
-        conteos:
-          movimientos.conteos,
+        conteos: movimientos.conteos,
       },
     };
   }
 
-  private describirPeriodo(
-    periodo: Periodo,
-    rango: Rango,
-  ) {
+  private describirPeriodo(periodo: Periodo, rango: Rango) {
     return {
       tipo: periodo,
-      desde:
-        rango.desde.toISOString(),
-      hasta:
-        rango.hasta.toISOString(),
-      zonaHoraria:
-        `UTC${OFFSET_HORAS}`,
+      desde: rango.desde.toISOString(),
+      hasta: rango.hasta.toISOString(),
+      zonaHoraria: `UTC${OFFSET_HORAS}`,
     };
   }
 
   private calcularRango(
     periodo: Periodo,
     fechaISO?: string,
+    diaInicioPeriodo: number = DIA_INICIO_POR_DEFECTO,
   ): Rango {
-    const {
-      anio,
-      mes,
-      dia,
-    } = this.diaLocal(fechaISO);
+    const { anio, mes, dia } = this.diaLocal(fechaISO);
 
     if (periodo === 'mensual') {
+      // El mes contable no siempre es el calendario: hay negocios cuyo periodo
+      // va del 21 al 20. `periodoContableDe` resuelve cual es el que corre.
+      const periodoContable = periodoContableDe(
+        `${anio}-${dosDigitos(mes + 1)}-${dosDigitos(dia)}`,
+        diaInicioPeriodo,
+      );
+
+      const [anioD, mesD, diaD] = periodoContable.desde.split('-').map(Number);
+
+      // `hasta` es exclusivo en este servicio: el dia siguiente al cierre.
+      const [anioH, mesH, diaH] = periodoContable.hasta.split('-').map(Number);
+
       return {
-        desde: this.aUtc(
-          anio,
-          mes,
-          1,
-        ),
-        hasta: this.aUtc(
-          anio,
-          mes + 1,
-          1,
-        ),
+        desde: this.aUtc(anioD, mesD - 1, diaD),
+        hasta: this.aUtc(anioH, mesH - 1, diaH + 1),
       };
     }
 
     if (periodo === 'semanal') {
-      const diaDeLaSemana =
-        new Date(
-          Date.UTC(
-            anio,
-            mes,
-            dia,
-          ),
-        ).getUTCDay();
+      const diaDeLaSemana = new Date(Date.UTC(anio, mes, dia)).getUTCDay();
 
-      const desdeElLunes =
-        (diaDeLaSemana + 6) % 7;
+      const desdeElLunes = (diaDeLaSemana + 6) % 7;
 
       return {
-        desde: this.aUtc(
-          anio,
-          mes,
-          dia - desdeElLunes,
-        ),
-        hasta: this.aUtc(
-          anio,
-          mes,
-          dia -
-            desdeElLunes +
-            7,
-        ),
+        desde: this.aUtc(anio, mes, dia - desdeElLunes),
+        hasta: this.aUtc(anio, mes, dia - desdeElLunes + 7),
       };
     }
 
     return {
-      desde: this.aUtc(
-        anio,
-        mes,
-        dia,
-      ),
-      hasta: this.aUtc(
-        anio,
-        mes,
-        dia + 1,
-      ),
+      desde: this.aUtc(anio, mes, dia),
+      hasta: this.aUtc(anio, mes, dia + 1),
     };
   }
 
-  private diaLocal(
-    fechaISO?: string,
-  ) {
+  private diaLocal(fechaISO?: string) {
     if (fechaISO) {
-      const [
-        anio,
-        mes,
-        dia,
-      ] = fechaISO
-        .split('-')
-        .map(Number);
+      const [anio, mes, dia] = fechaISO.split('-').map(Number);
 
       return {
         anio,
@@ -762,37 +558,34 @@ export class ReportesService {
       };
     }
 
-    const ahoraLocal =
-      new Date(
-        Date.now() +
-          OFFSET_HORAS *
-            UNA_HORA_MS,
-      );
+    const ahoraLocal = new Date(Date.now() + OFFSET_HORAS * UNA_HORA_MS);
 
     return {
-      anio:
-        ahoraLocal.getUTCFullYear(),
-      mes:
-        ahoraLocal.getUTCMonth(),
-      dia:
-        ahoraLocal.getUTCDate(),
+      anio: ahoraLocal.getUTCFullYear(),
+      mes: ahoraLocal.getUTCMonth(),
+      dia: ahoraLocal.getUTCDate(),
     };
   }
 
-  private aUtc(
-    anio: number,
-    mes: number,
-    dia: number,
-  ) {
-    return new Date(
-      Date.UTC(
-        anio,
-        mes,
-        dia,
-      ) -
-        OFFSET_HORAS *
-          UNA_HORA_MS,
-    );
+  private aUtc(anio: number, mes: number, dia: number) {
+    return new Date(Date.UTC(anio, mes, dia) - OFFSET_HORAS * UNA_HORA_MS);
+  }
+
+  /**
+   * Dia en que arranca el periodo contable del negocio.
+   *
+   * Se consulta aparte y no se arrastra por parametro porque los reportes se
+   * piden por sede o por negocio, y en ambos casos el dato vive en `Negocio`.
+   */
+  private async diaInicioDelNegocio(negocioId: string): Promise<number> {
+    const negocio = await this.prisma.negocio.findUnique({
+      where: { id: negocioId },
+      select: {
+        diaInicioPeriodo: true,
+      },
+    });
+
+    return normalizarDiaInicio(negocio?.diaInicioPeriodo);
   }
 
   private async buscarSedeConAcceso(
@@ -800,24 +593,17 @@ export class ReportesService {
     userId: string,
     rolGlobal: string,
   ) {
-    const sede =
-      await this.prisma.sede.findUnique({
-        where: {
-          id: sedeId,
-        },
-      });
+    const sede = await this.prisma.sede.findUnique({
+      where: {
+        id: sedeId,
+      },
+    });
 
     if (!sede) {
-      throw new NotFoundException(
-        `Sede con id ${sedeId} no encontrada`,
-      );
+      throw new NotFoundException(`Sede con id ${sedeId} no encontrada`);
     }
 
-    await this.negociosService.verificarAccesoSede(
-      userId,
-      sede,
-      rolGlobal,
-    );
+    await this.negociosService.verificarAccesoSede(userId, sede, rolGlobal);
 
     return sede;
   }
@@ -831,17 +617,14 @@ export class ReportesService {
       return;
     }
 
-    const negocio =
-      await this.prisma.negocio.findUnique({
-        where: {
-          id: negocioId,
-        },
-      });
+    const negocio = await this.prisma.negocio.findUnique({
+      where: {
+        id: negocioId,
+      },
+    });
 
     if (!negocio) {
-      throw new NotFoundException(
-        'El negocio de esta sede ya no existe',
-      );
+      throw new NotFoundException('El negocio de esta sede ya no existe');
     }
 
     if (
@@ -851,16 +634,11 @@ export class ReportesService {
         funcionalidad,
       )
     ) {
-      const estado =
-        this.planes.estado(
-          negocio.plan,
-          negocio.planVenceEl,
-        );
+      const estado = this.planes.estado(negocio.plan, negocio.planVenceEl);
 
-      const motivo =
-        estado.vencido
-          ? `El plan ${estado.contratado.nombre} está vencido`
-          : `El plan ${estado.vigente.nombre} no incluye esta función`;
+      const motivo = estado.vencido
+        ? `El plan ${estado.contratado.nombre} está vencido`
+        : `El plan ${estado.vigente.nombre} no incluye esta función`;
 
       throw new ForbiddenException(
         `${motivo}. Necesitas el plan Gerente o Administrador para consultar este reporte.`,
@@ -885,55 +663,37 @@ export class ReportesService {
   ): VentaFiadaDescrita {
     const vencida =
       venta.fechaVencimiento !== null &&
-      venta.fechaVencimiento.getTime() <
-        ahora;
+      venta.fechaVencimiento.getTime() < ahora;
 
     return {
       id: venta.id,
-      fecha:
-        venta.fecha.toISOString(),
-      total:
-        venta.total.toNumber(),
-      saldoPendiente:
-        venta.saldoPendiente.toNumber(),
-      abonado:
-        venta.total
-          .sub(venta.saldoPendiente)
-          .toNumber(),
+      fecha: venta.fecha.toISOString(),
+      total: venta.total.toNumber(),
+      saldoPendiente: venta.saldoPendiente.toNumber(),
+      abonado: venta.total.sub(venta.saldoPendiente).toNumber(),
 
-      fechaVencimiento:
-        venta.fechaVencimiento
-          ?.toISOString() ?? null,
+      fechaVencimiento: venta.fechaVencimiento?.toISOString() ?? null,
 
       vencida,
 
-      diasDesdeLaVenta:
-        Math.floor(
-          (ahora -
-            venta.fecha.getTime()) /
-            86_400_000,
-        ),
+      diasDesdeLaVenta: Math.floor(
+        (ahora - venta.fecha.getTime()) / 86_400_000,
+      ),
 
       diasDeAtraso:
-        vencida &&
-        venta.fechaVencimiento
-          ? Math.floor(
-              (ahora -
-                venta.fechaVencimiento.getTime()) /
-                86_400_000,
-            )
+        vencida && venta.fechaVencimiento
+          ? Math.floor((ahora - venta.fechaVencimiento.getTime()) / 86_400_000)
           : 0,
 
-      abonos:
-        venta.abonos.map(
-          (abono) => ({
-            id: abono.id,
-            monto:
-              abono.monto.toNumber(),
-            fecha:
-              abono.fecha.toISOString(),
-          }),
-        ),
+      abonos: venta.abonos.map((abono) => ({
+        id: abono.id,
+        monto: abono.monto.toNumber(),
+        fecha: abono.fecha.toISOString(),
+      })),
     };
   }
+}
+/** Dos digitos, para armar fechas `YYYY-MM-DD`. */
+function dosDigitos(valor: number): string {
+  return String(valor).padStart(2, '0');
 }
