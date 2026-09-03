@@ -1,14 +1,10 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { 
   X, 
   Sparkles, 
   Lock, 
-  Building2, 
   Check, 
-  Phone, 
   MessageSquare, 
-  TrendingUp, 
-  ArrowRight,
   ShieldCheck
 } from 'lucide-react';
 import { motion } from 'motion/react';
@@ -200,9 +196,10 @@ export function PlanLimitPaywallModal({
           isOpen={isCheckoutOpen}
           onClose={() => setIsCheckoutOpen(false)}
           plan={planRecomendado}
-          negocioId={negocioId}
+          ciclo="mensual"
+          negocioId={negocioId || ""}
           negocioNombre={negocioNombre}
-          onSuccess={() => {
+          onPaymentSuccess={() => {
             setIsCheckoutOpen(false);
             onClose();
             if (onUpgradeSuccess) {
