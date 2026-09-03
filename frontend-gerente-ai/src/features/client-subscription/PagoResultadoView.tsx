@@ -28,7 +28,18 @@ export function PagoResultadoView() {
 
     esperarResultado(referencia)
       .then((resultado) => {
-        if (vigente) setPago(resultado);
+        if (vigente) {
+          setPago(resultado);
+          if (resultado.estado === 'APROBADO') {
+            window.dispatchEvent(
+              new CustomEvent('plan_updated', {
+                detail: {
+                  planId: resultado.plan,
+                },
+              }),
+            );
+          }
+        }
       })
       .catch((e: Error) => {
         if (vigente) setError(e.message);
