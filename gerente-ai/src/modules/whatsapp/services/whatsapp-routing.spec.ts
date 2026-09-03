@@ -77,6 +77,9 @@ function sedeCon(plan: number, planVenceEl: Date | null = null) {
       contexto: null,
       plan,
       planVenceEl,
+      diaInicioPeriodo: 1,
+      // Ancla de la ventana de cuota cuando el plan es gratuito o venció.
+      createdAt: new Date('2026-01-01T00:00:00Z'),
       // Se deja a proposito en 1 (gratuito): si el codigo volviera a leer el
       // plan del usuario, estas pruebas lo delatan.
       usuariosNegocio: [{ usuario: { plan: 1 } }],
@@ -134,7 +137,8 @@ describe('WhatsappRoutingService', () => {
       [1, 'asistente'],
       [2, 'gerente'],
       [3, 'director'], // "Administrador" en el catálogo comercial
-      [4, 'corporativo'], // "Socio"
+      [4, 'socio'],
+      [5, 'corporativo'], // el plan interno, que no se vende
     ];
 
     for (const [plan, esperado] of casos) {

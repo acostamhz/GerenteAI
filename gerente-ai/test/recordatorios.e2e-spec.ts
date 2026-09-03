@@ -304,7 +304,7 @@ describe('Recordatorios de vencimiento (contra Postgres real)', () => {
       expect(planes.estado(negocio.plan, negocio.planVenceEl).vigente.id).toBe(
         PLAN_ADMINISTRADOR,
       );
-      expect(planes.maxSedes(negocio.plan, negocio.planVenceEl)).toBe(10);
+      expect(planes.maxSedes(negocio.plan, negocio.planVenceEl)).toBe(3);
 
       // 2. Se le vence: opera como Asistente aunque el contratado siga siendo el
       //    Administrador. No se toca ningún campo; se deriva de la fecha.
@@ -325,7 +325,7 @@ describe('Recordatorios de vencimiento (contra Postgres real)', () => {
       const recuperado = planes.estado(negocio.plan, negocio.planVenceEl);
       expect(recuperado.vencido).toBe(false);
       expect(recuperado.vigente.id).toBe(PLAN_ADMINISTRADOR);
-      expect(planes.maxSedes(negocio.plan, negocio.planVenceEl)).toBe(10);
+      expect(planes.maxSedes(negocio.plan, negocio.planVenceEl)).toBe(3);
       expect(negocio.planVenceEl!.getTime()).toBeGreaterThan(Date.now());
     });
 

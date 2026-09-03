@@ -55,22 +55,38 @@ describe('Límites por plan (contra Postgres real)', () => {
       await expect(crearSede('Tercera')).rejects.toThrow(ForbiddenException);
     });
 
-    it('el plan Gerente permite hasta 4', async () => {
+    // El Gerente es de una sola sede: la semilla ya trae dos, así que no cabe
+    // ninguna más. Que ya esté por encima del tope no rompe nada, solo impide
+    // crecer; las sedes de más quedan en solo lectura.
+    it('el plan Gerente no permite pasar de 1 sede', async () => {
       await ponerPlan(2, EN_UN_ANO);
 
-      // La semilla ya trae 2, así que caben 2 más.
-      await expect(crearSede('Tercera')).resolves.toBeDefined();
-      await expect(crearSede('Cuarta')).resolves.toBeDefined();
-      await expect(crearSede('Quinta')).rejects.toThrow(ForbiddenException);
+      await expect(crearSede('Tercera')).rejects.toThrow(ForbiddenException);
     });
 
-    it('el plan Administrador permite hasta 10', async () => {
+    it('el plan Administrador permite hasta 3', async () => {
       await ponerPlan(3, EN_UN_ANO);
 
-      for (let i = 3; i <= 10; i++) {
+      // La semilla ya trae 2, así que cabe una más.
+      await expect(crearSede('Tercera')).resolves.toBeDefined();
+      await expect(crearSede('Cuarta')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('el plan Socio permite hasta 5', async () => {
+      await ponerPlan(4, EN_UN_ANO);
+
+      for (let i = 3; i <= 5; i++) {
         await expect(crearSede(`Sede ${i}`)).resolves.toBeDefined();
       }
-      await expect(crearSede('Sede 11')).rejects.toThrow(ForbiddenException);
+      await expect(crearSede('Sede 6')).rejects.toThrow(ForbiddenException);
+    });
+
+    it('el plan Corporativo no tiene tope', async () => {
+      await ponerPlan(5, EN_UN_ANO);
+
+      for (let i = 3; i <= 12; i++) {
+        await expect(crearSede(`Sede ${i}`)).resolves.toBeDefined();
+      }
     });
 
     it('con el plan vencido rige el tope del Asistente', async () => {
@@ -87,8 +103,8 @@ describe('Límites por plan (contra Postgres real)', () => {
   });
 
   describe('sedes bloqueadas cuando el plan no alcanza', () => {
-    it('con plan Gerente vigente se puede escribir en ambas sedes', async () => {
-      await ponerPlan(2, EN_UN_ANO);
+    it('con plan Administrador vigente se puede escribir en ambas sedes', async () => {
+      await ponerPlan(3, EN_UN_ANO);
 
       await expect(venderEn(s.sedeAId, s.gaseosaId)).resolves.toBeDefined();
       await expect(venderEn(s.sedeBId, s.arrozId)).resolves.toBeDefined();

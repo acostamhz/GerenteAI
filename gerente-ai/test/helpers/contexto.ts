@@ -96,6 +96,7 @@ export async function limpiar(prisma: PrismaService) {
   await prisma.usuarioNegocio.deleteMany();
   await prisma.mensaje.deleteMany();
   await prisma.reporte.deleteMany();
+  await prisma.consumoIa.deleteMany();
   await prisma.notificacionPlan.deleteMany();
   await prisma.pago.deleteMany();
   await prisma.sede.deleteMany();
@@ -143,14 +144,18 @@ export async function sembrar(prisma: PrismaService): Promise<Semilla> {
     },
   });
 
-  // Plan Gerente vigente: el negocio de la semilla tiene dos sedes, y con el plan
-  // Asistente (tope 1) la segunda quedaría en solo lectura y rompería las pruebas
-  // que no van de planes. Los límites por plan se prueban aparte, en planes.e2e-spec.
+  // Plan Corporativo vigente, que no tiene tope de sedes.
+  //
+  // Se elige el ilimitado a propósito: la semilla es un punto de partida para
+  // pruebas que no van de planes, y con un tope concreto cualquier cambio en el
+  // catálogo comercial las rompe de rebote —como pasó al bajar el Gerente de 4
+  // sedes a 1—. Los límites se prueban donde corresponde, en planes.e2e-spec,
+  // que fija el plan explícitamente en cada caso.
   const negocio = await prisma.negocio.create({
     data: {
       nombre: 'Tienda Don José',
       telefonoContacto: '+573001112233',
-      plan: 2,
+      plan: 5,
       planVenceEl: new Date(Date.now() + 365 * 86_400_000),
     },
   });
