@@ -369,7 +369,7 @@ export function useDashboardMetrics(
         sedeId: string | null,
         report?: ReporteFinanciero,
       ): Promise<string[]> => {
-        if (sedeId) {
+        if (sedeId && sedeId !== "all") {
           return [sedeId];
         }
 
@@ -382,13 +382,21 @@ export function useDashboardMetrics(
           );
         }
 
-        if (!businessId) {
+        if ((report as any)?.sede?.id) {
+          return [(report as any).sede.id];
+        }
+
+        const targetBizId =
+          businessId ||
+          localStorage.getItem("active_business_id");
+
+        if (!targetBizId) {
           return [];
         }
 
         const sedesList =
           await profileApi
-            .getSedes(businessId)
+            .getSedes(targetBizId)
             .catch(() => []);
 
         return sedesList.map(
@@ -403,6 +411,90 @@ export function useDashboardMetrics(
    * CARGAR TRANSACCIONES
    * ============================================================
    */
+
+  /*
+   * ============================================================
+   * CÁLCULO DE MÉTRICAS HISTÓRICAS ACUMULADAS
+   * ============================================================
+   *
+   * El backend solo calcula reportes para periodos específicos
+   * (diario, semanal, mensual). Para conocer el Saldo Total
+   * Acumulado de la caja real del negocio/sede, se consolidan
+   * el 100% de las transacciones históricas:
+   *
+   * Ingresos Reales: Ventas Contado + Abonos
+   * Egresos Reales: Compras + Gastos Operativos
+   * Saldo Total = Ingresos Reales - Egresos Reales
+   */
+  const calcularMetricasHistoricas = useCallback(
+    (
+      transactions: DashboardTransactionItem[],
+      baseReport: ReporteFinanciero,
+    ): ReporteFinanciero => {
+      let ventasContado = 0;
+      let ventasFiado = 0;
+      let abonos = 0;
+      let compras = 0;
+      let gastos = 0;
+
+      for (const t of transactions) {
+        const amount = Number(t.amount) || 0;
+        switch (t.type) {
+          case "Venta":
+            ventasContado += amount;
+            break;
+          case "Abono":
+            abonos += amount;
+            break;
+          case "Gasto":
+            gastos += amount;
+            break;
+          case "Compra":
+            compras += amount;
+            break;
+          case "Convertida":
+            ventasFiado += amount;
+            break;
+          default:
+            break;
+        }
+      }
+
+      const totalIngresos = ventasContado + abonos;
+      const totalEgresos = compras + gastos;
+      const balance = totalIngresos - totalEgresos;
+
+      return {
+        ...baseReport,
+        ingresos: {
+          ventasContado,
+          abonos,
+          total: totalIngresos,
+        },
+        egresos: {
+          compras,
+          gastos,
+          total: totalEgresos,
+        },
+        balance,
+        informativo: {
+          ...baseReport.informativo,
+          ventasFiado,
+          ventasTotales: ventasContado + ventasFiado,
+          conteos: {
+            ventas: transactions.filter(
+              (t) => t.type === "Venta" || t.type === "Convertida",
+            ).length,
+            abonos: transactions.filter((t) => t.type === "Abono").length,
+            compras: transactions.filter((t) => t.type === "Compra").length,
+            gastos: transactions.filter((t) => t.type === "Gasto").length,
+          },
+        },
+      };
+    },
+    [],
+  );
+
   const loadTransactions =
     useCallback(
       async (
@@ -422,56 +514,68 @@ export function useDashboardMetrics(
             targetSedeIds.length === 0
           ) {
             setAllTransactions([]);
+            setGeneralMetrics(EMPTY_METRICS("mensual"));
             return;
           }
 
-          const txList =
+          const rawTransactions =
             await dashboardApi.getTransacciones(
               targetSedeIds,
             );
 
           setAllTransactions(
-            txList || [],
+            rawTransactions,
           );
+
+          /*
+           * Consolidar Saldo Total Acumulado Histórico con el 100% de registros
+           */
+          setGeneralMetrics((prevMetrics) => {
+            const base = report || prevMetrics;
+            return calcularMetricasHistoricas(
+              rawTransactions,
+              base,
+            );
+          });
         } catch (err) {
           console.warn(
-            "No se pudieron cargar las transacciones:",
+            "No se pudieron cargar transacciones detalladas:",
             err,
           );
 
           setAllTransactions([]);
         }
       },
-      [resolveSedeIds],
+      [resolveSedeIds, calcularMetricasHistoricas],
     );
 
   /*
    * ============================================================
    * CARGAR FIADOS
    * ============================================================
+   *
+   * Consulta directa al backend:
+   * GET /reportes/fiados/:sedeId
+   *
+   * Si el plan no tiene la funcionalidad 'reporte_fiados',
+   * el backend responde 403 y getFiados retorna null de forma segura.
    */
+
   const loadFiados =
     useCallback(
       async (
         businessId: string | null,
         sedeId: string | null,
         report?: ReporteFinanciero,
+        isSilent = false,
       ) => {
-        setIsFiadosLoading(
-          true,
-        );
+        if (!isSilent) {
+          setIsFiadosLoading(
+            true,
+          );
+        }
 
         try {
-          const activeNegocioId = businessId || localStorage.getItem('active_business_id');
-          const businessPlan = activeNegocioId ? localStorage.getItem(`business_plan_${activeNegocioId}`) : null;
-          const activePlan = businessPlan || localStorage.getItem('active_business_plan') || (user as any)?.plan || 1;
-          const isPlanAsistente = Number(activePlan) === 1 && (user as any)?.rolGlobal !== 'MASTER';
-
-          if (isPlanAsistente) {
-            setFiados(null);
-            return;
-          }
-
           const targetSedeIds =
             await resolveSedeIds(
               businessId,
@@ -640,105 +744,14 @@ export function useDashboardMetrics(
 
           setFiados(null);
         } finally {
-          setIsFiadosLoading(
-            false,
-          );
+          if (!isSilent) {
+            setIsFiadosLoading(
+              false,
+            );
+          }
         }
       },
       [resolveSedeIds],
-    );
-
-  /*
-   * ============================================================
-   * REGISTRAR ABONO
-   * ============================================================
-   *
-   * Esta es la conexión que faltaba.
-   *
-   * PendingCashflow
-   *       ↓
-   * registerPayment
-   *       ↓
-   * POST /abonos
-   *       ↓
-   * backend actualiza Cliente + Venta + Abono
-   *       ↓
-   * loadFiados
-   *       ↓
-   * PendingCashflow recibe los datos nuevos
-   */
-  const registerPayment =
-    useCallback(
-      async (
-        clienteId: string,
-        ventaId: string,
-        monto: number,
-      ): Promise<void> => {
-        if (!clienteId) {
-          throw new Error(
-            "No se indicó el cliente del abono.",
-          );
-        }
-
-        if (!ventaId) {
-          throw new Error(
-            "No se indicó la venta que se está pagando.",
-          );
-        }
-
-        if (
-          !Number.isFinite(monto) ||
-          monto <= 0
-        ) {
-          throw new Error(
-            "El monto del abono debe ser mayor que cero.",
-          );
-        }
-
-        /*
-         * POST /abonos
-         */
-        await apiClient(
-          "/abonos",
-          {
-            method: "POST",
-
-            headers: {
-              "Content-Type":
-                "application/json",
-            },
-
-            body: JSON.stringify({
-              clienteId,
-
-              ventaId,
-
-              monto,
-            }),
-          },
-        );
-
-        /*
-         * IMPORTANTE:
-         *
-         * No modificamos "fiados" manualmente.
-         *
-         * Volvemos a pedir los datos al backend
-         * para garantizar que el frontend representa
-         * exactamente el estado de la base de datos.
-         */
-        await loadFiados(
-          resolvedBusinessId,
-          resolvedSedeId,
-          periodMetrics,
-        );
-      },
-      [
-        loadFiados,
-        resolvedBusinessId,
-        resolvedSedeId,
-        periodMetrics,
-      ],
     );
 
   /*
@@ -890,12 +903,10 @@ export function useDashboardMetrics(
             safeReport,
           );
 
-          setGeneralMetrics(
-            safeReport,
-          );
-
           /*
            * Cargar movimientos y cartera en paralelo para máxima velocidad.
+           * loadTransactions se encarga de calcular el Saldo Total Histórico
+           * con el 100% de los registros y actualizar generalMetrics.
            */
           await Promise.all([
             loadTransactions(
@@ -907,6 +918,7 @@ export function useDashboardMetrics(
               targetBusinessId,
               effectiveSedeId,
               safeReport,
+              isSilent,
             ),
           ]);
         } catch (err: any) {
@@ -1016,6 +1028,74 @@ export function useDashboardMetrics(
         loadTransactions,
         loadFiados,
       ],
+    );
+
+  /**
+   * Registra un abono en el backend y sincroniza tanto la cartera de fiados
+   * como el flujo de caja en tiempo real.
+   *
+   * Flujo:
+   * UI (PendingCashflow) -> POST /abonos -> fetchMetrics(false, true)
+   */
+  const registerPayment =
+    useCallback(
+      async (
+        clienteId: string,
+        ventaId: string,
+        monto: number,
+      ): Promise<void> => {
+        if (!clienteId) {
+          throw new Error(
+            "No se indicó el cliente del abono.",
+          );
+        }
+
+        if (!ventaId) {
+          throw new Error(
+            "No se indicó la venta que se está pagando.",
+          );
+        }
+
+        if (
+          !Number.isFinite(monto) ||
+          monto <= 0
+        ) {
+          throw new Error(
+            "El monto del abono debe ser mayor que cero.",
+          );
+        }
+
+        /*
+         * POST /abonos
+         */
+        await apiClient(
+          "/abonos",
+          {
+            method: "POST",
+
+            headers: {
+              "Content-Type":
+                "application/json",
+            },
+
+            body: JSON.stringify({
+              clienteId,
+
+              ventaId,
+
+              monto,
+            }),
+          },
+        );
+
+        /*
+         * IMPORTANTE:
+         * Refresca silenciosamente las métricas financieras (ingreso en caja),
+         * las transacciones y la cartera de fiados de forma atómica.
+         */
+        await fetchMetrics(false, true);
+      },
+      [fetchMetrics],
     );
 
   /*
@@ -1218,7 +1298,7 @@ export function useDashboardMetrics(
    * 3. Sincronización multi-pestaña con BroadcastChannel
    */
   useEffect(() => {
-    let timer: NodeJS.Timeout | null = null;
+    let timer: ReturnType<typeof setInterval> | null = null;
     let channel: BroadcastChannel | null = null;
 
     try {

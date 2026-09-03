@@ -199,9 +199,14 @@ export function BalanceCard({
       <div>
         <div className="flex items-center gap-4 mb-6">
           <div>
-            <p className="text-sm font-medium text-muted-foreground mb-1">
-              Saldo total
-            </p>
+            <div className="flex items-center gap-2 mb-1">
+              <p className="text-sm font-medium text-muted-foreground">
+                Saldo total
+              </p>
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                Histórico acumulado
+              </span>
+            </div>
 
             <p className="text-3xl font-black text-foreground tracking-tight transition-all">
               {formatNumber(balanceValue)}{" "}
