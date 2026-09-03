@@ -75,6 +75,13 @@ export interface WhatsAppMessageRequest {
    * del 21 al 20 y sus totales cortarian por donde no es.
    */
   diaInicioPeriodo?: number;
+  /**
+   * Los 30 dias contra los que se mide la cuota de IA.
+   *
+   * Viene del catalogo de planes, anclada al vencimiento del negocio. Sin ella
+   * se cae al mes de calendario, que no coincide con el ciclo de cobro.
+   */
+  ventanaDeCuota?: { inicio: Date; fin: Date };
   /** Nombre comercial del plan, para decidir que funciones estan incluidas. */
   planName?: string;
   /** true si el plan vigente es el gratuito. */
@@ -148,6 +155,7 @@ export class WhatsAppMessageService {
       businessId: request.businessId,
       feature: 'whatsapp.message',
       plan: request.plan,
+      periodo: request.ventanaDeCuota,
     };
 
     // ---- 1. La IA interpreta el mensaje -----------------------------------

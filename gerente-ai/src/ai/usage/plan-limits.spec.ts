@@ -6,37 +6,52 @@ import { PLAN_LIMITS, resolvePlan } from './usage.service';
  * proposito, no por accidente.
  */
 describe('PLAN_LIMITS', () => {
-  it('el plan gratuito incluye 500 mensajes de IA al mes', () => {
-    expect(PLAN_LIMITS.asistente.monthlyAiMessages).toBe(500);
+  it('el plan gratuito incluye 100 mensajes de IA al mes', () => {
+    expect(PLAN_LIMITS.asistente.monthlyAiMessages).toBe(100);
   });
 
-  it('el primer plan de pago incluye 4.000', () => {
-    expect(PLAN_LIMITS.gerente.monthlyAiMessages).toBe(4_000);
+  it('Gerente incluye 600', () => {
+    expect(PLAN_LIMITS.gerente.monthlyAiMessages).toBe(600);
   });
 
-  it('el plan full incluye 10.000', () => {
-    expect(PLAN_LIMITS.director.monthlyAiMessages).toBe(10_000);
+  it('Administrador incluye 1.500', () => {
+    expect(PLAN_LIMITS.director.monthlyAiMessages).toBe(1_500);
   });
 
-  it('el plan interno de socios no tiene tope', () => {
+  it('Socio incluye 3.000', () => {
+    expect(PLAN_LIMITS.socio.monthlyAiMessages).toBe(3_000);
+  });
+
+  it('el plan interno Corporativo no tiene tope', () => {
     expect(PLAN_LIMITS.corporativo.monthlyAiMessages).toBe(
       Number.POSITIVE_INFINITY,
     );
   });
 
-  it('cada plan de pago incluye mas mensajes que el anterior', () => {
-    expect(PLAN_LIMITS.gerente.monthlyAiMessages).toBeGreaterThan(
-      PLAN_LIMITS.asistente.monthlyAiMessages,
-    );
-    expect(PLAN_LIMITS.director.monthlyAiMessages).toBeGreaterThan(
-      PLAN_LIMITS.gerente.monthlyAiMessages,
-    );
+  /**
+   * La cuota es lo unico que separa un plan de pago del siguiente: desde este
+   * cambio, los tres llevan las mismas funciones Premium y se diferencian por
+   * sedes y mensajes. Si dos planes empataran aqui, uno de ellos sobraria.
+   */
+  it('cada plan incluye estrictamente mas mensajes que el anterior', () => {
+    const escalera = [
+      PLAN_LIMITS.asistente,
+      PLAN_LIMITS.gerente,
+      PLAN_LIMITS.director,
+      PLAN_LIMITS.socio,
+      PLAN_LIMITS.corporativo,
+    ].map((plan) => plan.monthlyAiMessages);
+
+    for (let i = 1; i < escalera.length; i++) {
+      expect(escalera[i]).toBeGreaterThan(escalera[i - 1]);
+    }
   });
 });
 
 describe('resolvePlan', () => {
   it('reconoce los planes por su identificador', () => {
-    expect(resolvePlan('director').monthlyAiMessages).toBe(10_000);
+    expect(resolvePlan('director').monthlyAiMessages).toBe(1_500);
+    expect(resolvePlan('socio').monthlyAiMessages).toBe(3_000);
   });
 
   it('un plan desconocido cae en el gratuito, no en el mas generoso', () => {

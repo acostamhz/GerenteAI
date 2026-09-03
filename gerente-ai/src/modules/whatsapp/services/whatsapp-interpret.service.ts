@@ -268,6 +268,8 @@ export class WhatsappInterpretService {
         currency: context.currency,
         // El periodo contable del negocio: hay quienes cierran el 20, no el 30.
         diaInicioPeriodo: context.diaInicioPeriodo,
+        // Los 30 dias contra los que se mide la cuota de IA de este negocio.
+        ventanaDeCuota: context.ventanaDeCuota,
         plan: context.plan,
         planName: context.planName,
         planIsFree: context.planIsFree,

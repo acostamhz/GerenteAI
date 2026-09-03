@@ -14,6 +14,8 @@ export const PLAN_ASISTENTE = 1;
 export const PLAN_GERENTE = 2;
 export const PLAN_ADMINISTRADOR = 3;
 export const PLAN_SOCIO = 4;
+/** Plan interno: sin topes, no se compra desde la aplicacion. */
+export const PLAN_CORPORATIVO = 5;
 
 /**
  * Funcionalidades que un plan habilita. El backend solo AUTORIZA: quien calcula
@@ -27,83 +29,118 @@ export type Funcionalidad =
   | 'anotaciones_por_audio'
   | 'ia_avanzada';
 
-/** Pagar el año completo tiene 16% de descuento sobre 12 meses. */
-export const DESCUENTO_ANUAL = 0.16;
+/** La cuota de IA se mide en bloques de 30 dias, no en meses de calendario. */
+const DIAS_DE_CUOTA_MS = 30 * 86_400_000;
+
+/**
+ * Como se contrata cada plan. Distingue tres casos que antes se deducian del
+ * precio, y mal: el Asistente y el Corporativo valen 0 en el catalogo, pero uno
+ * es gratuito de verdad y el otro se cotiza en una reunion.
+ */
+export type Contratacion = 'gratuito' | 'directo' | 'cotizacion';
 
 export interface DefinicionPlan {
   id: number;
   nombre: string;
-  /** En pesos colombianos. 0 = gratuito. */
+  /** En pesos colombianos. 0 = no se cobra desde aqui (ver `contratacion`). */
   precioMensual: number;
-  /** Derivado del mensual: ver `conPrecioAnual`. Nunca se escribe a mano. */
-  precioAnual: number;
+  /**
+   * `null` cuando el plan no se vende por año. No es lo mismo que 0: el Gerente
+   * solo existe en mensual, y pedir su ciclo anual tiene que fallar, no cobrar
+   * cero.
+   */
+  precioAnual: number | null;
   /** Tope de sedes dentro del negocio. */
   maxSedes: number;
+  contratacion: Contratacion;
   funcionalidades: Funcionalidad[];
 }
 
-// El precio anual se calcula y no se escribe: cuando se llevaban por separado,
-// los anuales quedaron computados sobre 79.000 y 249.000 en vez de 79.900 y
-// 249.900, y nadie lo notó. Derivarlo hace imposible que vuelvan a discrepar.
-function conPrecioAnual(
-  plan: Omit<DefinicionPlan, 'precioAnual'>,
-): DefinicionPlan {
-  return {
-    ...plan,
-    precioAnual: Math.round(plan.precioMensual * 12 * (1 - DESCUENTO_ANUAL)),
-  };
-}
+/**
+ * Las seis funciones Premium. Van juntas en todos los planes de pago: lo que
+ * diferencia un plan de otro son las sedes y la cuota de IA, no las funciones.
+ */
+const TODAS_LAS_FUNCIONES: Funcionalidad[] = [
+  'reportes_por_producto',
+  'reporte_fiados',
+  'recomendaciones_estadisticas',
+  'anotaciones_por_foto',
+  'anotaciones_por_audio',
+  'ia_avanzada',
+];
 
+/**
+ * Los precios anuales se escriben a mano y no se derivan del mensual.
+ *
+ * Antes se calculaban con un 16% fijo, lo cual garantizaba que no discreparan.
+ * Ya no se puede: cada plan lleva su propio descuento (16,6% el Administrador,
+ * 19,4% el Socio), asi que el numero es una decision comercial y no una formula.
+ * A cambio, hay que revisarlos a mano cuando cambie un precio mensual.
+ */
 export const PLANES: Record<number, DefinicionPlan> = {
-  [PLAN_ASISTENTE]: conPrecioAnual({
+  [PLAN_ASISTENTE]: {
     id: PLAN_ASISTENTE,
     nombre: 'Asistente',
     precioMensual: 0,
+    precioAnual: null,
     maxSedes: 1,
+    contratacion: 'gratuito',
     funcionalidades: [],
-  }),
-  [PLAN_GERENTE]: conPrecioAnual({
+  },
+  [PLAN_GERENTE]: {
     id: PLAN_GERENTE,
     nombre: 'Gerente',
-    precioMensual: 79_900,
-    maxSedes: 4,
-    funcionalidades: [
-      'reportes_por_producto',
-      'reporte_fiados',
-      'recomendaciones_estadisticas',
-      'anotaciones_por_foto',
-      'anotaciones_por_audio',
-    ],
-  }),
-  [PLAN_ADMINISTRADOR]: conPrecioAnual({
+    precioMensual: 39_900,
+    // Sin ciclo anual a proposito: es el plan de entrada y se vende mes a mes.
+    precioAnual: null,
+    maxSedes: 1,
+    contratacion: 'directo',
+    funcionalidades: TODAS_LAS_FUNCIONES,
+  },
+  [PLAN_ADMINISTRADOR]: {
     id: PLAN_ADMINISTRADOR,
     nombre: 'Administrador',
-    precioMensual: 249_900,
-    maxSedes: 10,
-    funcionalidades: [
-      'reportes_por_producto',
-      'reporte_fiados',
-      'recomendaciones_estadisticas',
-      'anotaciones_por_foto',
-      'anotaciones_por_audio',
-      'ia_avanzada',
-    ],
-  }),
-  // Plan de socios: fuera del alcance comercial, sin limites. No se vende.
-  [PLAN_SOCIO]: conPrecioAnual({
+    precioMensual: 79_900,
+    precioAnual: 799_900,
+    maxSedes: 3,
+    contratacion: 'directo',
+    funcionalidades: TODAS_LAS_FUNCIONES,
+  },
+  [PLAN_SOCIO]: {
     id: PLAN_SOCIO,
     nombre: 'Socio',
+    precioMensual: 149_900,
+    precioAnual: 1_449_900,
+    maxSedes: 5,
+    contratacion: 'directo',
+    funcionalidades: TODAS_LAS_FUNCIONES,
+  },
+  /**
+   * Corporativo: sin topes y fuera del autoservicio. Se muestra en la pantalla
+   * de precios, pero se contrata hablando con el equipo, asi que su precio no
+   * vive aqui. El checkout lo rechaza por tener `precioMensual` en 0.
+   */
+  [PLAN_CORPORATIVO]: {
+    id: PLAN_CORPORATIVO,
+    nombre: 'Corporativo',
     precioMensual: 0,
+    precioAnual: null,
     maxSedes: Number.POSITIVE_INFINITY,
-    funcionalidades: [
-      'reportes_por_producto',
-      'reporte_fiados',
-      'recomendaciones_estadisticas',
-      'anotaciones_por_foto',
-      'anotaciones_por_audio',
-      'ia_avanzada',
-    ],
-  }),
+    contratacion: 'cotizacion',
+    funcionalidades: TODAS_LAS_FUNCIONES,
+  },
+};
+
+/**
+ * Un plan tal como sale por la API.
+ *
+ * `maxSedes` viaja como `null` cuando no hay tope. `Infinity` no existe en JSON
+ * —`JSON.stringify` lo convierte en `null` por su cuenta— asi que se hace
+ * explicito aqui en vez de dejarlo al azar de la serializacion: quien consuma
+ * el endpoint tiene que saber que `null` significa "sin limite", no "cero".
+ */
+export type PlanPublicado = Omit<DefinicionPlan, 'maxSedes'> & {
+  maxSedes: number | null;
 };
 
 /** Lo que el backend necesita saber de un negocio para decidir. */
@@ -119,10 +156,22 @@ export interface EstadoDelPlan {
 @Injectable()
 export class PlanesService {
   /** Catalogo publico, para la pantalla de suscripcion del frontend. */
-  catalogo(): DefinicionPlan[] {
-    return [PLAN_ASISTENTE, PLAN_GERENTE, PLAN_ADMINISTRADOR].map(
-      (id) => PLANES[id],
-    );
+  catalogo(): PlanPublicado[] {
+    // Incluye el Corporativo: se muestra en la pantalla de precios aunque no se
+    // pueda comprar. Que aparezca o no lo decide `contratacion`, no esta lista.
+    return [
+      PLAN_ASISTENTE,
+      PLAN_GERENTE,
+      PLAN_ADMINISTRADOR,
+      PLAN_SOCIO,
+      PLAN_CORPORATIVO,
+    ].map((id) => {
+      const plan = PLANES[id];
+      return {
+        ...plan,
+        maxSedes: Number.isFinite(plan.maxSedes) ? plan.maxSedes : null,
+      };
+    });
   }
 
   /**
@@ -149,6 +198,43 @@ export class PlanesService {
       vencido,
       venceEl: planVenceEl,
     };
+  }
+
+  /**
+   * Ventana de 30 dias contra la que se cuenta la cuota de mensajes de IA.
+   *
+   * Antes era el mes de calendario, y no coincidia con el ciclo que se cobra:
+   * quien pagaba el 25 estrenaba cuota completa el 1, asi que en un mes de plan
+   * podia llegar a tener casi tres cuotas.
+   *
+   * Ahora la ventana se ancla a lo que corresponde en cada caso:
+   *
+   * - **Plan de pago vigente:** al vencimiento, retrocediendo en bloques de 30
+   *   dias. En el plan anual eso da el bloque de 30 dias en curso y no los 365
+   *   de golpe, que es lo que se vende: mensajes al mes, no al año.
+   * - **Gratuito o vencido:** a la fecha en que se creo el negocio. Cada 30 dias
+   *   desde que existe, que es lo mas parecido a "un mes desde que empezo".
+   *
+   * La misma formula cubre los dos: `bloques` sale negativo cuando el ancla esta
+   * en el futuro (vencimiento) y positivo cuando esta en el pasado (creacion).
+   */
+  ventanaDeCuota(
+    plan: number,
+    planVenceEl: Date | null,
+    creadoEl: Date,
+    ahora = new Date(),
+  ): { inicio: Date; fin: Date } {
+    const estado = this.estado(plan, planVenceEl, ahora);
+
+    const ancla =
+      !estado.vencido && planVenceEl !== null ? planVenceEl : creadoEl;
+
+    const bloques = Math.floor(
+      (ahora.getTime() - ancla.getTime()) / DIAS_DE_CUOTA_MS,
+    );
+    const inicio = new Date(ancla.getTime() + bloques * DIAS_DE_CUOTA_MS);
+
+    return { inicio, fin: new Date(inicio.getTime() + DIAS_DE_CUOTA_MS) };
   }
 
   /** Tope de sedes que puede usar el negocio hoy. */
