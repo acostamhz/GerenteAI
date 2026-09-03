@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { Link } from 'react-router';
-import { PlanBackend, PLANES_FALLBACK } from '@/shared/api/planesApi';
+import { PlanBackend, PLANES_FALLBACK, MENSAJES_IA_POR_PLAN } from '@/shared/api/planesApi';
 import { WompiCheckoutModal } from '@/features/client-subscription/components/WompiCheckoutModal';
 import { lukaWhatsappUrl } from '@/lib/whatsapp';
 
@@ -47,6 +47,10 @@ export function PlanLimitPaywallModal({
   const planRecomendado = catalogo.find((p) => p.id === planRecomendadoId) || catalogo[1] || PLANES_FALLBACK[1];
 
   const handleOpenWompi = () => {
+    if (planRecomendado.id === 5) {
+      handleOpenWhatsappSales();
+      return;
+    }
     setIsCheckoutOpen(true);
   };
 
@@ -116,7 +120,7 @@ export function PlanLimitPaywallModal({
                   <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <span className="text-foreground font-semibold">
-                  Hasta {planRecomendado.maxSedes} sedes y múltiples negocios simultáneos
+                  Hasta {planRecomendado.maxSedes === 1 ? '1 sede' : `${planRecomendado.maxSedes} sedes`} y múltiples negocios simultáneos
                 </span>
               </div>
 
@@ -125,7 +129,7 @@ export function PlanLimitPaywallModal({
                   <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <span className="text-foreground font-semibold">
-                  4.000 mensajes de IA al mes (vs 500 en plan gratuito)
+                  {MENSAJES_IA_POR_PLAN[planRecomendado.id] || "Mensajes con IA incluidos"}
                 </span>
               </div>
 
@@ -134,7 +138,7 @@ export function PlanLimitPaywallModal({
                   <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <span className="text-foreground font-semibold">
-                  Registro por notas de voz y fotos de tickets 24/7
+                  Registro ágil de ventas y gastos por WhatsApp 24/7
                 </span>
               </div>
 
@@ -143,7 +147,7 @@ export function PlanLimitPaywallModal({
                   <Check className="w-2.5 h-2.5 text-emerald-600 dark:text-emerald-400" />
                 </div>
                 <span className="text-foreground font-semibold">
-                  Métricas de fiados, productos top y márgenes por sede
+                  Reportes avanzados, métricas de fiados y control financiero
                 </span>
               </div>
             </div>
@@ -157,7 +161,11 @@ export function PlanLimitPaywallModal({
               className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black text-sm rounded-2xl shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               <Sparkles className="w-4 h-4" />
-              <span>Desbloquear Plan (${PRECIO_FORMATTER.format(planRecomendado.precioMensual)} COP)</span>
+              <span>
+                {planRecomendado.id === 5
+                  ? "Contactar a Asesor Comercial"
+                  : `Desbloquear Plan ${planRecomendado.nombre} ($${PRECIO_FORMATTER.format(planRecomendado.precioMensual)} COP)`}
+              </span>
             </button>
 
             <button

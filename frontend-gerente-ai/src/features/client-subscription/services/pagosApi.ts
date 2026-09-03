@@ -138,7 +138,7 @@ export async function iniciarPago(
   window.location.href =
     urlDelCheckout(datos);
 
-  return new Promise<never>(() => {});
+  return new Promise<never>(() => { });
 }
 
 export async function esperarResultado(

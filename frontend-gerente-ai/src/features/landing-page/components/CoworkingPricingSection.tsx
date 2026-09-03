@@ -3,7 +3,9 @@
 import { Check, Star } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
-import { planesApi, PlanBackend, PLANES_FALLBACK, DESCUENTO_ANUAL } from "@/shared/api/planesApi";
+import { motion, AnimatePresence } from "motion/react";
+import { planesApi, PlanBackend, PLANES_FALLBACK } from "@/shared/api/planesApi";
+import { lukaWhatsappUrl } from "@/lib/whatsapp";
 
 type BillingPeriod = "monthly" | "annual";
 
@@ -24,6 +26,8 @@ export function CoworkingPricingSection() {
   const planAsistente = catalogo.find((p) => p.id === 1) || PLANES_FALLBACK[0];
   const planGerente = catalogo.find((p) => p.id === 2) || PLANES_FALLBACK[1];
   const planAdmin = catalogo.find((p) => p.id === 3) || PLANES_FALLBACK[2];
+  const planSocio = catalogo.find((p) => p.id === 4) || PLANES_FALLBACK[3];
+  const planCorp = catalogo.find((p) => p.id === 5) || PLANES_FALLBACK[4];
 
   const plans = [
     {
@@ -33,10 +37,10 @@ export function CoworkingPricingSection() {
       annualPrice: "Gratis",
       annualBilling: "",
       features: [
-        "Registro de ventas",
-        "Registro de gastos",
+        "Registro de ventas y gastos",
         "Consultas por WhatsApp",
         "Reportes básicos",
+        "100 mensajes de IA / mes",
         "1 sede comercial",
       ],
       button: "Comenzar gratis",
@@ -46,17 +50,35 @@ export function CoworkingPricingSection() {
     },
     {
       name: "Gerente",
-      description: "La mejor opción para la mayoría de negocios.",
+      description: "Control total y copiloto con IA para 1 sede.",
       monthlyPrice: `$${PRECIO_FORMATTER.format(planGerente.precioMensual)}`,
-      annualPrice: `$${PRECIO_FORMATTER.format(Math.round(planGerente.precioAnual / 12))}`,
-      annualBilling: `Facturado $${PRECIO_FORMATTER.format(planGerente.precioAnual)}/año`,
+      annualPrice: `$${PRECIO_FORMATTER.format(planGerente.precioMensual)}`,
+      annualBilling: "Solo disponible mensual",
       features: [
         "Todo lo del plan Asistente",
+        "Cuentas por Cobrar (Fiados)",
+        "Reportes avanzados",
+        "600 mensajes de IA / mes",
+        "1 sede premium",
+      ],
+      button: "Elegir plan",
+      link: "/subscription",
+      featured: false,
+      dark: false,
+    },
+    {
+      name: "Administrador",
+      description: "La mejor opción para pymes con varias sucursales.",
+      monthlyPrice: `$${PRECIO_FORMATTER.format(planAdmin.precioMensual)}`,
+      annualPrice: `$${PRECIO_FORMATTER.format(Math.round(planAdmin.precioAnual / 12))}`,
+      annualBilling: `Facturado $${PRECIO_FORMATTER.format(planAdmin.precioAnual)}/año`,
+      features: [
+        "Todo lo del plan Gerente",
+        "Multi-sede comparativa",
         "Inventario inteligente",
-        "Clientes y proveedores",
-        "IA conversacional completa",
-        "Notas de voz y fotos",
-        `Hasta ${planGerente.maxSedes} sedes`,
+        "Exportación a Excel",
+        "1.500 mensajes de IA / mes",
+        `Hasta ${planAdmin.maxSedes} sedes`,
       ],
       button: "Elegir plan",
       link: "/subscription",
@@ -64,18 +86,18 @@ export function CoworkingPricingSection() {
       dark: false,
     },
     {
-      name: "Administrador",
-      description: "Para negocios en crecimiento y cadenas.",
-      monthlyPrice: `$${PRECIO_FORMATTER.format(planAdmin.precioMensual)}`,
-      annualPrice: `$${PRECIO_FORMATTER.format(Math.round(planAdmin.precioAnual / 12))}`,
-      annualBilling: `Facturado $${PRECIO_FORMATTER.format(planAdmin.precioAnual)}/año`,
+      name: "Socio",
+      description: "Para cadenas que requieren máxima escala.",
+      monthlyPrice: `$${PRECIO_FORMATTER.format(planSocio.precioMensual)}`,
+      annualPrice: `$${PRECIO_FORMATTER.format(Math.round(planSocio.precioAnual / 12))}`,
+      annualBilling: `Facturado $${PRECIO_FORMATTER.format(planSocio.precioAnual)}/año`,
       features: [
-        "Todo lo del plan Gerente",
-        `Hasta ${planAdmin.maxSedes} sedes`,
-        "Roles de usuarios",
-        "Indicadores avanzados",
-        "Reportes ejecutivos",
-        "IA predictiva avanzada",
+        "Todo lo del plan Administrador",
+        `Hasta ${planSocio.maxSedes} sedes`,
+        "Auditoría continua de negocio",
+        "IA avanzada predictiva",
+        "3.000 mensajes de IA / mes",
+        "Soporte prioritario",
       ],
       button: "Elegir plan",
       link: "/subscription",
@@ -89,14 +111,14 @@ export function CoworkingPricingSection() {
       annualPrice: "Cotizar",
       annualBilling: "",
       features: [
-        "Sedes ilimitadas",
-        "Integraciones personalizadas",
-        "Soporte prioritario 24/7",
-        "Desarrollo personalizado",
-        "Acompañamiento VIP",
+        "Sedes por definir",
+        "Mensajes de IA por definir",
+        "Reportes avanzados",
+        "Integraciones API y ERP personalizadas",
+        "Soporte 24/7 y VIP",
       ],
       button: "Hablar con ventas",
-      link: "https://wa.me/573043904488?text=Hola,%20quisiera%20información%20sobre%20el%20Plan%20Corporativo%20de%20Luka%20AI",
+      link: lukaWhatsappUrl("Hola Luka 👋, quisiera información sobre el Plan Corporativo de Luka AI"),
       featured: false,
       dark: true,
     },
@@ -107,7 +129,7 @@ export function CoworkingPricingSection() {
       id="planes"
       className="relative py-24 px-6 md:px-12"
     >
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* Header */}
         <div className="text-center mb-10">
           <span className="inline-flex items-center px-4 py-1.5 rounded-full bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-sm font-semibold mb-4">
@@ -118,51 +140,62 @@ export function CoworkingPricingSection() {
             Elige el plan ideal
             <br />
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-600 to-cyan-500">
-              para tu negocio.
+              para la etapa de tu negocio
             </span>
           </h2>
 
-          <p className="mt-5 text-base md:text-lg text-slate-600 dark:text-slate-400">
-            Empieza gratis y crece con Luka cuando tu negocio lo necesite.
+          <p className="mt-4 text-lg text-slate-600 dark:text-slate-400 max-w-2xl mx-auto">
+            Comienza gratis y escala con herramientas impulsadas por IA cuando
+            tu negocio lo necesite.
           </p>
         </div>
 
-        {/* Billing Toggle */}
-        <div className="flex justify-center mb-12">
-          <div className="relative inline-flex items-center p-1 rounded-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-sm">
+        {/* Toggle mensual / anual */}
+        <div className="flex justify-center mb-16">
+          <div className="relative inline-flex items-center p-1.5 rounded-full bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 shadow-inner">
             <button
-              type="button"
               onClick={() => setBillingPeriod("monthly")}
-              className={`relative z-10 px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 ${
+              className={`relative z-10 px-6 py-2.5 rounded-full text-sm font-semibold transition-colors cursor-pointer ${
                 billingPeriod === "monthly"
-                  ? "bg-emerald-600 text-white shadow-md"
-                  : "text-slate-700 dark:text-slate-300 hover:text-emerald-600"
+                  ? "text-slate-900 dark:text-white"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
+              {billingPeriod === "monthly" && (
+                <motion.div
+                  layoutId="active-landing-billing-pill"
+                  className="absolute inset-0 bg-white dark:bg-slate-900 rounded-full shadow-sm -z-10"
+                  transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                />
+              )}
               Mensual
             </button>
 
             <button
-              type="button"
               onClick={() => setBillingPeriod("annual")}
-              className={`relative z-10 px-5 py-2 rounded-full text-sm font-semibold transition-all duration-300 ${
+              className={`relative z-10 px-6 py-2.5 rounded-full text-sm font-semibold transition-colors flex items-center gap-2 cursor-pointer ${
                 billingPeriod === "annual"
-                  ? "bg-emerald-600 text-white shadow-md"
-                  : "text-slate-700 dark:text-slate-300 hover:text-emerald-600"
+                  ? "text-slate-900 dark:text-white"
+                  : "text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
               }`}
             >
-              Anual
+              {billingPeriod === "annual" && (
+                <motion.div
+                  layoutId="active-landing-billing-pill"
+                  className="absolute inset-0 bg-white dark:bg-slate-900 rounded-full shadow-sm -z-10"
+                  transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                />
+              )}
+              <span>Anual</span>
+              <span className="px-2 py-0.5 text-xs font-bold rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                Ahorra 16%
+              </span>
             </button>
-
-            {/* Discount Badge */}
-            <span className="absolute -top-2.5 -right-2.5 z-20 px-2 py-0.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold shadow-sm">
-              -16%
-            </span>
           </div>
         </div>
 
         {/* Plans */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5 items-stretch">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-5 items-stretch">
           {plans.map((plan) => {
             const price =
               billingPeriod === "monthly"
@@ -216,42 +249,52 @@ export function CoworkingPricingSection() {
 
                   {/* Price */}
                   <div className="mt-6">
-                    <div
-                      className={`text-4xl font-extrabold tracking-tight ${
-                        plan.featured || plan.dark
-                          ? "text-white"
-                          : "text-slate-950 dark:text-white"
-                      }`}
-                    >
-                      {price}
-                    </div>
+                    <AnimatePresence mode="wait" initial={false}>
+                      <motion.div
+                        key={billingPeriod}
+                        initial={{ opacity: 0, y: -4 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: 4 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        <div
+                          className={`text-4xl font-extrabold tracking-tight ${
+                            plan.featured || plan.dark
+                              ? "text-white"
+                              : "text-slate-950 dark:text-white"
+                          }`}
+                        >
+                          {price}
+                        </div>
 
-                    {plan.name !== "Asistente" &&
-                      plan.name !== "Corporativo" && (
-                        <>
-                          <span
-                            className={`text-sm font-medium ${
-                              plan.featured
-                                ? "text-white/80"
-                                : "text-slate-600 dark:text-slate-400"
-                            }`}
-                          >
-                            /mes
-                          </span>
+                        {plan.name !== "Asistente" &&
+                          plan.name !== "Corporativo" && (
+                            <>
+                              <span
+                                className={`text-sm font-medium ${
+                                  plan.featured
+                                    ? "text-white/80"
+                                    : "text-slate-600 dark:text-slate-400"
+                                }`}
+                              >
+                                /mes
+                              </span>
 
-                          {billingPeriod === "annual" && (
-                            <p
-                              className={`mt-1 text-xs font-medium ${
-                                plan.featured
-                                  ? "text-white/75"
-                                  : "text-slate-500 dark:text-slate-500"
-                              }`}
-                            >
-                              {plan.annualBilling}
-                            </p>
+                              {billingPeriod === "annual" && (
+                                <p
+                                  className={`mt-1 text-xs font-medium ${
+                                    plan.featured
+                                      ? "text-white/75"
+                                      : "text-slate-500 dark:text-slate-500"
+                                  }`}
+                                >
+                                  {plan.annualBilling}
+                                </p>
+                              )}
+                            </>
                           )}
-                        </>
-                      )}
+                      </motion.div>
+                    </AnimatePresence>
                   </div>
 
                   {/* Features */}

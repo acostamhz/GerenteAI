@@ -26,6 +26,7 @@ import {
   DESCRIPCIONES_POR_PLAN,
 } from "@/shared/api/planesApi";
 
+import { lukaWhatsappUrl } from "@/lib/whatsapp";
 import { WompiCheckoutModal } from "./components/WompiCheckoutModal";
 
 const PRECIO_FORMATTER =
@@ -37,9 +38,10 @@ const PRECIO_FORMATTER =
 
 function textoSedes(
   maxSedes: number,
+  planId?: number,
 ): string {
-  if (!Number.isFinite(maxSedes)) {
-    return "Sedes ilimitadas";
+  if (planId === 5 || maxSedes <= 0 || maxSedes >= 999 || !Number.isFinite(maxSedes)) {
+    return "Sedes por definir";
   }
 
   return maxSedes === 1
@@ -454,6 +456,16 @@ export function SubscriptionView() {
     }
 
     /* ========================================================
+       CORPORATIVO (ID 5) -> WHATSAPP COLOMBIA
+    ======================================================== */
+
+    if (plan.id === 5) {
+      const msg = `Hola Luka 👋, quisiera recibir información y asesoría sobre el Plan Corporativo para mi empresa (${negocioNombre}).`;
+      window.open(lukaWhatsappUrl(msg), '_blank', 'noopener,noreferrer');
+      return;
+    }
+
+    /* ========================================================
        DOWNGRADE A ASISTENTE
     ======================================================== */
 
@@ -540,7 +552,7 @@ export function SubscriptionView() {
 
       <div className="flex items-center justify-center mb-10">
 
-        <div className="inline-flex items-center p-1.5 bg-muted/60 border border-border rounded-2xl shadow-inner">
+        <div className="relative inline-flex items-center p-1.5 bg-muted/60 border border-border rounded-2xl shadow-inner">
 
           {/* Mensual */}
 
@@ -549,12 +561,19 @@ export function SubscriptionView() {
             onClick={() =>
               setCiclo("mensual")
             }
-            className={`px-5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`relative z-10 px-6 py-2.5 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
               ciclo === "mensual"
-                ? "bg-background text-foreground shadow-sm border border-border"
+                ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
+            {ciclo === "mensual" && (
+              <motion.div
+                layoutId="active-subscription-cycle-pill"
+                className="absolute inset-0 bg-background rounded-xl shadow-sm border border-border -z-10"
+                transition={{ type: "spring", stiffness: 450, damping: 35 }}
+              />
+            )}
             Facturación mensual
           </button>
 
@@ -565,15 +584,22 @@ export function SubscriptionView() {
             onClick={() =>
               setCiclo("anual")
             }
-            className={`px-5 py-2 rounded-xl text-xs font-bold transition-all flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
+            className={`relative z-10 px-6 py-2 rounded-xl text-xs font-bold transition-colors flex flex-col items-center justify-center gap-0.5 cursor-pointer ${
               ciclo === "anual"
-                ? "bg-gradient-to-r from-emerald-600 to-emerald-500 text-white shadow-sm"
+                ? "text-white"
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
+            {ciclo === "anual" && (
+              <motion.div
+                layoutId="active-subscription-cycle-pill"
+                className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-emerald-500 to-teal-500 rounded-xl shadow-md -z-10"
+                transition={{ type: "spring", stiffness: 450, damping: 35 }}
+              />
+            )}
 
             <span
-              className={`text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full ${
+              className={`text-[9px] font-black uppercase tracking-wide px-2 py-0.5 rounded-full transition-colors ${
                 ciclo === "anual"
                   ? "bg-white/20 text-white"
                   : "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30"
@@ -597,9 +623,9 @@ export function SubscriptionView() {
       ====================================================== */}
 
       {isLoading && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-12">
 
-          {[0, 1, 2].map(
+          {[0, 1, 2, 3, 4].map(
             (i) => (
               <div
                 key={i}
@@ -646,7 +672,7 @@ export function SubscriptionView() {
 
       {!isLoading &&
         !error && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-6 mb-12">
 
             {planes.map(
               (plan) => {
@@ -657,39 +683,53 @@ export function SubscriptionView() {
 
                 const esGratuito =
                   plan.precioMensual ===
-                  0;
+                  0 && plan.id === 1;
+
+                const esCorporativo =
+                  plan.id === 5;
+
+                const esPlanGerente =
+                  plan.id === 2;
 
                 const esPopular =
-                  plan.id === 2;
+                  plan.id === 3; // Administrador (3 sedes)
 
                 const esDowngrade =
                   plan.id === 1 &&
                   planActual !== null &&
                   planActual !== 1;
 
-                const precioMostrado =
-                  esGratuito
-                    ? "Gratis"
-                    : ciclo ===
-                        "anual"
-                      ? `$${PRECIO_FORMATTER.format(
-                          Math.round(
-                            plan.precioAnual /
-                              12,
-                          ),
-                        )}`
-                      : `$${PRECIO_FORMATTER.format(
-                          plan.precioMensual,
-                        )}`;
+                let precioMostrado = "";
+                let facturacionTotalAnual: string | null = null;
 
-                const facturacionTotalAnual =
-                  ciclo ===
-                    "anual" &&
-                  !esGratuito
-                    ? `Facturado $${PRECIO_FORMATTER.format(
-                        plan.precioAnual,
-                      )} COP/año`
-                    : null;
+                if (esGratuito) {
+                  precioMostrado = "Gratis";
+                } else if (esCorporativo) {
+                  precioMostrado = "Cotizar";
+                } else if (esPlanGerente) {
+                  precioMostrado = `$${PRECIO_FORMATTER.format(
+                    plan.precioMensual,
+                  )}`;
+                  if (ciclo === "anual") {
+                    facturacionTotalAnual =
+                      "Solo disponible mensual";
+                  }
+                } else if (
+                  ciclo === "anual"
+                ) {
+                  precioMostrado = `$${PRECIO_FORMATTER.format(
+                    Math.round(
+                      plan.precioAnual / 12,
+                    ),
+                  )}`;
+                  facturacionTotalAnual = `Facturado $${PRECIO_FORMATTER.format(
+                    plan.precioAnual,
+                  )} COP/año`;
+                } else {
+                  precioMostrado = `$${PRECIO_FORMATTER.format(
+                    plan.precioMensual,
+                  )}`;
+                }
 
                 return (
                   <motion.div
@@ -758,27 +798,33 @@ export function SubscriptionView() {
                       </p>
 
                       <div className="mt-4 pt-4 border-t border-border">
+                        <AnimatePresence mode="wait" initial={false}>
+                          <motion.div
+                            key={ciclo}
+                            initial={{ opacity: 0, y: -4 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: 4 }}
+                            transition={{ duration: 0.15 }}
+                          >
+                            <div className="flex items-baseline gap-1.5">
+                              <span className="text-3xl sm:text-4xl font-black text-foreground tracking-tight">
+                                {precioMostrado}
+                              </span>
 
-                        <div className="flex items-baseline gap-1.5">
+                              {!esGratuito && (
+                                <span className="text-xs font-semibold text-muted-foreground">
+                                  COP /mes
+                                </span>
+                              )}
+                            </div>
 
-                          <span className="text-3xl sm:text-4xl font-black text-foreground tracking-tight">
-                            {precioMostrado}
-                          </span>
-
-                          {!esGratuito && (
-                            <span className="text-xs font-semibold text-muted-foreground">
-                              COP /mes
-                            </span>
-                          )}
-
-                        </div>
-
-                        {facturacionTotalAnual && (
-                          <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
-                            {facturacionTotalAnual}
-                          </p>
-                        )}
-
+                            {facturacionTotalAnual && (
+                              <p className="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 mt-1">
+                                {facturacionTotalAnual}
+                              </p>
+                            )}
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
 
                     </div>
@@ -803,6 +849,7 @@ export function SubscriptionView() {
 
                           {textoSedes(
                             plan.maxSedes,
+                            plan.id,
                           )}
 
                         </span>
@@ -830,7 +877,7 @@ export function SubscriptionView() {
 
                       </div>
 
-                      {/* Módulos */}
+                      {/* Reportes */}
 
                       <div className="flex items-start gap-3">
 
@@ -842,38 +889,15 @@ export function SubscriptionView() {
 
                         <span className="text-xs font-semibold text-foreground">
 
-                          {plan.funcionalidades
-                            .length >
-                          0
-                            ? `${plan.funcionalidades.length} módulos y reportes avanzados`
-                            : "Módulos financieros esenciales"}
+                          {plan.id === 1
+                            ? "Reportes básicos"
+                            : "Reportes avanzados"}
 
                         </span>
 
                       </div>
 
-                      {/* Audio */}
 
-                      {plan.funcionalidades.includes(
-                        "anotaciones_por_audio",
-                      ) && (
-                        <div className="flex items-start gap-3">
-
-                          <div className="w-5 h-5 rounded-full bg-emerald-500/10 flex items-center justify-center shrink-0 mt-0.5">
-
-                            <Check className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-
-                          </div>
-
-                          <span className="text-xs text-muted-foreground">
-
-                            Registro de ventas por nota de
-                            voz y fotos
-
-                          </span>
-
-                        </div>
-                      )}
 
                       {/* Recomendaciones */}
 
@@ -918,11 +942,13 @@ export function SubscriptionView() {
                       className={`w-full py-3.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
                         esActual
                           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 cursor-default opacity-80"
-                          : esDowngrade
-                            ? "bg-muted text-foreground border border-border hover:bg-muted/80 cursor-pointer"
-                            : esPopular
-                              ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20 cursor-pointer"
-                              : "bg-foreground text-background hover:opacity-90 cursor-pointer"
+                          : esCorporativo
+                            ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 cursor-pointer"
+                            : esDowngrade
+                              ? "bg-muted text-foreground border border-border hover:bg-muted/80 cursor-pointer"
+                              : esPopular
+                                ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20 cursor-pointer"
+                                : "bg-foreground text-background hover:opacity-90 cursor-pointer"
                       }`}
                     >
 
@@ -932,6 +958,14 @@ export function SubscriptionView() {
 
                           <span>
                             Plan Actual Activo
+                          </span>
+                        </>
+                      ) : esCorporativo ? (
+                        <>
+                          <MessageSquare className="w-4 h-4" />
+
+                          <span>
+                            Hablar con Ventas
                           </span>
                         </>
                       ) : esDowngrade ? (
@@ -949,8 +983,9 @@ export function SubscriptionView() {
                           <Sparkles className="w-4 h-4" />
 
                           <span>
-                            Mejorar a{" "}
-                            {plan.nombre}
+                            {esPlanGerente && ciclo === "anual"
+                              ? "Elegir Plan Mensual"
+                              : `Elegir Plan ${plan.nombre}`}
                           </span>
                         </>
                       )}

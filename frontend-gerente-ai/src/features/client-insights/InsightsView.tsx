@@ -272,11 +272,11 @@ export function InsightsView() {
           <FeaturePaywallState
             onUpgrade={() =>
               abrirPaywall(
-                "Las Recomendaciones de IA están disponibles a partir del Plan Gerente ($79.900/mes). Mejora tu plan para acceder a análisis predictivo y alertas en tiempo real.",
+                "Las Recomendaciones de IA están disponibles a partir del Plan Gerente ($39.900/mes). Mejora tu plan para acceder a análisis predictivo y alertas en tiempo real.",
                 2,
               )
             }
-            badge="Exclusivo para Planes Gerente y Administrador"
+            badge="Disponible a partir del Plan Gerente ($39.900/mes)"
             title={
               <>
                 Toma decisiones estratégicas con{" "}

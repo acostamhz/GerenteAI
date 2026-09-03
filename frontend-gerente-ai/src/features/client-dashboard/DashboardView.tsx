@@ -8,6 +8,7 @@ import { NoBusinessState } from "./components/NoBusinessState";
 import { useDashboardMetrics } from "./hooks/useDashboardMetrics";
 import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
 import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywallModal";
+import { LiveStatusBadge } from "@/shared/components/ui/LiveStatusBadge";
 
 export function DashboardView() {
   const {
@@ -25,6 +26,7 @@ export function DashboardView() {
     isLoading,
     isChartLoading,
     isRefreshing,
+    lastUpdated,
     error,
     hasNoBusiness,
     refreshMetrics,
@@ -88,6 +90,12 @@ export function DashboardView() {
               </div>
               
               <div className="flex flex-wrap items-center gap-3">
+                <LiveStatusBadge
+                  lastUpdated={lastUpdated}
+                  isRefreshing={isRefreshing}
+                  onManualRefresh={refreshMetrics}
+                />
+
                 <Link
                   to="/subscription"
                   className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 shadow-sm hover:from-emerald-500/20 hover:to-emerald-500/10 transition-colors"
