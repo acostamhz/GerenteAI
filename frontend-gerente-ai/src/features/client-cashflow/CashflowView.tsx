@@ -9,10 +9,7 @@ import { RealCashflow } from "./RealCashflow";
 import { PendingCashflow } from "./PendingCashflow";
 import { CashflowViewSkeleton } from "./components/CashflowSkeletons";
 
-import { FeaturePaywallState } from "@/shared/components/paywalls/FeaturePaywallState";
-
 import { useDashboardMetrics } from "@/features/client-dashboard/hooks/useDashboardMetrics";
-import { apiClient } from "@/lib/apiClient";
 
 import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
 import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywallModal";
@@ -25,8 +22,8 @@ export function CashflowView() {
   // ============================================================
 
   const {
-    planUsuarioId,
     planNombre,
+    puedeVerFiados,
     isPaywallOpen,
     paywallMotivo,
     paywallPlanRecomendadoId,
@@ -48,7 +45,7 @@ export function CashflowView() {
     hasNoBusiness,
     periodo,
     setPeriodo,
-    refreshFiados,
+    registerPayment,
   } = useDashboardMetrics();
 
   // ============================================================
@@ -60,16 +57,7 @@ export function CashflowView() {
     ventaId: string,
     monto: number,
   ): Promise<void> => {
-    await apiClient("/abonos", {
-      method: "POST",
-      body: JSON.stringify({
-        clienteId,
-        ventaId,
-        monto,
-      }),
-    });
-
-    await refreshFiados();
+    await registerPayment(clienteId, ventaId, monto);
   };
 
   // ============================================================
@@ -96,118 +84,7 @@ export function CashflowView() {
   }
 
   // ============================================================
-  // 3. PLAN 1 → BLOQUEAR FLUJO DE CAJA
-  // ============================================================
-
-  if (planUsuarioId === 1) {
-    return (
-      <div className="flex-1 min-w-0 overflow-auto pb-12 pr-0 sm:pr-4 animate-in fade-in duration-300">
-        {/* ======================================================
-            CABECERA
-        ======================================================= */}
-
-        <div className="mb-6">
-          <div className="flex items-center gap-3">
-            <h1 className="text-2xl sm:text-3xl font-black text-foreground tracking-tight">
-              Flujo de caja
-            </h1>
-          </div>
-
-          <p className="text-xs sm:text-sm text-muted-foreground mt-1">
-            Monitorea los ingresos reales, egresos operativos y
-            cuentas pendientes de cobro en tiempo real.
-          </p>
-        </div>
-
-        {/* ======================================================
-            PAYWALL CENTRADO
-        ======================================================= */}
-
-        <div className="w-full min-w-0 flex justify-center">
-          <FeaturePaywallState
-            onUpgrade={() =>
-              abrirPaywall(
-                "El Flujo de caja está disponible a partir del Plan Gerente ($39.900/mes). Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
-                2,
-              )
-            }
-            badge="Disponible a partir del Plan Gerente ($39.900/mes)"
-            title={
-              <>
-                Ten el control financiero de{" "}
-                <span className="bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-400">
-                  tu negocio
-                </span>
-              </>
-            }
-            description="Luka organiza tus ingresos, egresos y cuentas por cobrar para que conozcas en todo momento cuánto dinero tienes disponible y cómo se mueve tu negocio."
-            previewCards={[
-              {
-                label: "Ingresos",
-                title: "Dinero disponible",
-                description:
-                  "Visualiza tus ventas de contado y abonos recibidos durante el período.",
-                icon: "wallet",
-                color: "emerald",
-              },
-              {
-                label: "Egresos",
-                title: "Control de gastos",
-                description:
-                  "Identifica cuánto dinero sale de tu negocio por compras y gastos operativos.",
-                icon: "receipt",
-                color: "amber",
-              },
-              {
-                label: "Cuentas por cobrar",
-                title: "Ventas pendientes",
-                description:
-                  "Controla las ventas fiadas y los abonos pendientes de tus clientes.",
-                icon: "credit",
-                color: "cyan",
-              },
-            ]}
-            features={[
-              {
-                title: "Ingresos en tiempo real",
-                description:
-                  "Visualiza cuánto dinero está entrando.",
-              },
-              {
-                title: "Control de egresos",
-                description:
-                  "Identifica cuánto dinero está saliendo.",
-              },
-              {
-                title: "Cuentas por cobrar",
-                description:
-                  "Controla ventas fiadas y abonos.",
-              },
-              {
-                title: "Evolución financiera",
-                description:
-                  "Analiza el comportamiento de tu caja.",
-              },
-            ]}
-          />
-        </div>
-
-        {/* ======================================================
-            MODAL GLOBAL DE PAYWALL
-        ======================================================= */}
-
-        <PlanLimitPaywallModal
-          isOpen={isPaywallOpen}
-          onClose={cerrarPaywall}
-          motivo={paywallMotivo}
-          planRecomendadoId={paywallPlanRecomendadoId}
-        />
-      </div>
-    );
-  }
-
-  // ============================================================
-  // 4. PLAN 2+ → FLUJO DE CAJA DISPONIBLE
+  // 3. EVALUACIÓN DE DATOS
   // ============================================================
 
   const hasNoData =
@@ -341,8 +218,15 @@ export function CashflowView() {
         <div className="xl:col-span-5">
           <PendingCashflow
             fiados={fiados}
-            isLoading={isFiadosLoading}
+            isLoading={isFiadosLoading && !fiados}
             onRegisterPayment={handleRegisterPayment}
+            puedeVerFiados={puedeVerFiados}
+            onUpgradePlan={() =>
+              abrirPaywall(
+                "El control de Cuentas por Cobrar (Fiados) está disponible a partir del Plan Gerente ($39.900/mes). Mejora tu plan para visualizar tu cartera en la calle y registrar abonos.",
+                2,
+              )
+            }
           />
         </div>
       </div>
