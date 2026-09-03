@@ -246,7 +246,7 @@ export function ManageSubscriptionView() {
             <div className="flex justify-between items-end mb-2">
               <span className="text-2xl font-black text-foreground">124</span>
               <span className="text-xs font-semibold text-muted-foreground mb-0.5">
-                / {planActual.id === 1 ? "50" : planActual.id === 2 ? "500" : "5.000"} mensajes este ciclo
+                / {planActual.id === 1 ? '100' : planActual.id === 2 ? '600' : planActual.id === 3 ? '1.500' : planActual.id === 4 ? '3.000' : 'Personalizado'} mensajes este ciclo
               </span>
             </div>
             

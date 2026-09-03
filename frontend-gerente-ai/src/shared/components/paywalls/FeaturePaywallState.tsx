@@ -83,7 +83,7 @@ export function FeaturePaywallState({
   description,
   previewCards,
   features,
-  planDescription = "Disponible a partir del Plan Gerente ($79.900/mes) y Plan Administrador ($249.900/mes).",
+  planDescription = "Disponible a partir del Plan Gerente ($39.900/mes) o planes superiores.",
 }: FeaturePaywallStateProps) {
   return (
     <div className="relative w-full min-w-0 max-w-4xl mx-auto py-2 sm:py-8 animate-in fade-in zoom-in-95 duration-300">

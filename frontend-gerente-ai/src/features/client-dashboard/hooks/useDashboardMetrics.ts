@@ -196,6 +196,11 @@ export function useDashboardMetrics(
   ] = useState(false);
 
   const [
+    lastUpdated,
+    setLastUpdated,
+  ] = useState<Date | null>(() => new Date());
+
+  const [
     isFiadosLoading,
     setIsFiadosLoading,
   ] = useState(false);
@@ -745,10 +750,13 @@ export function useDashboardMetrics(
     useCallback(
       async (
         isManualRefresh = false,
+        isSilent = false,
       ) => {
-        setIsLoading(true);
+        if (!isSilent) {
+          setIsLoading(true);
+        }
 
-        if (isManualRefresh) {
+        if (isManualRefresh || isSilent) {
           setIsRefreshing(true);
         }
 
@@ -979,7 +987,7 @@ export function useDashboardMetrics(
             Date.now() -
             startTime;
 
-          if (elapsed < 280) {
+          if (!isSilent && elapsed < 280) {
             await new Promise(
               (resolve) =>
                 setTimeout(
@@ -989,11 +997,15 @@ export function useDashboardMetrics(
             );
           }
 
-          setIsLoading(false);
+          if (!isSilent) {
+            setIsLoading(false);
+          }
 
           setIsRefreshing(
             false,
           );
+
+          setLastUpdated(new Date());
         }
       },
       [
@@ -1199,6 +1211,72 @@ export function useDashboardMetrics(
 
   /*
    * ============================================================
+   * MOTOR DE TIEMPO REAL (ZERO-FLICKER REALTIME)
+   * ============================================================
+   * 1. Polling silencioso adaptativo cada 8s (solo si document.visibilityState === 'visible')
+   * 2. Revalidación inmediata al hacer focus en la ventana o cambiar visibilidad
+   * 3. Sincronización multi-pestaña con BroadcastChannel
+   */
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    let channel: BroadcastChannel | null = null;
+
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        channel = new BroadcastChannel("luka_realtime_sync");
+        channel.onmessage = (event) => {
+          if (event.data?.type === "REFRESH_DASHBOARD") {
+            void fetchMetrics(false, true);
+          }
+        };
+      }
+    } catch {
+      // Ignorar si el navegador restringe BroadcastChannel
+    }
+
+    const startPolling = () => {
+      if (timer) clearInterval(timer);
+      timer = setInterval(() => {
+        if (
+          typeof document !== "undefined" &&
+          document.visibilityState === "visible"
+        ) {
+          void fetchMetrics(false, true);
+        }
+      }, 8000);
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "visible"
+      ) {
+        void fetchMetrics(false, true);
+        startPolling();
+      } else {
+        if (timer) {
+          clearInterval(timer);
+          timer = null;
+        }
+      }
+    };
+
+    startPolling();
+    window.addEventListener("focus", handleVisibilityOrFocus);
+    document.addEventListener("visibilitychange", handleVisibilityOrFocus);
+
+    return () => {
+      if (timer) clearInterval(timer);
+      window.removeEventListener("focus", handleVisibilityOrFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityOrFocus);
+      if (channel) {
+        channel.close();
+      }
+    };
+  }, [fetchMetrics]);
+
+  /*
+   * ============================================================
    * CONSOLIDADO
    * ============================================================
    */
@@ -1241,6 +1319,8 @@ export function useDashboardMetrics(
     isChartLoading,
 
     isRefreshing,
+
+    lastUpdated,
 
     error,
 

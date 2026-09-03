@@ -8,6 +8,8 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 
+import { lukaWhatsappUrl } from '@/lib/whatsapp';
+
 interface TransactionEmptyStateProps {
   businessName?: string;
   whatsappNumber?: string;
@@ -15,13 +17,14 @@ interface TransactionEmptyStateProps {
 
 export function TransactionEmptyState({ 
   businessName = 'tu negocio',
-  whatsappNumber = '573043904488'
+  whatsappNumber
 }: TransactionEmptyStateProps) {
 
   const handleOpenWhatsApp = (customPrompt?: string) => {
     const text = customPrompt || `Hola Luka 👋, quiero registrar una operación en ${businessName}.`;
-    const cleanNumber = (whatsappNumber || '573043904488').replace(/[^0-9]/g, '');
-    const url = `https://wa.me/${cleanNumber}?text=${encodeURIComponent(text)}`;
+    const url = whatsappNumber 
+      ? `https://wa.me/${whatsappNumber.replace(/\D/g, '')}?text=${encodeURIComponent(text)}`
+      : lukaWhatsappUrl(text);
     
     window.open(url, '_blank', 'noopener,noreferrer');
   };

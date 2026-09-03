@@ -318,27 +318,23 @@ export function usePlanPermissions() {
   // ============================================================
 
   /*
-   * Plan 1 — Asistente
-   * 1 negocio
-   *
-   * Plan 2 — Gerente
-   * 5 negocios
-   *
-   * Plan 3 — Administrador
-   * 20 negocios
-   *
-   * Plan 4 — Socio
-   * Ilimitado
+   * Plan 1 — Asistente: 1 negocio, 1 sede
+   * Plan 2 — Gerente: 1 negocio, 1 sede premium
+   * Plan 3 — Administrador: 3 negocios, 3 sedes
+   * Plan 4 — Socio: 5 negocios, 5 sedes
+   * Plan 5 — Corporativo: Sedes por definir
    */
 
   const maxNegociosPermitidos =
     planUsuarioId === 1
       ? 1
       : planUsuarioId === 2
-        ? 5
+        ? 1
         : planUsuarioId === 3
-          ? 20
-          : Number.POSITIVE_INFINITY;
+          ? 3
+          : planUsuarioId === 4
+            ? 5
+            : Number.POSITIVE_INFINITY;
 
   const puedeCrearNegocio =
     cantidadNegocios <
@@ -361,7 +357,7 @@ export function usePlanPermissions() {
         } permite administrar hasta ${
           maxNegociosPermitidos ===
           Number.POSITIVE_INFINITY
-            ? "un número ilimitado de"
+            ? "las sedes acordadas de"
             : maxNegociosPermitidos
         } comercio(s). Mejora tu plan para crear múltiples negocios y sucursales.`,
     );
@@ -382,14 +378,10 @@ export function usePlanPermissions() {
   // ============================================================
 
   const planInfo =
-    catalogo.find(
-      (plan) =>
-        plan.id === planUsuarioId,
-    ) ||
-    PLANES_FALLBACK.find(
-      (plan) =>
-        plan.id === planUsuarioId,
-    ) ||
+    (Array.isArray(catalogo) && catalogo.length > 0
+      ? catalogo
+      : PLANES_FALLBACK
+    ).find((p) => p.id === planUsuarioId) ||
     PLANES_FALLBACK[0];
 
   // ============================================================
@@ -397,14 +389,21 @@ export function usePlanPermissions() {
   // ============================================================
 
   const maxSedesPermitidas =
-    planInfo.maxSedes ??
-    (
-      planUsuarioId === 1
+    planUsuarioId === 1
+      ? 1
+      : planUsuarioId === 2
         ? 1
-        : planUsuarioId === 2
-          ? 4
-          : 10
-    );
+        : planUsuarioId === 3
+          ? 3
+          : planUsuarioId === 4
+            ? 5
+            : Number.POSITIVE_INFINITY;
+
+  // Flags de características según plan
+  const puedeVerFiados = planUsuarioId >= 2;
+  const puedeVerRecomendaciones = planUsuarioId >= 2;
+  const puedeExportarExcel = planUsuarioId >= 3;
+  const esMultiSede = planUsuarioId >= 3;
 
   // ============================================================
   // VERIFICAR CREACIÓN DE NEGOCIO
@@ -434,15 +433,27 @@ export function usePlanPermissions() {
     ) {
       onPermitido();
     } else {
-      abrirPaywall(
-        `Tu Plan ${planInfo.nombre} permite administrar hasta ${maxSedesPermitidas} sede(s). Para registrar una nueva sucursal, sube al Plan ${
-          planUsuarioId === 1
-            ? "Gerente"
-            : "Administrador"
-        }.`,
+      const siguientePlan =
+        planUsuarioId === 1
+          ? "Gerente"
+          : planUsuarioId === 2
+            ? "Administrador"
+            : planUsuarioId === 3
+              ? "Socio"
+              : "Corporativo";
+
+      const siguientePlanId =
         planUsuarioId === 1
           ? 2
-          : 3,
+          : planUsuarioId === 2
+            ? 3
+            : planUsuarioId === 3
+              ? 4
+              : 5;
+
+      abrirPaywall(
+        `Tu Plan ${planInfo.nombre} permite administrar hasta ${maxSedesPermitidas} sede(s). Para registrar una nueva sucursal, sube al Plan ${siguientePlan}.`,
+        siguientePlanId,
       );
     }
   };
@@ -468,6 +479,12 @@ export function usePlanPermissions() {
     maxSedesPermitidas,
 
     puedeCrearNegocio,
+
+    puedeVerFiados,
+
+    puedeVerRecomendaciones,
+
+    puedeExportarExcel,
 
     isLoading,
 

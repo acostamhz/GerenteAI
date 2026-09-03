@@ -17,6 +17,7 @@ import { apiClient } from "@/lib/apiClient";
 import { usePlanPermissions } from "@/shared/hooks/usePlanPermissions";
 import { PlanLimitPaywallModal } from "@/shared/components/modals/PlanLimitPaywallModal";
 import { NoBusinessRedirectState } from "@/shared/components/states/NoBusinessRedirectState";
+import { LiveStatusBadge } from "@/shared/components/ui/LiveStatusBadge";
 
 export function CashflowView() {
   // ============================================================
@@ -40,6 +41,9 @@ export function CashflowView() {
     fiados,
     isFiadosLoading,
     isLoading,
+    isRefreshing,
+    lastUpdated,
+    refreshMetrics,
     isChartLoading,
     hasNoBusiness,
     periodo,
@@ -123,11 +127,11 @@ export function CashflowView() {
           <FeaturePaywallState
             onUpgrade={() =>
               abrirPaywall(
-                "El Flujo de caja está disponible a partir del Plan Gerente ($79.900/mes) y Plan Administrador. Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
+                "El Flujo de caja está disponible a partir del Plan Gerente ($39.900/mes). Mejora tu plan para monitorear ingresos, egresos y cuentas por cobrar de tu negocio.",
                 2,
               )
             }
-            badge="Exclusivo para Planes Gerente y Administrador"
+            badge="Disponible a partir del Plan Gerente ($39.900/mes)"
             title={
               <>
                 Ten el control financiero de{" "}
@@ -237,6 +241,14 @@ export function CashflowView() {
             Monitorea los ingresos reales, egresos operativos y
             cuentas pendientes de cobro en tiempo real.
           </p>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <LiveStatusBadge
+            lastUpdated={lastUpdated}
+            isRefreshing={isRefreshing}
+            onManualRefresh={refreshMetrics}
+          />
         </div>
       </div>
 

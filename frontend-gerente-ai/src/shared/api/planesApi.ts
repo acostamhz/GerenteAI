@@ -33,8 +33,7 @@ export type CicloFacturacion =
 export const DESCUENTO_ANUAL = 0.16;
 
 /**
- * Catálogo por defecto basado en la fuente de verdad
- * del backend (PlanesService).
+ * Catálogo comercial oficial de 5 planes para Luka AI.
  */
 export const PLANES_FALLBACK: PlanBackend[] = [
   {
@@ -48,11 +47,9 @@ export const PLANES_FALLBACK: PlanBackend[] = [
   {
     id: 2,
     nombre: 'Gerente',
-    precioMensual: 79900,
-    precioAnual: Math.round(
-      79900 * 12 * (1 - DESCUENTO_ANUAL),
-    ),
-    maxSedes: 4,
+    precioMensual: 39900,
+    precioAnual: 0, // Sin opción anual
+    maxSedes: 1,
     funcionalidades: [
       'reportes_por_producto',
       'reporte_fiados',
@@ -64,11 +61,23 @@ export const PLANES_FALLBACK: PlanBackend[] = [
   {
     id: 3,
     nombre: 'Administrador',
-    precioMensual: 249900,
-    precioAnual: Math.round(
-      249900 * 12 * (1 - DESCUENTO_ANUAL),
-    ),
-    maxSedes: 10,
+    precioMensual: 79900,
+    precioAnual: 799900,
+    maxSedes: 3,
+    funcionalidades: [
+      'reportes_por_producto',
+      'reporte_fiados',
+      'recomendaciones_estadisticas',
+      'anotaciones_por_foto',
+      'anotaciones_por_audio',
+    ],
+  },
+  {
+    id: 4,
+    nombre: 'Socio',
+    precioMensual: 149900,
+    precioAnual: 1449900,
+    maxSedes: 5,
     funcionalidades: [
       'reportes_por_producto',
       'reporte_fiados',
@@ -76,6 +85,22 @@ export const PLANES_FALLBACK: PlanBackend[] = [
       'anotaciones_por_foto',
       'anotaciones_por_audio',
       'ia_avanzada',
+    ],
+  },
+  {
+    id: 5,
+    nombre: 'Corporativo',
+    precioMensual: 0,
+    precioAnual: 0,
+    maxSedes: 0, // Sedes por definir
+    funcionalidades: [
+      'reportes_por_producto',
+      'reporte_fiados',
+      'recomendaciones_estadisticas',
+      'anotaciones_por_foto',
+      'anotaciones_por_audio',
+      'ia_avanzada',
+      'soporte_dedicado',
     ],
   },
 ];
@@ -93,10 +118,11 @@ export const MENSAJES_IA_POR_PLAN: Record<
   number,
   string
 > = {
-  1: '500 mensajes de IA / mes',
-  2: '4.000 mensajes de IA / mes',
-  3: '10.000 mensajes de IA / mes',
-  4: 'Mensajes de IA ilimitados',
+  1: '100 mensajes de IA / mes',
+  2: '600 mensajes de IA / mes',
+  3: '1.500 mensajes de IA / mes',
+  4: '3.000 mensajes de IA / mes',
+  5: 'Mensajes de IA por definir',
 };
 
 export const DESCRIPCIONES_POR_PLAN: Record<
@@ -104,69 +130,21 @@ export const DESCRIPCIONES_POR_PLAN: Record<
   string
 > = {
   1: 'Para dar los primeros pasos y organizar tu negocio con Luka AI.',
-  2: 'El plan ideal para pymes con alto volumen de ventas y sucursales.',
-  3: 'Para empresas consolidadas que requieren IA predictiva y múltiples sedes.',
-  4: 'Soluciones enterprise y alianzas estratégicas a la medida.',
+  2: 'Control financiero total y copiloto con IA para 1 sede comercial.',
+  3: 'Ideal para pymes en expansión con hasta 3 sedes y alto volumen.',
+  4: 'Para empresas consolidadas que requieren IA avanzada y hasta 5 sedes.',
+  5: 'Soluciones enterprise a la medida con soporte prioritario y sedes por definir.',
 };
-
-let cachedPlanesPromise:
-  | Promise<PlanBackend[]>
-  | null = null;
-
-let cachedPlanes:
-  | PlanBackend[]
-  | null = null;
 
 export const planesApi = {
   /**
-   * Obtiene el catálogo comercial oficial de planes
-   * con deduplicación y caché en memoria.
+   * Obtiene el catálogo comercial oficial de 5 planes
+   * de Luka AI.
    */
   async getPlanesCatalogo(
-    forceRefresh = false,
+    _forceRefresh = false,
   ): Promise<PlanBackend[]> {
-    if (!forceRefresh && cachedPlanes) {
-      return cachedPlanes;
-    }
-
-    if (
-      !forceRefresh &&
-      cachedPlanesPromise
-    ) {
-      return cachedPlanesPromise;
-    }
-
-    cachedPlanesPromise =
-      (async () => {
-        try {
-          const catalogo =
-            await apiClient<PlanBackend[]>(
-              '/planes',
-            );
-
-          if (
-            Array.isArray(catalogo) &&
-            catalogo.length > 0
-          ) {
-            cachedPlanes = catalogo;
-            return catalogo;
-          }
-
-          cachedPlanes =
-            PLANES_FALLBACK;
-
-          return PLANES_FALLBACK;
-        } catch {
-          cachedPlanes =
-            PLANES_FALLBACK;
-
-          return PLANES_FALLBACK;
-        } finally {
-          cachedPlanesPromise = null;
-        }
-      })();
-
-    return cachedPlanesPromise;
+    return PLANES_FALLBACK;
   },
 
   /**
