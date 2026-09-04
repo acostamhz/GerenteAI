@@ -788,12 +788,15 @@ export class WhatsAppMessageService {
         correccion,
       );
 
-      if (elegidos.length === 1) {
-        // Contesto cual: se aplica lo que ya habia pedido, sobre el movimiento
-        // que el mismo eligio de la lista.
+      if (
+        elegidos.length === 1 ||
+        (elegidos.length > 1 && correccion.matchAll)
+      ) {
+        // Contesto cual: se aplica lo que ya habia pedido, sobre lo que el
+        // mismo eligio de la lista. Con "todos esos", sobre todos.
         candidatos = elegidos;
         accion = pendiente.action;
-      } else if (!tieneIdentificador(correccion)) {
+      } else if (!tieneIdentificador(correccion) && !correccion.matchAll) {
         // AQUI ESTABA EL DANO: sin identificador y con una lista abierta, el
         // codigo caia en "sin referencia = el ultimo movimiento" y corregia uno
         // que ni siquiera estaba en la lista. Con una pregunta abierta, no
@@ -814,11 +817,31 @@ export class WhatsAppMessageService {
     }
 
     if (candidatos.length === 0) {
+      // Se deja traza de lo que se busco: cuando alguien reporta un "no
+      // encontre" que no deberia serlo, esto es lo unico que dice por que.
+      this.logger.warn(
+        `Correccion sin resultados en sede ${request.businessId}: ${describirBusqueda(correccion)}`,
+      );
+
       return this.plainResult(
         intent,
         renderCorrectionNotFound(correccion, currency),
         meta,
       );
+    }
+
+    // "Elimina estos dos" habla de un grupo, no de uno: no hay que preguntar
+    // cual, hay que ensenar los que se van a ir y esperar el si.
+    if (accion === 'delete' && correccion.matchAll) {
+      this.state.recordarBorrado(request.businessId, {
+        targets: candidatos,
+        period: null,
+      });
+
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderDeleteConfirmation(candidatos, null, currency),
+      };
     }
 
     // Varios candidatos: no se elige por el usuario. Corregir el equivocado es
@@ -973,9 +996,16 @@ export class WhatsAppMessageService {
       return rows.slice(0, 1);
     }
 
-    return rows
-      .filter((row) => coincideConIdentificador(row, correccion))
-      .slice(0, CORRECTION_MAX_CANDIDATES);
+    const coinciden = rows.filter((row) =>
+      coincideConIdentificador(row, correccion),
+    );
+
+    // Con "estos dos" no se recorta a los candidatos de una desambiguacion: se
+    // van a ensenar todos antes de borrar, y recortar dejaria fuera justo los
+    // que el usuario esta senalando.
+    return correccion.matchAll
+      ? coinciden.slice(0, MAX_MOVEMENTS_PER_DELETE)
+      : coinciden.slice(0, CORRECTION_MAX_CANDIDATES);
   }
 
   // --------------------------------------------------- reparto de utilidades
@@ -1626,6 +1656,7 @@ function normalizeCorrection(value: unknown): CorrectionRequest | null {
     newAmount: normalizeAmount(row.newAmount),
     newConcept: cleanText(row.newConcept),
     deleteAll: row.deleteAll === true,
+    matchAll: row.matchAll === true,
   };
 }
 
@@ -1638,6 +1669,28 @@ function normalizeConfirmed(value: unknown): boolean | null {
 function normalizePosition(value: unknown): number | null {
   const numero = Number(value);
   return Number.isInteger(numero) && numero >= 1 ? numero : null;
+}
+
+/**
+ * Con que se busco, en una linea, para el log.
+ *
+ * Cuando alguien reporta que Luka "no encontro" algo que si existe, esto es lo
+ * unico que dice si el problema fue el identificador, la fecha o el texto.
+ */
+function describirBusqueda(correccion: CorrectionRequest): string {
+  const partes = [
+    correccion.reference ? `texto="${correccion.reference}"` : null,
+    correccion.referenceAmount !== null
+      ? `monto=${correccion.referenceAmount}`
+      : null,
+    correccion.referenceDate ? `fecha=${correccion.referenceDate}` : null,
+    correccion.referenceIndex !== null
+      ? `posicion=${correccion.referenceIndex}`
+      : null,
+    correccion.matchAll ? 'todos los que coincidan' : null,
+  ].filter(Boolean);
+
+  return partes.length ? partes.join(', ') : 'sin identificadores';
 }
 
 /** ¿Dijo algo que sirva para saber de cual movimiento habla? */
@@ -1698,6 +1751,11 @@ export function resolverEntreCandidatos(
   candidatos: Transaction[],
   correccion: CorrectionRequest,
 ): Transaction[] {
+  // "Todos esos" sin mas identificadores: son los de la lista, tal cual.
+  if (correccion.matchAll && !tieneIdentificador(correccion)) {
+    return candidatos;
+  }
+
   if (correccion.referenceIndex !== null) {
     const elegido = candidatos[correccion.referenceIndex - 1];
     return elegido ? [elegido] : [];
@@ -2022,6 +2080,9 @@ const CORRECTION_WINDOW_DAYS = 31;
  * muestran los primeros y se dice cuantos faltan.
  */
 const DELETE_PREVIEW_MAX = 10;
+
+/** Tope de un borrado por grupo. Mas que esto es un "borra todo el dia". */
+const MAX_MOVEMENTS_PER_DELETE = 50;
 
 const CORRECTION_MAX_CANDIDATES = 5;
 
@@ -2363,19 +2424,22 @@ export function renderCorrectionNotFound(
   correccion: CorrectionRequest,
   currency: string,
 ): string {
-  if (correccion.referenceDate) {
-    return `No encontré ningún movimiento del ${correccion.referenceDate}. ¿Me dices de cuál se trata?`;
+  // Se nombran TODOS los criterios, no solo el primero: buscar por fecha Y por
+  // texto a la vez y no encontrar nada se explicaba antes como si solo hubiera
+  // fallado la fecha, y el usuario no entendia por que.
+  const criterios = [
+    correccion.referenceDate ? `del ${correccion.referenceDate}` : null,
+    correccion.referenceAmount !== null
+      ? `por ${formatMoney(correccion.referenceAmount, currency)}`
+      : null,
+    correccion.reference ? `que mencione "${correccion.reference}"` : null,
+  ].filter(Boolean);
+
+  if (!criterios.length) {
+    return 'No encontré movimientos recientes para corregir.';
   }
 
-  if (correccion.referenceAmount !== null) {
-    return `No encontré ningún movimiento por ${formatMoney(correccion.referenceAmount, currency)}. ¿Me dices de cuál se trata?`;
-  }
-
-  if (correccion.reference) {
-    return `No encontré ningún movimiento que mencione "${correccion.reference}". ¿Me dices de cuál se trata?`;
-  }
-
-  return 'No encontré movimientos recientes para corregir.';
+  return `No encontré ningún movimiento ${criterios.join(' y ')}. ¿Me dices de cuál se trata?`;
 }
 
 /**

@@ -21,6 +21,13 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v15: borrar un grupo de movimientos, no solo uno.
+ *
+ * "Elimina estos dos", citando el mensaje donde Luka los acababa de listar,
+ * caia en el camino de "buscar uno" y respondia que no encontraba nada. Ahora
+ * existe matchAll: el usuario esta senalando un grupo entero.
+ *
+ * ---------------------------------------------------------------------------
  * v14: descuentos y unidades.
  *
  * Una factura trae subtotal, descuento y total a pagar. Sin un campo para el
@@ -70,7 +77,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v14';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v15';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -165,7 +172,8 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
     "referenceIndex": number | null,
     "newAmount": number | null,
     "newConcept": string | null,
-    "deleteAll": boolean
+    "deleteAll": boolean,
+    "matchAll": boolean
   } | null,
   "payment": {
     "customerName": string,
@@ -367,6 +375,21 @@ REGLAS DE INTERPRETACIÓN:
       "Borra el último registro"      -> action "delete", deleteAll false
       "Elimina el gasto de almuerzo"  -> action "delete", reference "almuerzo"
 
+   c2) BORRAR VARIOS QUE EL USUARIO ESTÁ SEÑALANDO:
+      "Elimina estos dos"      -> action "delete", matchAll true
+      "Borra esos"             -> action "delete", matchAll true
+      "Elimina ambos"          -> action "delete", matchAll true
+      "Borra los tres de hoy"  -> action "delete", matchAll true, referenceDate
+
+      Se usa cuando habla de un GRUPO que él ya tiene a la vista: los que le
+      acabas de listar, o los del mensaje que está citando. Pon además los
+      identificadores que puedas sacar de ahí (la fecha, el concepto), pero
+      NO uno solo de ellos: matchAll dice "todos los que encajen".
+
+      Diferencia con lo anterior:
+        "Borra el gasto de almuerzo"  -> uno solo, matchAll false
+        "Borra esos dos"              -> el grupo, matchAll true
+
    d) BORRAR TODO UN PERIODO:
       "Borra todos los registros de hoy"    -> action "delete", deleteAll true,
                                                queryPeriod "day"
@@ -393,6 +416,12 @@ REGLAS DE INTERPRETACIÓN:
    Ponerlo en newAmount sobrescribe el movimiento con la cifra que solo servía
    para nombrarlo. Ya pasó una vez y le cambió el monto a una compra que no
    tenía nada que ver.
+
+   SI EL USUARIO ESTÁ RESPONDIENDO A UN MENSAJE CITADO:
+   El contexto te dice a qué mensaje está respondiendo. Si en ese mensaje tú
+   listaste movimientos y ahora dice "elimina estos", "corrige el segundo" o
+   "ese está mal", se refiere a ESOS, no a los últimos que se registraron.
+   Saca de ahí la fecha, el concepto o el monto para identificarlos.
 
    CUANDO ESTÁS RESOLVIENDO UNA AMBIGÜEDAD:
    Si en tu mensaje anterior mostraste una lista numerada y preguntaste cuál, lo
@@ -606,8 +635,11 @@ Respuesta: {"type":"expense","movements":[{"type":"expense","amount":768000,"cat
 Mensaje: "Compré 500.000 en mercancía pero me hicieron 50.000 de descuento"
 Respuesta: {"type":"expense","movements":[{"type":"expense","amount":500000,"category":"mercancia","concept":"Mercancía","paymentMethod":null,"isCredit":false,"customerName":null,"quantity":null,"date":null}],"declaredTotal":450000,"discount":50000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Registro la compra con el descuento.","confidence":0.95}
 
+Mensaje: "Elimina estos dos"  (citando un mensaje tuyo que listaba dos ventas del 4 de septiembre)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":"2026-09-04","referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":true},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Déjame ver cuáles son.","confidence":0.9}
+
 Mensaje: "Borra todos los registros de hoy"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":true},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":true,"matchAll":false},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
 
 Mensaje: "sí"  (venías de preguntar si confirma un borrado)
 Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
@@ -646,22 +678,22 @@ Mensaje: "¿Cuál es el producto que más vendo?" (plan Asistente)
 Respuesta: {"type":"premium","movements":[],"declaredTotal":null,"profitShares":[],"concept":"reporte por producto","queryKind":null,"queryPeriod":null,"responseText":"Los reportes por producto están disponibles en los planes pagos.","confidence":0.9}
 
 Mensaje: "El último gasto no fueron 50.000 sino 60.000"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":60000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":60000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
 
 Mensaje: "Borra el gasto de almuerzo"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
 
 Mensaje: "Corrige venta 1554000"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":"venta","referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregir esa venta.","confidence":0.9}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":"venta","referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregir esa venta.","confidence":0.9}
 
 Mensaje: "3 de septiembre"  (venías de mostrar una lista y preguntar cuál corregir, con newAmount 1554000)
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":"2026-09-03","referenceIndex":null,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo esa.","confidence":0.9}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":"2026-09-03","referenceIndex":null,"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo esa.","confidence":0.9}
 
 Mensaje: "La primera opción que me das"  (misma situación)
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":1,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la primera.","confidence":0.9}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":1,"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la primera.","confidence":0.9}
 
 Mensaje: "Es la de 1.530.000"  (misma situación)
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":1530000,"referenceDate":null,"referenceIndex":null,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la de 1.530.000.","confidence":0.9}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":1530000,"referenceDate":null,"referenceIndex":null,"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la de 1.530.000.","confidence":0.9}
 
 Mensaje: "Gasté como 500 en unas cosas"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Tengo el monto de $500, pero ¿podrías decirme en qué lo gastaste? Así lo clasifico mejor.","confidence":0.4}`;
@@ -900,6 +932,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         'newAmount',
         'newConcept',
         'deleteAll',
+        'matchAll',
       ],
       description:
         'Que corregir de un movimiento ya registrado. null si el mensaje no pide corregir nada.',
@@ -941,6 +974,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
           type: 'boolean',
           description:
             'true solo si pidio borrar TODOS los del periodo, no uno suelto.',
+        },
+        matchAll: {
+          type: 'boolean',
+          description:
+            'true si habla de un grupo que ya tiene a la vista ("estos dos", "esos", "ambos").',
         },
       },
     },

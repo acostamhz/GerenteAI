@@ -205,7 +205,7 @@ export class WhatsappInterpretService {
     }
 
     this.logger.log(
-      `Mensaje de ${dto.name ?? 'sin nombre'} (${describeSender(sender)}): "${dto.message.slice(0, 120)}"`,
+      `Mensaje de ${dto.name ?? 'sin nombre'} (${describeSender(sender)}): "${dto.message.slice(0, 120)}"${dto.quotedMessageId ? ' [responde a un mensaje citado]' : ''}${dto.media ? ` [${dto.media.kind}]` : ''}`,
     );
 
     // ---- 1. Duplicados ----------------------------------------------------
@@ -280,6 +280,14 @@ export class WhatsappInterpretService {
       this.loadHistory(context.sedeId, remitente),
       this.loadQuoted(context.sedeId, dto.quotedMessageId),
     ]);
+
+    // Sin esto no hay forma de saber, leyendo los logs, si una cita no llego o
+    // si llego y el modelo la ignoro.
+    if (dto.quotedMessageId && !quotedMessage) {
+      this.logger.warn(
+        `El mensaje citado ${dto.quotedMessageId} no esta guardado: la respuesta se interpreta sin ese contexto.`,
+      );
+    }
 
     // ---- 4. Interpretacion ------------------------------------------------
     let result: WhatsAppMessageResult;

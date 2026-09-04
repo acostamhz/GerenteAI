@@ -262,6 +262,15 @@ export interface CorrectionRequest {
    * movimiento suelto. El periodo viaja en `queryPeriod`.
    */
   deleteAll: boolean;
+  /**
+   * true cuando habla de un GRUPO de movimientos, no de uno: "elimina estos
+   * dos", "borra esos", "ambos".
+   *
+   * Sin esto, referirse a varios caia en el camino de "buscar uno" y Luka
+   * respondia que no encontraba nada o preguntaba cual, cuando el usuario ya
+   * habia dicho que eran todos los que estaba senalando.
+   */
+  matchAll: boolean;
 }
 
 /** Que clase de consulta hizo el usuario. */
