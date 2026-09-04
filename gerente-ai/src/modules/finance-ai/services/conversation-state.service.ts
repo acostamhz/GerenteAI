@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 
-import type { Transaction } from '../domain/finance.types';
+import type { QueryPeriod, Transaction } from '../domain/finance.types';
 
 /**
  * Lo que quedo a medias en la conversacion y hay que recordar para el proximo
@@ -17,13 +17,15 @@ import type { Transaction } from '../domain/finance.types';
  * significar "el ultimo". Significa que hay que volver a preguntar.
  *
  * ALCANCE: memoria del proceso, igual que `MessageDedupeService`. Alcanza
- * porque hay una sola instancia y porque una desambiguacion se resuelve en
- * segundos: el usuario esta escribiendo del otro lado. Si el backend reinicia
- * en la mitad, la pregunta se pierde y Luka vuelve a preguntar, que es el
- * comportamiento seguro. Cuando haya varias instancias, esto se mueve a una
- * tabla.
+ * porque hay una sola instancia y porque una pregunta se resuelve en segundos:
+ * el usuario esta escribiendo del otro lado. Si el backend reinicia en la
+ * mitad, la pregunta se pierde y Luka vuelve a preguntar, que es el
+ * comportamiento seguro. Con varias instancias, esto se mueve a una tabla.
  */
+
+/** Cual de varios movimientos parecidos hay que tocar. */
 export interface PendingCorrection {
+  kind: 'correction';
   action: 'update' | 'delete';
   /** Los movimientos que se le mostraron al usuario, en el mismo orden. */
   candidates: Transaction[];
@@ -33,50 +35,97 @@ export interface PendingCorrection {
   at: number;
 }
 
+/**
+ * Un borrado esperando el "si".
+ *
+ * Borrar no se deshace, asi que nunca se ejecuta en el mismo turno en que se
+ * pide: primero se le enseña al usuario exactamente que se va a ir.
+ */
+export interface PendingDeletion {
+  kind: 'deletion';
+  /** Los movimientos que se borrarian, tal como se le enseñaron. */
+  targets: Transaction[];
+  /** El periodo, cuando el borrado era masivo ("todo lo de hoy"). */
+  period: QueryPeriod | null;
+  at: number;
+}
+
+export type PendingAction = PendingCorrection | PendingDeletion;
+
 @Injectable()
 export class ConversationStateService {
   private readonly logger = new Logger(ConversationStateService.name);
-  private readonly pendientes = new Map<string, PendingCorrection>();
+  private readonly pendientes = new Map<string, PendingAction>();
 
   /**
    * Cuanto sobrevive una pregunta sin responder.
    *
-   * Corto a proposito: si el usuario vuelve media hora despues con un "la
-   * primera", ya no se acuerda de cual lista hablaba, y aplicar un cambio a
-   * ciegas es justo lo que se quiere evitar.
+   * Corto a proposito: si el usuario vuelve media hora despues con un "si", ya
+   * no se acuerda de que estaba confirmando, y ejecutar un borrado a ciegas es
+   * justo lo que se quiere evitar.
    */
   private readonly ttlMs = 10 * 60 * 1_000;
 
   /**
-   * La clave es la SEDE, igual que el historial de la conversacion. Hereda su
-   * limitacion: dos personas escribiendo desde el mismo negocio comparten la
-   * pregunta abierta.
+   * Solo cabe una pregunta abierta por sede: Luka pregunta una cosa a la vez.
+   *
+   * La clave es la SEDE, igual que el historial. Hereda su limitacion: dos
+   * personas escribiendo desde el mismo negocio comparten la pregunta abierta.
    */
-  recordarCorreccion(
-    businessId: string,
-    pendiente: Omit<PendingCorrection, 'at'>,
-  ): void {
-    this.pendientes.set(businessId, { ...pendiente, at: Date.now() });
+  private recordar(businessId: string, accion: PendingAction): void {
+    this.pendientes.set(businessId, accion);
     this.logger.debug(
-      `Correccion pendiente en sede ${businessId}: ${pendiente.candidates.length} candidatos.`,
+      `Pregunta abierta (${accion.kind}) en sede ${businessId}.`,
     );
   }
 
-  /** La pregunta abierta de esa sede, si sigue vigente. */
-  correccionPendiente(businessId: string): PendingCorrection | null {
-    const pendiente = this.pendientes.get(businessId);
-    if (!pendiente) return null;
+  recordarCorreccion(
+    businessId: string,
+    pendiente: Omit<PendingCorrection, 'at' | 'kind'>,
+  ): void {
+    this.recordar(businessId, {
+      ...pendiente,
+      kind: 'correction',
+      at: Date.now(),
+    });
+  }
 
-    if (Date.now() - pendiente.at > this.ttlMs) {
+  recordarBorrado(
+    businessId: string,
+    pendiente: Omit<PendingDeletion, 'at' | 'kind'>,
+  ): void {
+    this.recordar(businessId, {
+      ...pendiente,
+      kind: 'deletion',
+      at: Date.now(),
+    });
+  }
+
+  /** La pregunta abierta de esa sede, si sigue vigente. */
+  pendiente(businessId: string): PendingAction | null {
+    const abierta = this.pendientes.get(businessId);
+    if (!abierta) return null;
+
+    if (Date.now() - abierta.at > this.ttlMs) {
       this.pendientes.delete(businessId);
       return null;
     }
 
-    return pendiente;
+    return abierta;
+  }
+
+  correccionPendiente(businessId: string): PendingCorrection | null {
+    const abierta = this.pendiente(businessId);
+    return abierta?.kind === 'correction' ? abierta : null;
+  }
+
+  borradoPendiente(businessId: string): PendingDeletion | null {
+    const abierta = this.pendiente(businessId);
+    return abierta?.kind === 'deletion' ? abierta : null;
   }
 
   /** Se resolvio (o el usuario cambio de tema): deja de haber pregunta abierta. */
-  olvidarCorreccion(businessId: string): void {
+  olvidar(businessId: string): void {
     this.pendientes.delete(businessId);
   }
 }

@@ -32,7 +32,15 @@ export type MessageIntentType =
    * aparte, con lo cual el dinero se contaba dos veces y la deuda del cliente
    * nunca bajaba.
    */
-  | 'payment';
+  | 'payment'
+  /**
+   * Contesto que si o que no a algo que Luka le pregunto.
+   *
+   * Solo tiene sentido cuando hay una pregunta abierta. Sirve para que borrar
+   * nunca ocurra en el mismo turno en que se pide: primero se le enseña que se
+   * va a ir, y solo despues se ejecuta.
+   */
+  | 'confirmation';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';
@@ -241,6 +249,11 @@ export interface CorrectionRequest {
   /** Monto corregido. Solo el valor NUEVO, nunca el que identifica. */
   newAmount: number | null;
   newConcept: string | null;
+  /**
+   * true cuando pidio borrar TODO un periodo ("borra todo lo de hoy"), no un
+   * movimiento suelto. El periodo viaja en `queryPeriod`.
+   */
+  deleteAll: boolean;
 }
 
 /** Que clase de consulta hizo el usuario. */
@@ -283,6 +296,11 @@ export interface MessageIntent {
   correction: CorrectionRequest | null;
   /** El abono, cuando el mensaje avisa que le pagaron un fiado. */
   payment: PaymentDraft | null;
+  /**
+   * Respuesta a una pregunta de si o no. null cuando el mensaje no contesta
+   * ninguna, o cuando contesto algo que no es ni si ni no.
+   */
+  confirmed: boolean | null;
   /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.

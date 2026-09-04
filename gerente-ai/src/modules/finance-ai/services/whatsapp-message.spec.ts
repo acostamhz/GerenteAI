@@ -1502,7 +1502,8 @@ describe('WhatsAppMessageService - correcciones', () => {
     });
   });
 
-  it('borra un movimiento cuando lo piden', async () => {
+  it('pide confirmación antes de borrar, mostrando qué se va a ir', async () => {
+    // Borrar no se deshace: nunca ocurre en el mismo turno en que se pide.
     const { service, financeData } = buildService(
       {
         type: 'correction',
@@ -1517,8 +1518,10 @@ describe('WhatsAppMessageService - correcciones', () => {
       persist: true,
     });
 
-    expect(financeData.deleted).toEqual(['almuerzo']);
-    expect(result.replyText).toContain('Eliminé');
+    expect(financeData.deleted).toEqual([]);
+    expect(result.replyText).toContain('Almuerzo');
+    expect(result.replyText).toContain('$30.000');
+    expect(result.replyText).toContain('¿Lo confirmas?');
   });
 });
 
@@ -2556,5 +2559,110 @@ describe('WhatsAppMessageService · ¿quién me debe?', () => {
     });
 
     expect(result.replyText).toContain('Nadie te debe nada');
+  });
+});
+
+// ===========================================================================
+// BORRAR SIEMPRE PREGUNTA ANTES
+//
+// Borrar no se deshace. El que se equivoca de movimiento pierde el dato, así
+// que nunca se ejecuta en el mismo turno en que se pide.
+// ===========================================================================
+
+describe('WhatsAppMessageService · borrar con confirmación', () => {
+  it('el "sí" ejecuta el borrado que quedó pendiente', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Galería' }),
+    });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(pregunta.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['galeria']);
+  });
+
+  it('el "no" deja todo como estaba', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Galería' }),
+    });
+
+    const respuesta = await decir({ type: 'confirmation', confirmed: false });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(respuesta.replyText).toContain('no borré nada');
+  });
+
+  it('un "sí" sin nada pendiente no borra nada', async () => {
+    // Sin pregunta abierta no hay forma de saber qué estaría confirmando.
+    const { decir, financeData } = buildConversacion();
+
+    const respuesta = await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(respuesta.intent.type).toBe('unclear');
+  });
+
+  it('cambiar de tema cancela el borrado pendiente', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Galería' }),
+    });
+
+    // Registra un gasto en vez de contestar.
+    await decir({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 9_000, category: 'transporte', concept: 'Bus' }),
+      ],
+    });
+
+    // Y ahora un "sí" ya no puede resucitar el borrado.
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('"borra todo lo de hoy" enumera qué se va a ir antes de preguntar', async () => {
+    // Un "¿seguro?" a ciegas sobre catorce movimientos no es una confirmación.
+    const { decir, financeData } = buildConversacion();
+
+    const pregunta = await decir({
+      type: 'correction',
+      queryPeriod: 'day',
+      correction: correccion({ action: 'delete', deleteAll: true }),
+    });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(pregunta.replyText).toContain('TODOS');
+    expect(pregunta.replyText).toContain('Mercancía · Galería');
+    expect(pregunta.replyText).toContain('no se puede deshacer');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    // Los cuatro del fixture.
+    expect(financeData.deleted).toHaveLength(4);
+  });
+
+  it('no hay nada que borrar y lo dice', async () => {
+    const { decir, financeData } = buildConversacion([]);
+
+    const respuesta = await decir({
+      type: 'correction',
+      queryPeriod: 'day',
+      correction: correccion({ action: 'delete', deleteAll: true }),
+    });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(respuesta.replyText).toContain('No tienes movimientos');
   });
 });

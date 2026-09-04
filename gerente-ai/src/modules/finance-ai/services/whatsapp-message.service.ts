@@ -45,7 +45,9 @@ import {
 } from '../ports/finance-data.port';
 import {
   ConversationStateService,
+  type PendingAction,
   type PendingCorrection,
+  type PendingDeletion,
 } from './conversation-state.service';
 import {
   WHATSAPP_ASSISTANT_PROMPT_VERSION,
@@ -167,7 +169,7 @@ export class WhatsAppMessageService {
     // Si quedo una pregunta sin responder, el modelo tiene que verla: de otro
     // modo lee "3 de septiembre" como un mensaje suelto y no como la respuesta
     // que es.
-    const pendiente = this.state.correccionPendiente(request.businessId);
+    const pendiente = this.state.pendiente(request.businessId);
 
     const context: AiCallContext = {
       tenantId: request.tenantId,
@@ -235,8 +237,12 @@ export class WhatsAppMessageService {
     // Cambiar de tema cierra la pregunta abierta. Dejarla viva haria que una
     // correccion de dentro de un rato se resolviera contra una lista que ya no
     // tiene nada que ver con lo que se esta hablando.
-    if (intent.type !== 'correction' && intent.type !== 'unclear') {
-      this.state.olvidarCorreccion(request.businessId);
+    if (
+      intent.type !== 'correction' &&
+      intent.type !== 'confirmation' &&
+      intent.type !== 'unclear'
+    ) {
+      this.state.olvidar(request.businessId);
     }
 
     switch (intent.type) {
@@ -260,6 +266,9 @@ export class WhatsAppMessageService {
           referenceDate,
           meta,
         );
+
+      case 'confirmation':
+        return this.handleConfirmation(intent, request, currency, meta);
 
       case 'income':
       case 'expense':
@@ -358,6 +367,60 @@ export class WhatsAppMessageService {
           ? intent.responseText
           : renderMovementsRegistered(transactions, currency),
       meta,
+    };
+  }
+
+  /**
+   * El usuario contesto a una pregunta de si o no.
+   *
+   * Hoy la unica que se hace asi es la de borrar. Borrar no se deshace, y por
+   * eso nunca ocurre en el turno en que se pide: se le enseña exactamente que
+   * se va a ir y solo despues se ejecuta.
+   */
+  private async handleConfirmation(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const borrado = this.state.borradoPendiente(request.businessId);
+
+    if (!borrado) {
+      // Un "si" sin pregunta abierta no puede ejecutar nada: no hay forma de
+      // saber que estaba confirmando.
+      return this.plainResult(
+        { ...intent, type: 'unclear' },
+        'No tengo nada pendiente de confirmar 😅 ¿Qué necesitas?',
+        meta,
+      );
+    }
+
+    this.state.olvidar(request.businessId);
+
+    if (intent.confirmed !== true) {
+      return this.plainResult(
+        intent,
+        'Listo, no borré nada. Todo queda como estaba 👍',
+        meta,
+      );
+    }
+
+    if (request.persist) {
+      for (const objetivo of borrado.targets) {
+        await this.financeData.deleteTransaction(
+          request.businessId,
+          objetivo.id,
+        );
+      }
+    }
+
+    this.logger.log(
+      `Borrados ${borrado.targets.length} movimientos en sede ${request.businessId} tras confirmacion.`,
+    );
+
+    return {
+      ...this.plainResult(intent, '', meta),
+      replyText: renderDeletedMany(borrado.targets, currency),
     };
   }
 
@@ -563,6 +626,11 @@ export class WhatsAppMessageService {
       );
     }
 
+    // "Borra todo lo de hoy" no busca un movimiento: los junta todos.
+    if (correccion.action === 'delete' && correccion.deleteAll) {
+      return this.handleDeleteAll(intent, request, currency, meta);
+    }
+
     const pendiente = this.state.correccionPendiente(request.businessId);
 
     // El usuario no repite el valor nuevo cuando solo esta contestando "cual":
@@ -599,7 +667,7 @@ export class WhatsAppMessageService {
       } else {
         // Dio un identificador que no cuadra con la lista: esta hablando de
         // otra cosa. Se cierra la pregunta y se busca de cero.
-        this.state.olvidarCorreccion(request.businessId);
+        this.state.olvidar(request.businessId);
         candidatos = await this.buscarParaCorregir(request, correccion);
       }
     } else {
@@ -632,18 +700,19 @@ export class WhatsAppMessageService {
     }
 
     const objetivo = candidatos[0];
-    this.state.olvidarCorreccion(request.businessId);
+    this.state.olvidar(request.businessId);
 
     if (accion === 'delete') {
-      if (request.persist) {
-        await this.financeData.deleteTransaction(
-          request.businessId,
-          objetivo.id,
-        );
-      }
+      // No se borra todavia: primero se le enseña que se va a ir. Un borrado
+      // no se deshace, y el que se equivoca de movimiento pierde el dato.
+      this.state.recordarBorrado(request.businessId, {
+        targets: [objetivo],
+        period: null,
+      });
+
       return {
         ...this.plainResult(intent, '', meta),
-        replyText: renderDeleted(objetivo, currency),
+        replyText: renderDeleteConfirmation([objetivo], null, currency),
       };
     }
 
@@ -691,6 +760,47 @@ export class WhatsAppMessageService {
    * quiere decir con "el ultimo gasto". Con referencia se busca por texto y se
    * devuelven todas las coincidencias, para poder preguntar si hay varias.
    */
+  /**
+   * "Borra todos los registros de hoy".
+   *
+   * Se listan uno por uno antes de preguntar: un "¿seguro?" a ciegas sobre
+   * catorce movimientos no es una confirmacion, es una apuesta.
+   */
+  private async handleDeleteAll(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    const period = intent.queryPeriod ?? 'day';
+    const { from, to } = periodRange(period, new Date(), diaInicioDe(request));
+
+    const movimientos = await this.financeData.listTransactions({
+      businessId: request.businessId,
+      from,
+      to,
+      limit: 1_000,
+    });
+
+    if (!movimientos.length) {
+      return this.plainResult(
+        intent,
+        `No tienes movimientos registrados ${PERIOD_LABELS[period]} para borrar.`,
+        meta,
+      );
+    }
+
+    this.state.recordarBorrado(request.businessId, {
+      targets: movimientos,
+      period,
+    });
+
+    return {
+      ...this.plainResult(intent, '', meta),
+      replyText: renderDeleteConfirmation(movimientos, period, currency),
+    };
+  }
+
   /**
    * Movimientos que encajan con lo que el usuario dijo para identificar cual.
    *
@@ -906,6 +1016,7 @@ export class WhatsAppMessageService {
         amount: null,
         category: null,
         payment: null,
+        confirmed: null,
         queryKind: null,
         queryPeriod: null,
         // Si no se pudo completar, la interpretacion no puede considerarse
@@ -946,6 +1057,7 @@ export class WhatsAppMessageService {
       profitShares: normalizeProfitShares(output?.profitShares),
       correction: normalizeCorrection(output?.correction),
       payment,
+      confirmed: normalizeConfirmed(output?.confirmed),
       amount,
       category,
       concept: conceptoEfectivo,
@@ -1153,6 +1265,7 @@ const INTENT_TYPES: MessageIntentType[] = [
   'out_of_scope',
   'premium',
   'payment',
+  'confirmation',
 ];
 
 const TRANSACTION_TYPES: TransactionType[] = [
@@ -1312,7 +1425,13 @@ function normalizeCorrection(value: unknown): CorrectionRequest | null {
     referenceIndex: normalizePosition(row.referenceIndex),
     newAmount: normalizeAmount(row.newAmount),
     newConcept: cleanText(row.newConcept),
+    deleteAll: row.deleteAll === true,
   };
+}
+
+/** Un si o un no. Cualquier otra cosa es "no contesto". */
+function normalizeConfirmed(value: unknown): boolean | null {
+  return typeof value === 'boolean' ? value : null;
 }
 
 /** Posicion en una lista, desde 1. Cualquier otra cosa es null. */
@@ -1661,6 +1780,13 @@ const LIST_MAX_RESULTS = 20;
 const CORRECTION_WINDOW_DAYS = 31;
 
 /** Mas candidatos que esto no se listan: la pregunta se vuelve ilegible. */
+/**
+ * Cuantos movimientos se enumeran antes de pedir confirmacion de un borrado
+ * masivo. Una lista de cincuenta lineas en WhatsApp no la lee nadie; se
+ * muestran los primeros y se dice cuantos faltan.
+ */
+const DELETE_PREVIEW_MAX = 10;
+
 const CORRECTION_MAX_CANDIDATES = 5;
 
 const SEARCH_WINDOW_DAYS = 120;
@@ -1884,6 +2010,65 @@ export function renderAmbiguousCorrection(
  * entiende sabiendo cual de las cosas que dijo Luka es, y un mensaje propio de
  * hace semanas necesita su fecha para ubicarse.
  */
+/**
+ * Lo que se va a borrar, antes de borrarlo.
+ *
+ * Se enumeran los movimientos con su fecha, concepto y monto: un "¿seguro?"
+ * sin decir sobre que no es una confirmacion. Y borrar no se deshace.
+ */
+export function renderDeleteConfirmation(
+  objetivos: Transaction[],
+  period: QueryPeriod | null,
+  currency: string,
+): string {
+  const total = objetivos.reduce((suma, row) => suma + row.amount, 0);
+
+  if (objetivos.length === 1) {
+    return [
+      '⚠️ Voy a borrar este movimiento:',
+      movementLine(objetivos[0], currency),
+      '',
+      '¿Lo confirmas? Respóndeme "sí" o "no".',
+    ].join('\n');
+  }
+
+  // Con muchos, se muestran los primeros y se dice cuantos faltan: una lista
+  // de cincuenta lineas en WhatsApp no la lee nadie, y hay que decir la verdad
+  // sobre cuantos son.
+  const mostrados = objetivos.slice(0, DELETE_PREVIEW_MAX);
+  const lineas = mostrados.map((row) => movementLine(row, currency));
+
+  const encabezado = period
+    ? `⚠️ Voy a borrar TODOS tus movimientos ${PERIOD_LABELS[period]} (${objetivos.length}):`
+    : `⚠️ Voy a borrar estos ${objetivos.length} movimientos:`;
+
+  const resto =
+    objetivos.length > mostrados.length
+      ? [`...y ${objetivos.length - mostrados.length} más.`]
+      : [];
+
+  return [
+    encabezado,
+    ...lineas,
+    ...resto,
+    '',
+    `En total son ${formatMoney(total, currency)}. Esto no se puede deshacer.`,
+    '¿Lo confirmas? Respóndeme "sí" o "no".',
+  ].join('\n');
+}
+
+/** Lo que se borro, ya hecho. */
+export function renderDeletedMany(
+  borrados: Transaction[],
+  currency: string,
+): string {
+  if (borrados.length === 1) return renderDeleted(borrados[0], currency);
+
+  const total = borrados.reduce((suma, row) => suma + row.amount, 0);
+
+  return `🗑️ Listo, borré ${borrados.length} movimientos por ${formatMoney(total, currency)}.`;
+}
+
 export function renderQuotedMessage(quoted: {
   fromLuka: boolean;
   date: string;
@@ -1925,6 +2110,33 @@ export function renderCorrectionNotFound(
  * "la primera" sin saber primera de que, y devuelve cualquier cosa.
  */
 export function renderPendingQuestion(
+  pendiente: PendingAction,
+  currency: string,
+): string {
+  return pendiente.kind === 'deletion'
+    ? renderPendingDeletion(pendiente, currency)
+    : renderPendingCorrection(pendiente, currency);
+}
+
+/** Espera un si o un no, y nada mas. */
+function renderPendingDeletion(
+  pendiente: PendingDeletion,
+  currency: string,
+): string {
+  const total = pendiente.targets.reduce((suma, row) => suma + row.amount, 0);
+
+  return [
+    'PREGUNTA ABIERTA (lo mas importante de este turno):',
+    `Le acabas de preguntar si confirma borrar ${pendiente.targets.length} movimiento(s) por ${formatMoney(total, currency)}.`,
+    'El mensaje que sigue es la RESPUESTA a esa pregunta. Devuelve type',
+    '"confirmation" con confirmed true si dijo que si ("si", "dale", "hazlo",',
+    '"confirmo") o false si dijo que no ("no", "mejor no", "cancela").',
+    'Si contesta otra cosa distinta de si o no, entonces NO es una',
+    'confirmacion: interpretalo normalmente.',
+  ].join('\n');
+}
+
+function renderPendingCorrection(
   pendiente: PendingCorrection,
   currency: string,
 ): string {

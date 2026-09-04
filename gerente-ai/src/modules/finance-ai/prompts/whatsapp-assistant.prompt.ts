@@ -21,6 +21,14 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v12: borrar pregunta antes, y hay una intencion para el si o el no.
+ *
+ * Borrar no se deshace, asi que ya no ocurre en el mismo turno en que se
+ * pide: Luka enseña exactamente que se va a ir y espera la confirmacion. Eso
+ * necesita un type nuevo, "confirmation", porque un "si" suelto no se puede
+ * interpretar de ninguna otra forma.
+ *
+ * ---------------------------------------------------------------------------
  * v11: una correccion distingue CUAL movimiento de QUE cambiarle.
  *
  * Hasta v10 solo habia "reference", un texto que se buscaba dentro de la
@@ -47,7 +55,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v11';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v12';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -82,6 +90,7 @@ export interface WhatsAppIntentOutput {
     referenceIndex?: number | string | null;
     newAmount?: number | string | null;
     newConcept?: string | null;
+    deleteAll?: boolean | null;
   } | null;
   payment?: {
     customerName?: string | null;
@@ -94,6 +103,7 @@ export interface WhatsAppIntentOutput {
   queryPeriod?: string | null;
   responseText?: string;
   confidence?: number | string;
+  confirmed?: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,7 +121,7 @@ SIEMPRE responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin bloqu
 código, sin markdown. El JSON debe tener esta estructura exacta:
 
 {
-  "type": "income" | "expense" | "investment" | "payment" | "breakdown" | "profit_share" | "query" | "correction" | "unclear" | "out_of_scope" | "premium",
+  "type": "income" | "expense" | "investment" | "payment" | "breakdown" | "profit_share" | "query" | "correction" | "confirmation" | "unclear" | "out_of_scope" | "premium",
   "movements": [
     {
       "type": "income" | "expense" | "investment",
@@ -135,7 +145,8 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
     "referenceDate": "YYYY-MM-DD" | null,
     "referenceIndex": number | null,
     "newAmount": number | null,
-    "newConcept": string | null
+    "newConcept": string | null,
+    "deleteAll": boolean
   } | null,
   "payment": {
     "customerName": string,
@@ -146,6 +157,7 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
   "concept": string | null,
   "queryKind": "summary" | "list" | "search" | "receivables" | null,
   "queryPeriod": "day" | "week" | "month" | null,
+  "confirmed": boolean | null,
   "responseText": "texto de respuesta para el usuario",
   "confidence": number entre 0 y 1
 }
@@ -308,9 +320,21 @@ REGLAS DE INTERPRETACIÓN:
       "Ese gasto no era almuerzo, era transporte"
       -> action "update", reference "almuerzo", newConcept "Transporte"
 
-   c) BORRAR:
-      "Borra el último registro"      -> action "delete", reference null
+   c) BORRAR UNO:
+      "Borra el último registro"      -> action "delete", deleteAll false
       "Elimina el gasto de almuerzo"  -> action "delete", reference "almuerzo"
+
+   d) BORRAR TODO UN PERIODO:
+      "Borra todos los registros de hoy"    -> action "delete", deleteAll true,
+                                               queryPeriod "day"
+      "Elimina todo lo de esta semana"      -> deleteAll true, queryPeriod "week"
+      "Borra todo lo del mes"               -> deleteAll true, queryPeriod "month"
+      deleteAll true SOLO cuando dice "todos" o "todo". Un "borra los gastos de
+      hoy" sin "todos" es ambiguo: pregunta con type "unclear".
+
+   En los dos casos el sistema NO borra de una: le enseña al usuario qué se va
+   a ir y espera que confirme. Tú no tienes que pedir la confirmación en
+   responseText, el sistema la pide con las cifras reales.
 
    CÓMO SE IDENTIFICA CUÁL MOVIMIENTO ES:
    - "reference": una palabra del concepto ("transporte", "jabones", "Meza").
@@ -349,6 +373,22 @@ REGLAS DE INTERPRETACIÓN:
      hay varios parecidos, le pregunta al usuario.
    - En responseText escribe algo breve: el sistema lo reemplaza por la
      confirmación con las cifras reales.
+
+9B. CONFIRMAR O CANCELAR (type: "confirmation"):
+   Cuando Luka pregunta algo de sí o no —hoy solo lo hace antes de borrar— la
+   respuesta del usuario es type "confirmation".
+
+       "sí", "dale", "hazlo", "confirmo", "borra"   -> confirmed true
+       "no", "mejor no", "cancela", "espera"        -> confirmed false
+
+   REGLAS:
+   - Solo úsalo cuando en tu mensaje anterior preguntaste algo de sí o no. Si
+     no hay ninguna pregunta abierta, un "sí" suelto es type "unclear".
+   - Si contesta otra cosa que no es ni sí ni no (registra un gasto, pregunta
+     algo), NO es una confirmación: interprétalo normalmente. El sistema
+     entiende que cambió de tema y cancela lo que estaba pendiente.
+   - En la duda, confirmed false. Cancelar un borrado no cuesta nada; ejecutar
+     uno que el usuario no pidió le borra sus datos.
 
 10. NO CLARO (type: "unclear"):
    - Si no puedes determinar con certeza qué quiere el usuario
@@ -500,6 +540,15 @@ Respuesta: {"type":"payment","movements":[],"declaredTotal":null,"profitShares":
 Mensaje: "Ya me pagaron el fiado"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"¡Qué bueno! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.","confidence":0.5}
 
+Mensaje: "Borra todos los registros de hoy"
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":true},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
+
+Mensaje: "sí"  (venías de preguntar si confirma un borrado)
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
+
+Mensaje: "no, mejor no"  (misma situación)
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":false,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, no borro nada.","confidence":0.95}
+
 Mensaje: "¿Quién me debe?"
 Respuesta: {"type":"query","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":"receivables","queryPeriod":null,"responseText":"Déjame revisar quién te debe.","confidence":0.95}
 
@@ -645,6 +694,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'profitShares',
     'correction',
     'payment',
+    'confirmed',
     'concept',
     'queryKind',
     'queryPeriod',
@@ -663,6 +713,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         'profit_share',
         'query',
         'correction',
+        'confirmation',
         'unclear',
         'out_of_scope',
         'premium',
@@ -770,6 +821,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         'referenceIndex',
         'newAmount',
         'newConcept',
+        'deleteAll',
       ],
       description:
         'Que corregir de un movimiento ya registrado. null si el mensaje no pide corregir nada.',
@@ -806,6 +858,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         newConcept: {
           type: ['string', 'null'],
           description: 'Concepto corregido. null si no se cambia.',
+        },
+        deleteAll: {
+          type: 'boolean',
+          description:
+            'true solo si pidio borrar TODOS los del periodo, no uno suelto.',
         },
       },
     },
@@ -850,6 +907,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
       type: ['string', 'null'],
       enum: ['day', 'week', 'month'],
       description: 'Periodo consultado. Solo para type "query".',
+    },
+    confirmed: {
+      type: ['boolean', 'null'],
+      description:
+        'Respuesta a una pregunta de si o no. null si el mensaje no contesta ninguna.',
     },
     responseText: {
       type: 'string',
