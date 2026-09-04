@@ -628,7 +628,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Junta los datos del remitente con el archivo ya descargado.\n//\n// n8n guarda los binarios en base64, asi que no hay que convertir nada: solo\n// leerlo de donde esta. El backend espera el base64 pelado, sin el prefijo\n// \"data:\".\nconst datos = $('Extraer datos').item.json;\nconst binario = $input.first().binary?.archivo;\n\nif (!binario) {\n  console.error('[WhatsApp] No se pudo descargar el archivo de Meta');\n  return [{ json: { ...datos, media: null } }];\n}\n\nconst tamanoMb = (binario.fileSize || '').toString();\nconsole.log(`[WhatsApp] Archivo ${datos.mediaKind} descargado (${tamanoMb})`);\n\nreturn [\n  {\n    json: {\n      ...datos,\n      media: {\n        kind: datos.mediaKind,\n        mimeType: datos.mediaMimeType || binario.mimeType,\n        dataBase64: binario.data,\n      },\n    },\n  },\n];"
+        "jsCode": "// Junta los datos del remitente con el archivo ya descargado.\n//\n// OJO CON EL BINARIO: n8n puede guardar los archivos en disco en vez de en\n// memoria (N8N_DEFAULT_BINARY_DATA_MODE=filesystem, que es como corre en\n// Railway). En ese modo `binary.archivo.data` NO trae el contenido: trae el\n// marcador \"filesystem-v2\". Leerlo directo hacia que al backend le llegara esa\n// cadena como si fuera el audio, y respondia \"no es base64 valido\".\n//\n// `getBinaryDataBuffer` lee bien en los dos modos, asi que no hay que saber\n// cual esta activo.\nconst datos = $('Extraer datos').first().json;\nconst binario = $input.first().binary?.archivo;\n\nif (!binario) {\n  console.error('[WhatsApp] No se pudo descargar el archivo de Meta');\n  return [{ json: { ...datos, media: null } }];\n}\n\nconst buffer = await this.helpers.getBinaryDataBuffer(0, 'archivo');\nconst dataBase64 = buffer.toString('base64');\n\nconsole.log(\n  `[WhatsApp] Archivo ${datos.mediaKind} descargado: ${Math.round(buffer.length / 1024)} kB`,\n);\n\n// El backend corta en ~7 MB de archivo. Avisar aqui es mas util que un 400.\nif (dataBase64.length > 9_400_000) {\n  console.error('[WhatsApp] El archivo es demasiado grande, no se envia');\n  return [{ json: { ...datos, media: null } }];\n}\n\nreturn [\n  {\n    json: {\n      ...datos,\n      media: {\n        kind: datos.mediaKind,\n        mimeType: datos.mediaMimeType || binario.mimeType,\n        dataBase64,\n      },\n    },\n  },\n];"
       },
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
@@ -637,7 +637,8 @@
         -480
       ],
       "id": "c1000000-0000-4000-8000-000000000033",
-      "name": "Preparar archivo"
+      "name": "Preparar archivo",
+      "notes": "Convierte el archivo descargado en el base64 que espera el backend.\n\nUsa `getBinaryDataBuffer` y no `binary.archivo.data` porque n8n puede guardar los binarios en disco: en ese modo `.data` trae el texto \"filesystem-v2\" en vez del archivo, y eso fue lo que rompio las notas de voz."
     },
     {
       "parameters": {
