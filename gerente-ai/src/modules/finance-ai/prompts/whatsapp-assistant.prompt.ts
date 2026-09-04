@@ -21,6 +21,15 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v11: una correccion distingue CUAL movimiento de QUE cambiarle.
+ *
+ * Hasta v10 solo habia "reference", un texto que se buscaba dentro de la
+ * descripcion. Luka preguntaba "dime la fecha o el monto" y despues no sabia
+ * usar ninguna de las dos cosas. Peor: el monto que el usuario daba para
+ * NOMBRAR el movimiento se colaba en newAmount y lo sobrescribia. Ahora los
+ * identificadores viven aparte del valor nuevo.
+ *
+ * ---------------------------------------------------------------------------
  * v10: los cobros de fiados dejan de ser ventas nuevas.
  *
  * "Rosa ya me pago" caia en type "income" y se registraba como otra venta: la
@@ -38,7 +47,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v10';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v11';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -68,6 +77,9 @@ export interface WhatsAppIntentOutput {
   correction?: {
     action?: string | null;
     reference?: string | null;
+    referenceAmount?: number | string | null;
+    referenceDate?: string | null;
+    referenceIndex?: number | string | null;
     newAmount?: number | string | null;
     newConcept?: string | null;
   } | null;
@@ -119,6 +131,9 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
   "correction": {
     "action": "update" | "delete",
     "reference": string | null,
+    "referenceAmount": number | null,
+    "referenceDate": "YYYY-MM-DD" | null,
+    "referenceIndex": number | null,
     "newAmount": number | null,
     "newConcept": string | null
   } | null,
@@ -283,9 +298,37 @@ REGLAS DE INTERPRETACIÓN:
       "Borra el último registro"      -> action "delete", reference null
       "Elimina el gasto de almuerzo"  -> action "delete", reference "almuerzo"
 
-   REGLAS:
-   - "reference" es el texto que identifica CUÁL movimiento, no el nuevo valor.
-     Si el usuario dice "el último" o no lo especifica, va null.
+   CÓMO SE IDENTIFICA CUÁL MOVIMIENTO ES:
+   - "reference": una palabra del concepto ("transporte", "jabones", "Meza").
+   - "referenceAmount": el monto que sirve para NOMBRARLO ("la de 1.530.000").
+   - "referenceDate": la fecha que lo nombra, en YYYY-MM-DD ("la del 3 de sept").
+   - "referenceIndex": la posición en la lista que TÚ acabas de mostrar (1, 2, 3).
+   Puedes llenar varios a la vez si el usuario dio varios datos.
+
+   ⚠️ LA REGLA MÁS IMPORTANTE DE TODAS:
+   El número que sirve para DECIR CUÁL nunca va en "newAmount".
+       "Es la de 1.530.000"  ->  referenceAmount 1530000    ✅
+       "Es la de 1.530.000"  ->  newAmount 1530000          ❌ DESTRUYE EL DATO
+   Ponerlo en newAmount sobrescribe el movimiento con la cifra que solo servía
+   para nombrarlo. Ya pasó una vez y le cambió el monto a una compra que no
+   tenía nada que ver.
+
+   CUANDO ESTÁS RESOLVIENDO UNA AMBIGÜEDAD:
+   Si en tu mensaje anterior mostraste una lista numerada y preguntaste cuál, lo
+   que el usuario responda es SIEMPRE type "correction", por corto que sea:
+       "3 de septiembre"   -> referenceDate "2026-09-03"
+       "la primera"        -> referenceIndex 1
+       "la de 1.530.000"   -> referenceAmount 1530000
+       "+$1.530.000"       -> referenceAmount 1530000
+   Y REPITE el newAmount o newConcept que ya te habían pedido antes: el usuario
+   no los va a volver a decir, ya te los dijo.
+   NUNCA dejes los cuatro identificadores en null cuando hay una lista abierta.
+   Ahí "no dijo cuál" no significa "el último": significa que no entendiste, y
+   entonces vuelve a preguntar con type "unclear".
+
+   OTRAS REGLAS:
+   - Los cuatro identificadores en null significan "el último que registré", y
+     eso SOLO vale cuando no hay ninguna lista abierta.
    - Pon en newAmount y newConcept SOLO lo que el usuario quiere cambiar. Lo que
      no menciona va null y se queda como estaba.
    - No inventes cuál movimiento es: el sistema lo busca y, si no lo encuentra o
@@ -364,6 +407,10 @@ REGLAS DE INTERPRETACIÓN:
 
    La diferencia es esta: BUSCAR o LISTAR un dato que el usuario ya registró es
    gratis; ANALIZAR, comparar o rankear para sacar conclusiones es de pago.
+
+   CORREGIR Y BORRAR SUS PROPIOS REGISTROS ESTÁ INCLUIDO EN TODOS LOS PLANES.
+   Arreglar un dato mal dictado no es una función premium: es parte de poder
+   registrar. Nunca uses "premium" para una corrección ni para un borrado.
 
    - Si el plan NO es "Asistente", el usuario ya pagó: atiéndelo con normalidad y
      no uses este tipo nunca.
@@ -456,10 +503,22 @@ Mensaje: "¿Cuál es el producto que más vendo?" (plan Asistente)
 Respuesta: {"type":"premium","movements":[],"declaredTotal":null,"profitShares":[],"concept":"reporte por producto","queryKind":null,"queryPeriod":null,"responseText":"Los reportes por producto están disponibles en los planes pagos.","confidence":0.9}
 
 Mensaje: "El último gasto no fueron 50.000 sino 60.000"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"newAmount":60000,"newConcept":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":60000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
 
 Mensaje: "Borra el gasto de almuerzo"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","newAmount":null,"newConcept":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
+
+Mensaje: "Corrige venta 1554000"
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":"venta","referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregir esa venta.","confidence":0.9}
+
+Mensaje: "3 de septiembre"  (venías de mostrar una lista y preguntar cuál corregir, con newAmount 1554000)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":"2026-09-03","referenceIndex":null,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo esa.","confidence":0.9}
+
+Mensaje: "La primera opción que me das"  (misma situación)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":1,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la primera.","confidence":0.9}
+
+Mensaje: "Es la de 1.530.000"  (misma situación)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":1530000,"referenceDate":null,"referenceIndex":null,"newAmount":1554000,"newConcept":null},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la de 1.530.000.","confidence":0.9}
 
 Mensaje: "Gasté como 500 en unas cosas"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Tengo el monto de $500, pero ¿podrías decirme en qué lo gastaste? Así lo clasifico mejor.","confidence":0.4}`;
@@ -477,6 +536,16 @@ export interface PromptContext {
   planName?: string;
   /** true si el plan vigente es el gratuito. */
   planIsFree?: boolean;
+  /**
+   * Pregunta abierta de la conversacion, ya redactada por el backend.
+   *
+   * Se inyecta cuando Luka mostro varios movimientos parecidos y espera que el
+   * usuario diga cual. Sin esto, el modelo veia "3 de septiembre" como un
+   * mensaje suelto y lo interpretaba como cualquier cosa; el backend terminaba
+   * corrigiendo el ultimo movimiento registrado, que no era ninguno de los que
+   * habia mostrado.
+   */
+  pendingQuestion?: string | null;
 }
 
 /**
@@ -499,6 +568,12 @@ CONTEXTO DE ESTA CONVERSACIÓN:
     context.planIsFree === false
       ? ' (de pago: tiene acceso a todas las funciones, nunca uses type "premium")'
       : ' (gratuito: las funciones de la regla 14 no están incluidas)'
+  }${
+    context.pendingQuestion
+      ? `
+
+${context.pendingQuestion}`
+      : ''
   }`;
 }
 
@@ -645,7 +720,15 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     correction: {
       type: ['object', 'null'],
       additionalProperties: false,
-      required: ['action', 'reference', 'newAmount', 'newConcept'],
+      required: [
+        'action',
+        'reference',
+        'referenceAmount',
+        'referenceDate',
+        'referenceIndex',
+        'newAmount',
+        'newConcept',
+      ],
       description:
         'Que corregir de un movimiento ya registrado. null si el mensaje no pide corregir nada.',
       properties: {
@@ -656,11 +739,27 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         reference: {
           type: ['string', 'null'],
           description:
-            'Texto que identifica cual movimiento. null = el ultimo registrado.',
+            'Palabra del concepto que identifica cual movimiento es.',
+        },
+        referenceAmount: {
+          type: ['number', 'null'],
+          description:
+            'Monto que sirve para DECIR CUAL movimiento es. Nunca es el valor nuevo.',
+        },
+        referenceDate: {
+          type: ['string', 'null'],
+          description:
+            'Fecha que identifica cual movimiento es, en YYYY-MM-DD.',
+        },
+        referenceIndex: {
+          type: ['number', 'null'],
+          description:
+            'Posicion en la lista que se le acaba de mostrar al usuario, desde 1.',
         },
         newAmount: {
           type: ['number', 'null'],
-          description: 'Monto corregido. null si no se cambia.',
+          description:
+            'Monto NUEVO que hay que dejar. null si no se cambia el monto.',
         },
         newConcept: {
           type: ['string', 'null'],

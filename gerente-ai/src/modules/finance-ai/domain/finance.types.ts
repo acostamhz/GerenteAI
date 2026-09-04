@@ -213,10 +213,32 @@ export interface PaymentDraft {
 export interface CorrectionRequest {
   action: 'update' | 'delete';
   /**
-   * Como ubicar el movimiento: el texto que lo identifica ("el de transporte").
-   * null significa "el ultimo que registre", que es el caso mas comun.
+   * Texto que identifica el movimiento ("el de transporte").
+   *
+   * null y sin ningun otro identificador significa "el ultimo que registre".
+   * Ojo: null NO puede tomarse como "el ultimo" cuando se esta resolviendo una
+   * ambiguedad; ahi hay una lista concreta contra la cual decidir.
    */
   reference: string | null;
+  /**
+   * Monto que IDENTIFICA cual movimiento es ("es la de 1.530.000").
+   *
+   * Existe porque sin el no habia forma de usar la respuesta del usuario: Luka
+   * preguntaba "dime la fecha o el monto" y despues solo sabia buscar dentro
+   * de la descripcion, donde no hay ni fechas ni montos. Peor todavia, el
+   * monto dictado se colaba en `newAmount` y terminaba SOBRESCRIBIENDO un
+   * movimiento con la cifra que solo servia para nombrarlo.
+   */
+  referenceAmount: number | null;
+  /** Fecha que IDENTIFICA cual movimiento es, en YYYY-MM-DD. */
+  referenceDate: string | null;
+  /**
+   * Posicion en la lista que Luka acaba de mostrar, empezando en 1.
+   *
+   * Es como contesta la gente de verdad: "la primera", "la de arriba", "esa".
+   */
+  referenceIndex: number | null;
+  /** Monto corregido. Solo el valor NUEVO, nunca el que identifica. */
   newAmount: number | null;
   newConcept: string | null;
 }
@@ -311,6 +333,20 @@ export interface Transaction {
   customerName?: string | null;
   /** Une el total con sus desgloses por metodo de pago. */
   groupId?: string | null;
+  /**
+   * Instante exacto en que ocurrio, cuando se conoce. ISO 8601.
+   *
+   * Solo se llena cuando el usuario NO dijo una fecha: entonces el momento del
+   * mensaje es la hora real del hecho y hay que conservarla. Si dijo "el 23 de
+   * agosto", no hay hora que guardar y este campo va null.
+   *
+   * Existe porque antes todo se guardaba al mediodia UTC, o sea las 7:00 a. m.
+   * en Colombia: un gasto de las 5:55 p. m. se mostraba a las 7 de la manana, y
+   * todos los movimientos del mismo dia compartian el mismo instante, asi que
+   * la lista de "ultimos movimientos" los ordenaba al azar. En un fiado y su
+   * abono del mismo dia no habia forma de saber cual fue primero.
+   */
+  occurredAt?: string | null;
 }
 
 export interface MonthlyTotals {

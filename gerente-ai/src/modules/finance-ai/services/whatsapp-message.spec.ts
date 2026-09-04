@@ -1,5 +1,6 @@
 import type { LlmResponse } from '../../../ai/core/llm.types';
 import type { LlmService } from '../../../ai/services/llm.service';
+import { ConversationStateService } from './conversation-state.service';
 import type { PeriodSummary, Transaction } from '../domain/finance.types';
 import type {
   FinanceDataPort,
@@ -178,8 +179,13 @@ function buildService(
   rows: Transaction[] = SEED,
 ) {
   const financeData = fakeFinanceData(rows);
-  const service = new WhatsAppMessageService(fakeLlm(intent), financeData);
-  return { service, financeData };
+  const state = new ConversationStateService();
+  const service = new WhatsAppMessageService(
+    fakeLlm(intent),
+    financeData,
+    state,
+  );
+  return { service, financeData, state };
 }
 
 const BASE_REQUEST = {
@@ -478,7 +484,11 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
     // Sin esto, Luka preguntaba el monto, el usuario lo respondía suelto y
     // volvía a preguntar lo mismo: cada mensaje llegaba sin pasado.
     const { llm, visto } = espiarLlm({ type: 'unclear' });
-    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
 
     await service.handleMessage({
       ...BASE_REQUEST,
@@ -498,7 +508,11 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
 
   it('le dice al modelo qué plan tiene el negocio', async () => {
     const { llm, visto } = espiarLlm({ type: 'unclear' });
-    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
 
     await service.handleMessage({
       ...BASE_REQUEST,
@@ -516,7 +530,11 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
       concept: 'reporte por producto',
       responseText: 'Eso está en los planes pagos.',
     });
-    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
 
     const result = await service.handleMessage(BASE_REQUEST);
 
@@ -2044,5 +2062,363 @@ describe('WhatsAppMessageService · un fiado necesita saber de quién es', () =>
     expect(financeData.saved[0].customerName).toBe('Doña Rosa');
     expect(financeData.saved[0].isCredit).toBe(true);
     expect(result.intent.type).toBe('income');
+  });
+});
+
+// ===========================================================================
+// DESAMBIGUAR UNA CORRECCIÓN
+//
+// Reproduce la conversación real que corrompió un dato: Luka mostró tres
+// ventas parecidas, preguntó cuál corregir, y ninguna de las respuestas del
+// usuario ("3 de septiembre", "la primera", "1.530.000") sirvió. Al final
+// terminó cambiándole el monto a una compra que no estaba en la lista.
+// ===========================================================================
+
+/** Los tres movimientos de la captura, más el que salió dañado. */
+const CONVERSACION: Transaction[] = [
+  {
+    id: 'galeria',
+    businessId: 'b1',
+    date: '2026-09-03',
+    description: 'Mercancía · Galería',
+    category: 'mercancia',
+    amount: 1_840_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-03T20:00:00.000Z',
+  },
+  {
+    id: 'venta-3',
+    businessId: 'b1',
+    date: '2026-09-03',
+    description: 'Venta',
+    category: 'ventas',
+    amount: 1_530_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-03T15:00:00.000Z',
+  },
+  {
+    id: 'venta-2',
+    businessId: 'b1',
+    date: '2026-09-02',
+    description: 'Ventas',
+    category: 'ventas',
+    amount: 1_860_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-02T15:00:00.000Z',
+  },
+  {
+    id: 'venta-1',
+    businessId: 'b1',
+    date: '2026-09-01',
+    description: 'Venta',
+    category: 'ventas',
+    amount: 1_486_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-01T15:00:00.000Z',
+  },
+];
+
+/**
+ * Un servicio cuyo modelo responde distinto en cada turno, para poder simular
+ * una conversación de varios mensajes contra el mismo estado.
+ */
+function buildConversacion(rows: Transaction[] = CONVERSACION) {
+  let siguiente: Partial<WhatsAppIntentOutput> = { type: 'unclear' };
+
+  const llm = {
+    completeJson: () =>
+      Promise.resolve({
+        data: {
+          type: 'unclear',
+          movements: [],
+          declaredTotal: null,
+          profitShares: [],
+          concept: null,
+          queryKind: null,
+          queryPeriod: null,
+          responseText: 'ok',
+          ...siguiente,
+        },
+        response: {
+          text: '',
+          toolCalls: [],
+          finishReason: 'stop',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          providerId: 'fake',
+          model: 'fake-1',
+          latencyMs: 1,
+          costUsd: 0,
+        },
+      }),
+  } as unknown as LlmService;
+
+  const financeData = fakeFinanceData(rows);
+  const service = new WhatsAppMessageService(
+    llm,
+    financeData,
+    new ConversationStateService(),
+  );
+
+  const decir = (intent: Partial<WhatsAppIntentOutput>) => {
+    siguiente = intent;
+    return service.handleMessage({ ...BASE_REQUEST, persist: true });
+  };
+
+  return { decir, financeData };
+}
+
+describe('WhatsAppMessageService · desambiguar una corrección', () => {
+  it('resuelve por fecha la venta que el usuario eligió', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(pregunta.replyText).toContain('1)');
+
+    // "3 de septiembre": antes respondía "no encontré ningún movimiento que
+    // mencione 3 de septiembre", porque solo sabía buscar en la descripción.
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        referenceDate: '2026-09-03',
+        newAmount: 1_554_000,
+      }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'venta-3', changes: { amount: 1_554_000 } },
+    ]);
+  });
+
+  it('resuelve por posición: "la primera opción"', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ referenceIndex: 1, newAmount: 1_554_000 }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'venta-3', changes: { amount: 1_554_000 } },
+    ]);
+  });
+
+  it('resuelve por monto sin sobrescribir con ese monto', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    // "Es la de 1.530.000": ese número dice CUÁL, no cuánto debe quedar.
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        referenceAmount: 1_530_000,
+        newAmount: 1_554_000,
+      }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'venta-3', changes: { amount: 1_554_000 } },
+    ]);
+  });
+
+  it('con una pregunta abierta, no decir cuál NO significa "el último"', async () => {
+    // Esta es la regresión del daño real. El modelo devolvió la corrección sin
+    // ningún identificador y con el monto que el usuario había dado solo para
+    // nombrar el movimiento. El código lo tomó como "el último registrado" y le
+    // cambió el monto a una compra de mercancía que no estaba en la lista.
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({ newAmount: 1_530_000 }),
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(respuesta.replyText).toContain('Cuál');
+    // Sobre todo: la compra de Galería quedó intacta.
+    expect(financeData.updated.some((cambio) => cambio.id === 'galeria')).toBe(
+      false,
+    );
+  });
+
+  it('un identificador que no está en la lista abre una búsqueda nueva', async () => {
+    // El usuario abandonó la duda y está hablando de otra cosa: no se le puede
+    // dejar atrapado en la pregunta anterior.
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'Galería', newAmount: 1_900_000 }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'galeria', changes: { amount: 1_900_000 } },
+    ]);
+  });
+
+  it('cambiar de tema cierra la pregunta abierta', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    // Registra un gasto: la conversación se fue por otro lado.
+    await decir({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 12_000, category: 'transporte', concept: 'Taxi' }),
+      ],
+    });
+
+    // Ahora "corrige el último a 20.000" debe volver a significar el último.
+    await decir({
+      type: 'correction',
+      correction: correccion({ newAmount: 20_000 }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'galeria', changes: { amount: 20_000 } },
+    ]);
+  });
+
+  it('sin valor nuevo pregunta cuál es, mostrando el monto actual', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({ referenceAmount: 1_530_000 }),
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(respuesta.replyText).toContain('$1.530.000');
+  });
+
+  it('dice por qué no encontró, con la palabra del usuario', async () => {
+    const { decir } = buildConversacion();
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({
+        referenceDate: '2026-08-15',
+        newAmount: 90_000,
+      }),
+    });
+
+    expect(respuesta.replyText).toContain('2026-08-15');
+  });
+});
+
+describe('WhatsAppMessageService · la hora del mensaje no se tira', () => {
+  it('sin fecha dicha guarda el instante real del mensaje', async () => {
+    const { service, financeData } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({
+          amount: 120_000,
+          category: 'mercancia',
+          concept: 'Licuadora',
+        }),
+      ],
+    });
+
+    const antes = Date.now();
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    const guardado = financeData.saved[0];
+    const instante = new Date(guardado.occurredAt!).getTime();
+
+    // Es la hora de verdad, no un marcador. Antes todo quedaba a las 7:00 a. m.
+    expect(guardado.occurredAt).not.toBeNull();
+    expect(instante).toBeGreaterThanOrEqual(antes);
+    expect(instante).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('con fecha dicha no inventa una hora', async () => {
+    // "El 23 de agosto vendí una cama": no hay hora que registrar.
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 800_000,
+          category: 'ventas',
+          concept: 'Cama',
+          date: '2026-08-23',
+        }),
+      ],
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.saved[0].date).toBe('2026-08-23');
+    expect(financeData.saved[0].occurredAt).toBeNull();
+  });
+
+  it('un abono sin fecha dicha también lleva la hora del mensaje', async () => {
+    const { service, financeData } = buildService({
+      type: 'payment',
+      movements: [],
+      payment: {
+        customerName: 'Doña Rosa',
+        amount: 20_000,
+        settlesDebt: false,
+        date: null,
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.payments[0].occurredAt).not.toBeNull();
+  });
+
+  it('un abono con fecha dicha no la lleva', async () => {
+    const { service, financeData } = buildService({
+      type: 'payment',
+      movements: [],
+      payment: {
+        customerName: 'Doña Rosa',
+        amount: 20_000,
+        settlesDebt: false,
+        date: '2026-08-23',
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.payments[0].date).toBe('2026-08-23');
+    expect(financeData.payments[0].occurredAt).toBeNull();
   });
 });

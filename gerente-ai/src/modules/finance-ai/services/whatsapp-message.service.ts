@@ -43,6 +43,10 @@ import {
   type PaymentResult,
 } from '../ports/finance-data.port';
 import {
+  ConversationStateService,
+  type PendingCorrection,
+} from './conversation-state.service';
+import {
   WHATSAPP_ASSISTANT_PROMPT_VERSION,
   WHATSAPP_INTENT_SCHEMA,
   buildWhatsAppAssistantSystemPrompt,
@@ -142,6 +146,7 @@ export class WhatsAppMessageService {
   constructor(
     private readonly llm: LlmService,
     @Inject(FINANCE_DATA_PORT) private readonly financeData: FinanceDataPort,
+    private readonly state: ConversationStateService,
   ) {}
 
   async handleMessage(
@@ -149,6 +154,11 @@ export class WhatsAppMessageService {
   ): Promise<WhatsAppMessageResult> {
     const currency = request.currency ?? 'COP';
     const referenceDate = todayIso();
+
+    // Si quedo una pregunta sin responder, el modelo tiene que verla: de otro
+    // modo lee "3 de septiembre" como un mensaje suelto y no como la respuesta
+    // que es.
+    const pendiente = this.state.correccionPendiente(request.businessId);
 
     const context: AiCallContext = {
       tenantId: request.tenantId,
@@ -168,6 +178,9 @@ export class WhatsAppMessageService {
             referenceDate,
             planName: request.planName,
             planIsFree: request.planIsFree,
+            pendingQuestion: pendiente
+              ? renderPendingQuestion(pendiente, currency)
+              : null,
           }),
           messages: [
             ...(request.history ?? []),
@@ -207,6 +220,13 @@ export class WhatsAppMessageService {
 
     // Cada intencion tiene su manejador. El switch deja a la vista todos los
     // caminos posibles del mensaje, que antes estaban encadenados en ifs.
+    // Cambiar de tema cierra la pregunta abierta. Dejarla viva haria que una
+    // correccion de dentro de un rato se resolviera contra una lista que ya no
+    // tiene nada que ver con lo que se esta hablando.
+    if (intent.type !== 'correction' && intent.type !== 'unclear') {
+      this.state.olvidarCorreccion(request.businessId);
+    }
+
     switch (intent.type) {
       case 'query':
         return this.handleQuery(intent, request, currency, meta);
@@ -368,6 +388,9 @@ export class WhatsAppMessageService {
       // si sabe cuanto es.
       amount: abono.settlesDebt ? null : abono.amount,
       date: abono.date ?? referenceDate,
+      // Mismo criterio que los movimientos: sin fecha dicha, vale la hora real
+      // del mensaje.
+      occurredAt: abono.date ? null : new Date().toISOString(),
     });
 
     if (resultado.applied) {
@@ -528,17 +551,53 @@ export class WhatsAppMessageService {
       );
     }
 
-    const candidatos = await this.buscarParaCorregir(
-      request,
-      correccion.reference,
-    );
+    const pendiente = this.state.correccionPendiente(request.businessId);
+
+    // El usuario no repite el valor nuevo cuando solo esta contestando "cual":
+    // ya lo dijo en el mensaje que abrio la correccion.
+    const cambio = {
+      newAmount: correccion.newAmount ?? pendiente?.newAmount ?? null,
+      newConcept: correccion.newConcept ?? pendiente?.newConcept ?? null,
+    };
+
+    let accion = correccion.action;
+    let candidatos: Transaction[];
+
+    if (pendiente) {
+      const elegidos = resolverEntreCandidatos(
+        pendiente.candidates,
+        correccion,
+      );
+
+      if (elegidos.length === 1) {
+        // Contesto cual: se aplica lo que ya habia pedido, sobre el movimiento
+        // que el mismo eligio de la lista.
+        candidatos = elegidos;
+        accion = pendiente.action;
+      } else if (!tieneIdentificador(correccion)) {
+        // AQUI ESTABA EL DANO: sin identificador y con una lista abierta, el
+        // codigo caia en "sin referencia = el ultimo movimiento" y corregia uno
+        // que ni siquiera estaba en la lista. Con una pregunta abierta, no
+        // haber dicho cual significa volver a preguntar.
+        return this.plainResult(
+          intent,
+          renderAmbiguousCorrection(pendiente.candidates, currency),
+          meta,
+        );
+      } else {
+        // Dio un identificador que no cuadra con la lista: esta hablando de
+        // otra cosa. Se cierra la pregunta y se busca de cero.
+        this.state.olvidarCorreccion(request.businessId);
+        candidatos = await this.buscarParaCorregir(request, correccion);
+      }
+    } else {
+      candidatos = await this.buscarParaCorregir(request, correccion);
+    }
 
     if (candidatos.length === 0) {
       return this.plainResult(
         intent,
-        correccion.reference
-          ? `No encontré ningún movimiento que mencione "${correccion.reference}". ¿Me dices de cuál se trata?`
-          : 'No encontré movimientos recientes para corregir.',
+        renderCorrectionNotFound(correccion, currency),
         meta,
       );
     }
@@ -546,6 +605,13 @@ export class WhatsAppMessageService {
     // Varios candidatos: no se elige por el usuario. Corregir el equivocado es
     // peor que preguntar, porque el error queda escondido en la contabilidad.
     if (candidatos.length > 1) {
+      this.state.recordarCorreccion(request.businessId, {
+        action: accion,
+        candidates: candidatos,
+        newAmount: cambio.newAmount,
+        newConcept: cambio.newConcept,
+      });
+
       return this.plainResult(
         intent,
         renderAmbiguousCorrection(candidatos, currency),
@@ -554,8 +620,9 @@ export class WhatsAppMessageService {
     }
 
     const objetivo = candidatos[0];
+    this.state.olvidarCorreccion(request.businessId);
 
-    if (correccion.action === 'delete') {
+    if (accion === 'delete') {
       if (request.persist) {
         await this.financeData.deleteTransaction(
           request.businessId,
@@ -568,21 +635,17 @@ export class WhatsAppMessageService {
       };
     }
 
-    if (correccion.newAmount === null && correccion.newConcept === null) {
+    if (cambio.newAmount === null && cambio.newConcept === null) {
       return this.needsClarification(
         intent,
-        `Encontré el movimiento "${objetivo.description}". ¿Cuál es el valor correcto?`,
+        `Encontré el movimiento "${objetivo.description}" por ${formatMoney(objetivo.amount, currency)}. ¿Cuál es el valor correcto?`,
         meta,
       );
     }
 
     const cambios = {
-      ...(correccion.newAmount !== null
-        ? { amount: correccion.newAmount }
-        : {}),
-      ...(correccion.newConcept !== null
-        ? { description: correccion.newConcept }
-        : {}),
+      ...(cambio.newAmount !== null ? { amount: cambio.newAmount } : {}),
+      ...(cambio.newConcept !== null ? { description: cambio.newConcept } : {}),
     };
 
     const actualizado = request.persist
@@ -616,9 +679,18 @@ export class WhatsAppMessageService {
    * quiere decir con "el ultimo gasto". Con referencia se busca por texto y se
    * devuelven todas las coincidencias, para poder preguntar si hay varias.
    */
+  /**
+   * Movimientos que encajan con lo que el usuario dijo para identificar cual.
+   *
+   * Antes solo se comparaba contra el texto de la descripcion, asi que Luka
+   * pedia "dime la fecha o el monto" y despues no sabia usar ninguno de los
+   * dos: las descripciones no llevan ni fechas ni cifras. El usuario contestaba
+   * bien y recibia "no encontre ningun movimiento que mencione 3 de
+   * septiembre".
+   */
   private async buscarParaCorregir(
     request: WhatsAppMessageRequest,
-    referencia: string | null,
+    correccion: CorrectionRequest,
   ): Promise<Transaction[]> {
     const hoy = todayIso();
     const todo = await this.financeData.listTransactions({
@@ -634,14 +706,14 @@ export class WhatsAppMessageService {
     // abono se hace desde el panel, donde ademas se devuelve la deuda.
     const rows = todo.filter((row) => row.category !== 'cobros');
 
-    if (!referencia) {
+    if (!tieneIdentificador(correccion)) {
+      // Nada que identifique y ninguna pregunta abierta: es "el ultimo".
       // `listTransactions` viene ordenado del mas reciente al mas viejo.
       return rows.slice(0, 1);
     }
 
-    const buscado = normalizeText(referencia);
     return rows
-      .filter((row) => normalizeText(row.description).includes(buscado))
+      .filter((row) => coincideConIdentificador(row, correccion))
       .slice(0, CORRECTION_MAX_CANDIDATES);
   }
 
@@ -903,6 +975,10 @@ export class WhatsAppMessageService {
       businessId: request.businessId,
       // La fecha que dijo el usuario manda; si no dijo ninguna, es hoy.
       date: movement.date ?? referenceDate,
+      // Cuando no dijo fecha, la hora del mensaje SI es un dato real y se
+      // guarda. Cuando la dijo, no hay hora: el adaptador usa el mediodia para
+      // que el movimiento no se corra de dia en ninguna zona horaria.
+      occurredAt: movement.date ? null : createdAt,
       description:
         movement.concept ??
         `Movimiento registrado por WhatsApp (${movement.type})`,
@@ -1184,9 +1260,86 @@ function normalizeCorrection(value: unknown): CorrectionRequest | null {
   return {
     action,
     reference: cleanText(row.reference),
+    referenceAmount: normalizeAmount(row.referenceAmount),
+    referenceDate: normalizeMovementDate(row.referenceDate),
+    referenceIndex: normalizePosition(row.referenceIndex),
     newAmount: normalizeAmount(row.newAmount),
     newConcept: cleanText(row.newConcept),
   };
+}
+
+/** Posicion en una lista, desde 1. Cualquier otra cosa es null. */
+function normalizePosition(value: unknown): number | null {
+  const numero = Number(value);
+  return Number.isInteger(numero) && numero >= 1 ? numero : null;
+}
+
+/** ¿Dijo algo que sirva para saber de cual movimiento habla? */
+export function tieneIdentificador(correccion: CorrectionRequest): boolean {
+  return (
+    correccion.reference !== null ||
+    correccion.referenceAmount !== null ||
+    correccion.referenceDate !== null ||
+    correccion.referenceIndex !== null
+  );
+}
+
+/**
+ * ¿Este movimiento encaja con lo que dijo el usuario?
+ *
+ * Los identificadores se acumulan: si dio fecha Y monto, tienen que cuadrar
+ * los dos. Mas datos siempre reducen la lista, nunca la amplian.
+ */
+export function coincideConIdentificador(
+  row: Transaction,
+  correccion: CorrectionRequest,
+): boolean {
+  if (
+    correccion.reference !== null &&
+    !normalizeText(row.description).includes(
+      normalizeText(correccion.reference),
+    )
+  ) {
+    return false;
+  }
+
+  // Tolerancia de un peso: el monto llega del modelo y puede traer decimales.
+  if (
+    correccion.referenceAmount !== null &&
+    Math.abs(row.amount - correccion.referenceAmount) >= 1
+  ) {
+    return false;
+  }
+
+  if (
+    correccion.referenceDate !== null &&
+    row.date !== correccion.referenceDate
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Cual de los movimientos que Luka mostro eligio el usuario.
+ *
+ * La posicion se resuelve contra la lista tal como se le enseño, que es como
+ * contesta la gente ("la primera", "la de arriba"). El resto de
+ * identificadores filtra igual que en una busqueda normal.
+ */
+export function resolverEntreCandidatos(
+  candidatos: Transaction[],
+  correccion: CorrectionRequest,
+): Transaction[] {
+  if (correccion.referenceIndex !== null) {
+    const elegido = candidatos[correccion.referenceIndex - 1];
+    return elegido ? [elegido] : [];
+  }
+
+  if (!tieneIdentificador(correccion)) return [];
+
+  return candidatos.filter((row) => coincideConIdentificador(row, correccion));
 }
 
 /**
@@ -1595,19 +1748,89 @@ export function renderAmbiguousCorrection(
   candidatos: Transaction[],
   currency: string,
 ): string {
-  const lineas = candidatos.map((row) => movementLine(row, currency));
+  // Numerada, no con vinetas: la gente contesta "la primera", y sin numeros esa
+  // respuesta no se puede resolver contra nada.
+  const lineas = candidatos.map((row, indice) =>
+    movementLine(row, currency, `${indice + 1})`),
+  );
 
   return [
     `Encontré ${candidatos.length} movimientos que podrían ser:`,
     ...lineas,
-    '¿Cuál de todos corrijo? Dime la fecha o el monto.',
+    '¿Cuál de todos corrijo? Dime el número, la fecha o el monto.',
+  ].join('\n');
+}
+
+/**
+ * Lo que se le dice al usuario cuando su identificador no encontro nada.
+ *
+ * Repite lo que el dijo, no un campo interno: "no encontre ninguno del 3 de
+ * septiembre" se entiende; 'no encontre ningun movimiento que mencione
+ * "2026-09-03"' parece un error del sistema.
+ */
+export function renderCorrectionNotFound(
+  correccion: CorrectionRequest,
+  currency: string,
+): string {
+  if (correccion.referenceDate) {
+    return `No encontré ningún movimiento del ${correccion.referenceDate}. ¿Me dices de cuál se trata?`;
+  }
+
+  if (correccion.referenceAmount !== null) {
+    return `No encontré ningún movimiento por ${formatMoney(correccion.referenceAmount, currency)}. ¿Me dices de cuál se trata?`;
+  }
+
+  if (correccion.reference) {
+    return `No encontré ningún movimiento que mencione "${correccion.reference}". ¿Me dices de cuál se trata?`;
+  }
+
+  return 'No encontré movimientos recientes para corregir.';
+}
+
+/**
+ * La pregunta abierta, redactada para el modelo (no para el usuario).
+ *
+ * Va dentro del system prompt del siguiente turno. Sin ella el modelo recibe
+ * "la primera" sin saber primera de que, y devuelve cualquier cosa.
+ */
+export function renderPendingQuestion(
+  pendiente: PendingCorrection,
+  currency: string,
+): string {
+  const lineas = pendiente.candidates.map(
+    (row, indice) =>
+      `${indice + 1}) ${row.date} · ${row.description} · ${formatMoney(row.amount, currency)}`,
+  );
+
+  const cambio =
+    pendiente.newAmount !== null
+      ? `dejarlo en ${formatMoney(pendiente.newAmount, currency)}`
+      : pendiente.newConcept !== null
+        ? `cambiarle el concepto a "${pendiente.newConcept}"`
+        : pendiente.action === 'delete'
+          ? 'borrarlo'
+          : 'corregirlo';
+
+  return [
+    'PREGUNTA ABIERTA (lo mas importante de este turno):',
+    `Ya le mostraste esta lista y le preguntaste cual ${pendiente.action === 'delete' ? 'borrar' : 'corregir'}:`,
+    ...lineas,
+    `Lo que ya te habia pedido: ${cambio}.`,
+    'El mensaje que sigue es la RESPUESTA a esa pregunta. Devuelve type',
+    '"correction" con referenceIndex (1, 2, 3...), referenceAmount o',
+    'referenceDate segun lo que diga, y repite el newAmount o newConcept de',
+    'arriba. No dejes los cuatro identificadores en null.',
   ].join('\n');
 }
 
 // ------------------------------------------------- respuestas de movimientos
 
 /** Una linea por movimiento: "• 15 ago · Transporte · -$50.000 COP". */
-function movementLine(row: Transaction, currency: string): string {
+function movementLine(
+  row: Transaction,
+  currency: string,
+  vineta = '•',
+): string {
   const signo = row.type === 'income' ? '+' : '-';
   const fecha = FECHA_CORTA.format(new Date(`${row.date}T12:00:00.000Z`));
   const extras = [
@@ -1616,7 +1839,7 @@ function movementLine(row: Transaction, currency: string): string {
   ].filter(Boolean);
 
   return (
-    `• ${fecha} · ${row.description} · ${signo}${formatMoney(row.amount, currency)}` +
+    `${vineta} ${fecha} · ${row.description} · ${signo}${formatMoney(row.amount, currency)}` +
     (extras.length ? ` (${extras.join(', ')})` : '')
   );
 }
