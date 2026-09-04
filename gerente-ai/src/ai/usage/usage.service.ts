@@ -12,7 +12,8 @@ import {
  * Planes comerciales de Luka AI. Los limites reflejan la pantalla de
  * suscripcion del frontend (mensajes de IA por mes).
  */
-export type PlanId = 'asistente' | 'gerente' | 'director' | 'corporativo';
+export type PlanId =
+  'asistente' | 'gerente' | 'director' | 'socio' | 'corporativo';
 
 export interface PlanLimits {
   id: PlanId;
@@ -27,26 +28,38 @@ export const PLAN_LIMITS: Record<PlanId, PlanLimits> = {
   // Los topes de mensajes los fija el area comercial. El nombre de cada plan
   // sale de `planes.service.ts`, que es el catalogo oficial; aqui solo se
   // define cuanta IA incluye cada uno.
+  //
+  // `whatsappNumbers` sigue al tope de sedes del catalogo, porque cada sede
+  // tiene su propia linea. `businesses` es 1 en todos: el plan se compra POR
+  // negocio, asi que quien maneja dos paga dos. Ninguno de los dos autoriza
+  // nada hoy; el que se aplica es `monthlyAiMessages`.
   asistente: {
     id: 'asistente',
     label: 'Asistente',
-    monthlyAiMessages: 500,
+    monthlyAiMessages: 100,
     whatsappNumbers: 1,
     businesses: 1,
   },
   gerente: {
     id: 'gerente',
     label: 'Gerente',
-    monthlyAiMessages: 4_000,
-    whatsappNumbers: 3,
-    businesses: 4,
+    monthlyAiMessages: 600,
+    whatsappNumbers: 1,
+    businesses: 1,
   },
   director: {
     id: 'director',
     label: 'Administrador',
-    monthlyAiMessages: 10_000,
-    whatsappNumbers: 10,
-    businesses: 10,
+    monthlyAiMessages: 1_500,
+    whatsappNumbers: 3,
+    businesses: 1,
+  },
+  socio: {
+    id: 'socio',
+    label: 'Socio',
+    monthlyAiMessages: 3_000,
+    whatsappNumbers: 5,
+    businesses: 1,
   },
   // Plan interno de socios: no se vende y no tiene tope.
   corporativo: {
@@ -73,6 +86,14 @@ export interface AiCallContext {
   feature: string;
   /** Plan vigente del tenant. Por defecto "gerente". */
   plan?: string;
+  /**
+   * Periodo de 30 dias contra el que se mide la cuota.
+   *
+   * Lo calcula el catalogo de planes, que sabe cuando renueva cada negocio. Si
+   * no viene, se cae al mes de calendario: es el caso de las llamadas del panel,
+   * donde no hay un ciclo de cobro con el que alinearse.
+   */
+  periodo?: { inicio: Date; fin: Date };
 }
 
 export interface QuotaStatus {
@@ -95,7 +116,11 @@ export class AiUsageService {
 
   /** Lanza `AiQuotaExceededError` si el tenant agoto su plan del mes. */
   async assertWithinQuota(context: AiCallContext): Promise<QuotaStatus> {
-    const status = await this.getQuotaStatus(context.tenantId, context.plan);
+    const status = await this.getQuotaStatus(
+      context.tenantId,
+      context.plan,
+      context.periodo,
+    );
 
     if (status.remaining <= 0) {
       this.logger.warn(
@@ -111,9 +136,20 @@ export class AiUsageService {
     return status;
   }
 
-  async getQuotaStatus(tenantId: string, plan?: string): Promise<QuotaStatus> {
+  async getQuotaStatus(
+    tenantId: string,
+    plan?: string,
+    periodo?: { inicio: Date; fin: Date },
+  ): Promise<QuotaStatus> {
     const limits = resolvePlan(plan);
-    const { start, end } = currentMonthRange();
+
+    // El mes de calendario es el respaldo, no la regla: cuando el negocio tiene
+    // un ciclo de cobro, la cuota se alinea con el. Contarla por mes hacia que
+    // quien pagaba el 25 estrenara cuota completa el 1.
+    const { start, end } = periodo
+      ? { start: periodo.inicio, end: periodo.fin }
+      : currentMonthRange();
+
     const used = await this.repository.countMessages(tenantId, start, end);
 
     return {

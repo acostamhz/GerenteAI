@@ -32,7 +32,15 @@ export type MessageIntentType =
    * aparte, con lo cual el dinero se contaba dos veces y la deuda del cliente
    * nunca bajaba.
    */
-  | 'payment';
+  | 'payment'
+  /**
+   * Contesto que si o que no a algo que Luka le pregunto.
+   *
+   * Solo tiene sentido cuando hay una pregunta abierta. Sirve para que borrar
+   * nunca ocurra en el mismo turno en que se pide: primero se le enseña que se
+   * va a ir, y solo despues se ejecuta.
+   */
+  | 'confirmation';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';
@@ -213,12 +221,39 @@ export interface PaymentDraft {
 export interface CorrectionRequest {
   action: 'update' | 'delete';
   /**
-   * Como ubicar el movimiento: el texto que lo identifica ("el de transporte").
-   * null significa "el ultimo que registre", que es el caso mas comun.
+   * Texto que identifica el movimiento ("el de transporte").
+   *
+   * null y sin ningun otro identificador significa "el ultimo que registre".
+   * Ojo: null NO puede tomarse como "el ultimo" cuando se esta resolviendo una
+   * ambiguedad; ahi hay una lista concreta contra la cual decidir.
    */
   reference: string | null;
+  /**
+   * Monto que IDENTIFICA cual movimiento es ("es la de 1.530.000").
+   *
+   * Existe porque sin el no habia forma de usar la respuesta del usuario: Luka
+   * preguntaba "dime la fecha o el monto" y despues solo sabia buscar dentro
+   * de la descripcion, donde no hay ni fechas ni montos. Peor todavia, el
+   * monto dictado se colaba en `newAmount` y terminaba SOBRESCRIBIENDO un
+   * movimiento con la cifra que solo servia para nombrarlo.
+   */
+  referenceAmount: number | null;
+  /** Fecha que IDENTIFICA cual movimiento es, en YYYY-MM-DD. */
+  referenceDate: string | null;
+  /**
+   * Posicion en la lista que Luka acaba de mostrar, empezando en 1.
+   *
+   * Es como contesta la gente de verdad: "la primera", "la de arriba", "esa".
+   */
+  referenceIndex: number | null;
+  /** Monto corregido. Solo el valor NUEVO, nunca el que identifica. */
   newAmount: number | null;
   newConcept: string | null;
+  /**
+   * true cuando pidio borrar TODO un periodo ("borra todo lo de hoy"), no un
+   * movimiento suelto. El periodo viaja en `queryPeriod`.
+   */
+  deleteAll: boolean;
 }
 
 /** Que clase de consulta hizo el usuario. */
@@ -228,7 +263,15 @@ export type QueryKind =
   /** "¿Cuales son esos 8 movimientos?" → el detalle, uno por uno. */
   | 'list'
   /** "¿Que dia compre jabones?" → busqueda por concepto. */
-  | 'search';
+  | 'search'
+  /**
+   * "¿Quien me debe?" → la cartera completa, con nombres y saldos.
+   *
+   * Es distinto de buscar los fiados de UNA persona: eso es consultar lo
+   * propio y va por "search". Esto es la vista consolidada y ordenada por
+   * antiguedad, que es lo que se cobra en los planes pagos.
+   */
+  | 'receivables';
 
 /**
  * Lo que el modelo entiende de un mensaje. Es exactamente el JSON del
@@ -253,6 +296,11 @@ export interface MessageIntent {
   correction: CorrectionRequest | null;
   /** El abono, cuando el mensaje avisa que le pagaron un fiado. */
   payment: PaymentDraft | null;
+  /**
+   * Respuesta a una pregunta de si o no. null cuando el mensaje no contesta
+   * ninguna, o cuando contesto algo que no es ni si ni no.
+   */
+  confirmed: boolean | null;
   /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.
@@ -311,6 +359,20 @@ export interface Transaction {
   customerName?: string | null;
   /** Une el total con sus desgloses por metodo de pago. */
   groupId?: string | null;
+  /**
+   * Instante exacto en que ocurrio, cuando se conoce. ISO 8601.
+   *
+   * Solo se llena cuando el usuario NO dijo una fecha: entonces el momento del
+   * mensaje es la hora real del hecho y hay que conservarla. Si dijo "el 23 de
+   * agosto", no hay hora que guardar y este campo va null.
+   *
+   * Existe porque antes todo se guardaba al mediodia UTC, o sea las 7:00 a. m.
+   * en Colombia: un gasto de las 5:55 p. m. se mostraba a las 7 de la manana, y
+   * todos los movimientos del mismo dia compartian el mismo instante, asi que
+   * la lista de "ultimos movimientos" los ordenaba al azar. En un fiado y su
+   * abono del mismo dia no habia forma de saber cual fue primero.
+   */
+  occurredAt?: string | null;
 }
 
 export interface MonthlyTotals {

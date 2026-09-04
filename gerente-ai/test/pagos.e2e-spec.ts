@@ -12,7 +12,9 @@ import {
 import {
   PLAN_ADMINISTRADOR,
   PLAN_ASISTENTE,
+  PLAN_CORPORATIVO,
   PLAN_GERENTE,
+  PLAN_SOCIO,
   PLANES,
 } from '../src/services/planes.service';
 
@@ -128,8 +130,36 @@ describe('Pasarela de pagos (contra Postgres real)', () => {
       });
 
       expect(checkout.montoEnCentavos).toBe(
-        PLANES[PLAN_ADMINISTRADOR].precioAnual * 100,
+        PLANES[PLAN_ADMINISTRADOR].precioAnual! * 100,
       );
+    });
+
+    /**
+     * El Gerente solo se vende por mes. Sin esta comprobación, `precioAnual` en
+     * `null` se multiplicaba por 100 y daba cero: el cobro salía aprobado y el
+     * plan se activaba gratis.
+     */
+    it('rechaza el ciclo anual en un plan que no lo tiene', async () => {
+      await expect(
+        ctx.pagos.crearCheckout(s.duenoId, 'CLIENTE', {
+          negocioId: s.negocioId,
+          plan: PLAN_GERENTE,
+          ciclo: 'anual',
+        }),
+      ).rejects.toThrow(BadRequestException);
+    });
+
+    // No se compra desde la aplicación: se cotiza en una reunión. Vale 0 en el
+    // catálogo igual que el Asistente, así que el precio no sirve para
+    // distinguirlos; lo que decide es `contratacion`.
+    it('no deja cobrar el plan Corporativo', async () => {
+      await expect(
+        ctx.pagos.crearCheckout(s.duenoId, 'CLIENTE', {
+          negocioId: s.negocioId,
+          plan: PLAN_CORPORATIVO,
+          ciclo: 'mensual',
+        }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('no deja cobrar un plan que no se vende', async () => {
@@ -399,7 +429,7 @@ describe('Pasarela de pagos (contra Postgres real)', () => {
     // El ciclo se guarda en el pago y de ahí lo lee el webhook. Si se perdiera
     // por el camino, un pago anual se activaría como mensual.
     it('el ciclo anual queda guardado en el pago', async () => {
-      const checkout = await pagar(PLAN_GERENTE, 'anual');
+      const checkout = await pagar(PLAN_ADMINISTRADOR, 'anual');
 
       expect((await pagoDe(checkout.referencia)).ciclo).toBe(CicloPago.ANUAL);
     });
@@ -410,10 +440,10 @@ describe('Pasarela de pagos (contra Postgres real)', () => {
         data: { plan: PLAN_ASISTENTE, planVenceEl: null },
       });
 
-      await pagar(PLAN_GERENTE, 'anual');
+      await pagar(PLAN_ADMINISTRADOR, 'anual');
       const primero = (await planDelNegocio()).planVenceEl!.getTime();
 
-      await pagar(PLAN_GERENTE, 'anual');
+      await pagar(PLAN_ADMINISTRADOR, 'anual');
       const segundo = (await planDelNegocio()).planVenceEl!.getTime();
 
       expect(Math.round((segundo - primero) / 86_400_000)).toBe(365);
@@ -427,8 +457,8 @@ describe('Pasarela de pagos (contra Postgres real)', () => {
         data: { plan: PLAN_ASISTENTE, planVenceEl: null },
       });
 
-      await pagar(PLAN_GERENTE, 'anual');
-      await pagar(PLAN_ADMINISTRADOR, 'mensual');
+      await pagar(PLAN_ADMINISTRADOR, 'anual');
+      await pagar(PLAN_SOCIO, 'mensual');
 
       const dias = diasDeVigencia((await planDelNegocio()).planVenceEl!);
       expect(Math.round(dias)).toBe(30);

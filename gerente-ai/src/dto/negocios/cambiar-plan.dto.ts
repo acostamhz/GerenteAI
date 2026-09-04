@@ -2,6 +2,7 @@ import { IsDateString, IsIn, IsInt, IsOptional } from 'class-validator';
 import {
   PLAN_ADMINISTRADOR,
   PLAN_ASISTENTE,
+  PLAN_CORPORATIVO,
   PLAN_GERENTE,
   PLAN_SOCIO,
 } from '../../services/planes.service';
@@ -11,7 +12,15 @@ export type Ciclo = (typeof CICLOS)[number];
 
 export class CambiarPlanDto {
   @IsInt()
-  @IsIn([PLAN_ASISTENTE, PLAN_GERENTE, PLAN_ADMINISTRADOR, PLAN_SOCIO])
+  // Incluye el Corporativo: no se compra desde la aplicación, pero MASTER tiene
+  // que poder activarlo a mano tras la reunión y la cotización.
+  @IsIn([
+    PLAN_ASISTENTE,
+    PLAN_GERENTE,
+    PLAN_ADMINISTRADOR,
+    PLAN_SOCIO,
+    PLAN_CORPORATIVO,
+  ])
   plan!: number;
 
   // Define hasta cuándo queda vigente. Se ignora en el plan Asistente, que no vence.

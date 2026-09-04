@@ -44,6 +44,11 @@ export interface PaymentRequest {
   amount: number | null;
   /** Fecha del pago en YYYY-MM-DD. */
   date: string;
+  /**
+   * Instante exacto del pago, cuando el usuario no dijo una fecha. ISO 8601.
+   * null cuando si la dijo: ahi no hay hora que registrar.
+   */
+  occurredAt: string | null;
 }
 
 /** Como quedo la deuda despues de aplicar un pago. */

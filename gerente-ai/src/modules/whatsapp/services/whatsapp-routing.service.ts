@@ -5,6 +5,7 @@ import {
   PLAN_ADMINISTRADOR,
   PLAN_ASISTENTE,
   PLAN_GERENTE,
+  PLAN_CORPORATIVO,
   PLAN_SOCIO,
   PlanesService,
 } from '../../../services/planes.service';
@@ -51,6 +52,11 @@ export interface WhatsappContext {
    * los totales por el mes calendario y no coincidirian con su realidad.
    */
   diaInicioPeriodo: number;
+  /**
+   * Los 30 dias contra los que se cuenta la cuota de IA. Va anclada al
+   * vencimiento del plan, o a la creacion del negocio si es gratuito.
+   */
+  ventanaDeCuota: { inicio: Date; fin: Date };
   /** Contexto de negocio/sede que el dashboard configura para la IA. */
   contexto: string | null;
 }
@@ -68,6 +74,7 @@ interface SedeConNegocio {
     plan: number;
     planVenceEl: Date | null;
     diaInicioPeriodo: number;
+    createdAt: Date;
   };
 }
 
@@ -277,6 +284,11 @@ export class WhatsappRoutingService {
       ...this.planDelNegocio(sede.negocio),
       currency: DEFAULT_CURRENCY,
       diaInicioPeriodo: sede.negocio.diaInicioPeriodo,
+      ventanaDeCuota: this.planes.ventanaDeCuota(
+        sede.negocio.plan,
+        sede.negocio.planVenceEl,
+        sede.negocio.createdAt,
+      ),
       contexto: sede.contexto ?? sede.negocio.contexto,
     };
   }
@@ -322,7 +334,8 @@ const CUOTA_POR_PLAN: Record<number, PlanId> = {
   [PLAN_ASISTENTE]: 'asistente',
   [PLAN_GERENTE]: 'gerente',
   [PLAN_ADMINISTRADOR]: 'director',
-  [PLAN_SOCIO]: 'corporativo',
+  [PLAN_SOCIO]: 'socio',
+  [PLAN_CORPORATIVO]: 'corporativo',
 };
 
 /**
