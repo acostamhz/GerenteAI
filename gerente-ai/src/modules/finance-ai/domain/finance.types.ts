@@ -332,6 +332,15 @@ export interface MessageIntent {
    */
   confirmed: boolean | null;
   /**
+   * Cuantos movimientos dijo el usuario al confirmar ("borrar los 4").
+   *
+   * Un borrado de varios no se acepta con un "si" a secas. Paso de verdad: Luka
+   * ofrecio borrar cinco movimientos, el usuario contesto "Si" sin leer la
+   * lista y perdio todo el dia. Obligar a repetir el numero convierte el visto
+   * bueno en un acto consciente.
+   */
+  confirmedCount: number | null;
+  /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.
    */

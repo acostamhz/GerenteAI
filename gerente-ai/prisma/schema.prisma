@@ -186,6 +186,15 @@ model Mensaje {
   /// sede, asi que un indice corriente hace exactamente el mismo trabajo.
   wamid String?
 
+  /// Los movimientos que este mensaje reporto, cuando es una respuesta de Luka.
+  ///
+  /// Es lo que permite que "eliminame esto", citando el mensaje donde Luka
+  /// listo cuatro compras, borre EXACTAMENTE esas cuatro. Sin los ids, el
+  /// backend solo veia el texto del mensaje citado y tenia que adivinar por
+  /// fecha: en un caso real listo cinco movimientos en vez de cuatro y el
+  /// usuario confirmo sin revisar.
+  movimientoIds String[] @default([])
+
   /// Quien lo escribio: telefono o identidad de WhatsApp del remitente.
   ///
   /// El historial es por sede, y sin esto las conversaciones de dos empleados

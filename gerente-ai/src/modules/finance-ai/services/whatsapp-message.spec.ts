@@ -2649,7 +2649,15 @@ describe('WhatsAppMessageService · borrar con confirmación', () => {
     expect(pregunta.replyText).toContain('Mercancía · Galería');
     expect(pregunta.replyText).toContain('no se puede deshacer');
 
+    // Un 'si' pelado ya no basta cuando son varios.
     await decir({ type: 'confirmation', confirmed: true });
+    expect(financeData.deleted).toEqual([]);
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 4,
+    });
 
     // Los cuatro del fixture.
     expect(financeData.deleted).toHaveLength(4);
@@ -3079,10 +3087,14 @@ describe('WhatsAppMessageService · "elimina estos dos"', () => {
     // No pregunta "¿cuál de los dos?": el usuario ya dijo que son los dos.
     expect(pregunta.replyText).toContain('silla gamer');
     expect(pregunta.replyText).toContain('Venta de mesa');
-    expect(pregunta.replyText).toContain('¿Lo confirmas?');
+    expect(pregunta.replyText).toContain('¿Seguro que son los 2?');
     expect(financeData.deleted).toEqual([]);
 
-    await decir({ type: 'confirmation', confirmed: true });
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
 
     expect(financeData.deleted.sort()).toEqual(['mesa', 'silla']);
   });
@@ -3098,7 +3110,11 @@ describe('WhatsAppMessageService · "elimina estos dos"', () => {
         matchAll: true,
       }),
     });
-    await decir({ type: 'confirmation', confirmed: true });
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
 
     expect(financeData.deleted).not.toContain('viejo');
   });
@@ -3153,10 +3169,247 @@ describe('WhatsAppMessageService · "elimina estos dos"', () => {
       correction: correccion({ action: 'delete', matchAll: true }),
     });
 
-    expect(respuesta.replyText).toContain('¿Lo confirmas?');
+    expect(respuesta.replyText).toContain('¿Seguro que son los 3?');
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 3,
+    });
+
+    expect(financeData.deleted.length).toBeGreaterThan(1);
+  });
+});
+
+// ===========================================================================
+// BORRAR CITANDO UN MENSAJE
+//
+// Dos casos reales, los dos con pérdida de datos o a un paso de tenerla:
+//
+//   1. Citando "Registré el fiado de $2.000 a Kevin", Luka ofreció borrar un
+//      pago de gas de $60.000: la cita no identificaba nada y caía en la regla
+//      "sin referencia = el último movimiento".
+//
+//   2. Citando un mensaje con cuatro compras, listó cinco —todos los del día,
+//      porque acotaba por fecha—. El usuario contestó "Si" sin revisar y perdió
+//      la jornada entera.
+// ===========================================================================
+
+const DEL_MENSAJE: Transaction[] = [
+  {
+    id: 'manzana',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'POSTOBON MANZANA (350ml) · 480 u.',
+    category: 'mercancia',
+    amount: 400_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:00:00.000Z',
+  },
+  {
+    id: 'naranja',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'POSTOBON NARANJA (350ml) · 360 u.',
+    category: 'mercancia',
+    amount: 300_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:00:01.000Z',
+  },
+  {
+    id: 'moto',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'Venta fiada de moto',
+    category: 'ventas',
+    amount: 2_000_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T21:00:00.000Z',
+    isCredit: true,
+    customerName: 'Kevin',
+  },
+];
+
+/** Como si el usuario citara el mensaje donde Luka reportó esos movimientos. */
+function citando(ids: string[]) {
+  return {
+    ...BASE_REQUEST,
+    persist: true,
+    quotedMessage: {
+      fromLuka: true,
+      date: '2026-09-04',
+      content: '✅ Registré 2 movimientos: ...',
+      transactionIds: ids,
+    },
+  };
+}
+
+describe('WhatsAppMessageService · borrar lo que se está citando', () => {
+  it('borra exactamente los del mensaje citado, ni uno más', async () => {
+    // El caso 2: acotar por fecha traía los tres del día en vez de los dos que
+    // el usuario tenía a la vista.
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete' }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(
+      citando(['manzana', 'naranja']),
+    );
+
+    expect(pregunta.replyText).toContain('MANZANA');
+    expect(pregunta.replyText).toContain('NARANJA');
+    expect(pregunta.replyText).not.toContain('moto');
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('sin identificadores no cae en "el último movimiento"', async () => {
+    // El caso 1: citando el fiado de Kevin, ofrecía borrar un pago de gas que
+    // no tenía nada que ver, solo por ser el más reciente.
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete' }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citando(['moto']));
+
+    expect(pregunta.replyText).toContain('moto');
+    expect(pregunta.replyText).not.toContain('MANZANA');
+  });
+
+  it('dentro de la cita se puede escoger uno solo', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete', referenceIndex: 2 }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(
+      citando(['manzana', 'naranja']),
+    );
+
+    expect(pregunta.replyText).toContain('NARANJA');
+    expect(pregunta.replyText).not.toContain('MANZANA');
+  });
+
+  it('lo dice claro si esos movimientos ya no existen', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete' }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const respuesta = await service.handleMessage(citando(['ya-borrado']));
+
+    expect(respuesta.replyText).toContain('ya no están');
+  });
+});
+
+describe('WhatsAppMessageService · un "sí" distraído no borra varios', () => {
+  it('exige repetir cuántos son', async () => {
+    // Esto es lo que le costó a un usuario los movimientos de todo el día.
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    expect(pregunta.replyText).toContain('¿Seguro que son los 3?');
+
+    const insiste = await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(insiste.replyText).toContain('Espera, son 3 movimientos');
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 3,
+    });
+
+    expect(financeData.deleted).toHaveLength(3);
+  });
+
+  it('un número que no coincide tampoco borra', async () => {
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
+
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('con uno solo sigue bastando un "sí"', async () => {
+    // La fricción es para lo que no se puede deshacer en masa, no para todo.
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'moto' }),
+    });
+
+    expect(pregunta.replyText).toContain('¿Lo confirmas?');
 
     await decir({ type: 'confirmation', confirmed: true });
 
-    expect(financeData.deleted.length).toBeGreaterThan(1);
+    expect(financeData.deleted).toEqual(['moto']);
+  });
+
+  it('en vez de confirmar, se puede escoger uno de la lista', async () => {
+    // "Si solo era uno, dime cuál": reduce el borrado en vez de cancelarlo.
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    const acotado = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', referenceIndex: 2 }),
+    });
+
+    expect(acotado.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toHaveLength(1);
   });
 });

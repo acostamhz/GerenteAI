@@ -21,6 +21,17 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v16: borrar lo que el usuario esta senalando, y no de un "si" distraido.
+ *
+ * Dos cosas feas en produccion. Citando "Registre el fiado de $2.000 a Kevin",
+ * Luka ofrecio borrar un pago de gas de $60.000. Y citando un mensaje con
+ * cuatro compras, listo cinco —todos los del dia—, el usuario contesto "Si"
+ * sin leer y perdio la jornada entera.
+ *
+ * Ahora el backend sabe que movimientos reporto cada mensaje suyo, y un
+ * borrado de varios exige repetir cuantos son.
+ *
+ * ---------------------------------------------------------------------------
  * v15: borrar un grupo de movimientos, no solo uno.
  *
  * "Elimina estos dos", citando el mensaje donde Luka los acababa de listar,
@@ -77,7 +88,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v15';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v16';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -128,6 +139,7 @@ export interface WhatsAppIntentOutput {
   responseText?: string;
   confidence?: number | string;
   confirmed?: boolean | null;
+  confirmedCount?: number | string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -185,6 +197,7 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
   "queryKind": "summary" | "list" | "search" | "receivables" | null,
   "queryPeriod": "day" | "week" | "month" | null,
   "confirmed": boolean | null,
+  "confirmedCount": number | null,
   "responseText": "texto de respuesta para el usuario",
   "confidence": number entre 0 y 1
 }
@@ -419,9 +432,17 @@ REGLAS DE INTERPRETACIÓN:
 
    SI EL USUARIO ESTÁ RESPONDIENDO A UN MENSAJE CITADO:
    El contexto te dice a qué mensaje está respondiendo. Si en ese mensaje tú
-   listaste movimientos y ahora dice "elimina estos", "corrige el segundo" o
+   listaste movimientos y ahora dice "elimina esto", "corrige el segundo" o
    "ese está mal", se refiere a ESOS, no a los últimos que se registraron.
-   Saca de ahí la fecha, el concepto o el monto para identificarlos.
+
+   El sistema ya sabe cuáles son exactamente los movimientos de ese mensaje:
+   NO tienes que adivinarlos ni ponerles fecha para acotarlos. Basta con que
+   digas la acción:
+       "elimina esto"        -> action "delete", sin identificadores
+       "elimina solo el 2"   -> action "delete", referenceIndex 2
+       "corrige el de uva"   -> action "update", reference "uva"
+   Ponerle una fecha para "ayudar" es contraproducente: el sistema tiene los
+   movimientos exactos y la fecha solo puede estorbar.
 
    CUANDO ESTÁS RESOLVIENDO UNA AMBIGÜEDAD:
    Si en tu mensaje anterior mostraste una lista numerada y preguntaste cuál, lo
@@ -461,6 +482,21 @@ REGLAS DE INTERPRETACIÓN:
      entiende que cambió de tema y cancela lo que estaba pendiente.
    - En la duda, confirmed false. Cancelar un borrado no cuesta nada; ejecutar
      uno que el usuario no pidió le borra sus datos.
+
+   CUANDO SON VARIOS MOVIMIENTOS:
+   Si le preguntaste "¿seguro que son los 4?", un "sí" pelado NO alcanza. Pon
+   en "confirmedCount" el número que él diga:
+       "borrar los 4"    -> confirmed true, confirmedCount 4
+       "sí, los 4"       -> confirmed true, confirmedCount 4
+       "sí"              -> confirmed true, confirmedCount null
+   El sistema exige que el número coincida antes de borrar. Es a propósito: un
+   usuario contestó "Si" sin leer una lista de cinco y perdió los movimientos
+   de todo el día.
+
+   Y si en vez de confirmar escoge uno de la lista ("el 2", "solo la de
+   manzana"), eso NO es una confirmación: es type "correction" con
+   referenceIndex 2 o el identificador que corresponda. El sistema entiende que
+   quiere borrar solo ese.
 
 10. NO CLARO (type: "unclear"):
    - Si no puedes determinar con certeza qué quiere el usuario
@@ -630,22 +666,28 @@ Mensaje: "Ya me pagaron el fiado"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"¡Qué bueno! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.","confidence":0.5}
 
 Mensaje: (foto de una factura con 2 productos, subtotal 1.920.000, descuento 920.000, total 1.000.000)
-Respuesta: {"type":"expense","movements":[{"type":"expense","amount":768000,"category":"mercancia","concept":"Postobón Manzana (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":480,"date":null},{"type":"expense","amount":1152000,"category":"mercancia","concept":"Postobón Naranja (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":720,"date":null}],"declaredTotal":1000000,"discount":920000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Leí tu factura.","confidence":0.9}
+Respuesta: {"type":"expense","movements":[{"type":"expense","amount":768000,"category":"mercancia","concept":"Postobón Manzana (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":480,"date":null},{"type":"expense","amount":1152000,"category":"mercancia","concept":"Postobón Naranja (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":720,"date":null}],"declaredTotal":1000000,"discount":920000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Leí tu factura.","confidence":0.9}
 
 Mensaje: "Compré 500.000 en mercancía pero me hicieron 50.000 de descuento"
-Respuesta: {"type":"expense","movements":[{"type":"expense","amount":500000,"category":"mercancia","concept":"Mercancía","paymentMethod":null,"isCredit":false,"customerName":null,"quantity":null,"date":null}],"declaredTotal":450000,"discount":50000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Registro la compra con el descuento.","confidence":0.95}
+Respuesta: {"type":"expense","movements":[{"type":"expense","amount":500000,"category":"mercancia","concept":"Mercancía","paymentMethod":null,"isCredit":false,"customerName":null,"quantity":null,"date":null}],"declaredTotal":450000,"discount":50000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Registro la compra con el descuento.","confidence":0.95}
 
 Mensaje: "Elimina estos dos"  (citando un mensaje tuyo que listaba dos ventas del 4 de septiembre)
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":"2026-09-04","referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":true},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Déjame ver cuáles son.","confidence":0.9}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":"2026-09-04","referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":true},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Déjame ver cuáles son.","confidence":0.9}
+
+Mensaje: "borrar los 4"  (venías de preguntarle si estaba seguro de borrar 4 movimientos)
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"confirmedCount":4,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
+
+Mensaje: "elimina esto"  (citando un mensaje tuyo donde listaste sus movimientos)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Déjame ver cuáles son.","confidence":0.9}
 
 Mensaje: "Borra todos los registros de hoy"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":true,"matchAll":false},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":true,"matchAll":false},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
 
 Mensaje: "sí"  (venías de preguntar si confirma un borrado)
-Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
 
 Mensaje: "no, mejor no"  (misma situación)
-Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":false,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, no borro nada.","confidence":0.95}
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":false,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, no borro nada.","confidence":0.95}
 
 Mensaje: "¿Quién me debe?"
 Respuesta: {"type":"query","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":"receivables","queryPeriod":null,"responseText":"Déjame revisar quién te debe.","confidence":0.95}
@@ -794,6 +836,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'correction',
     'payment',
     'confirmed',
+    'confirmedCount',
     'concept',
     'queryKind',
     'queryPeriod',
@@ -1023,6 +1066,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
       type: ['string', 'null'],
       enum: ['day', 'week', 'month'],
       description: 'Periodo consultado. Solo para type "query".',
+    },
+    confirmedCount: {
+      type: ['number', 'null'],
+      description:
+        'Cuantos movimientos dijo al confirmar un borrado multiple ("borrar los 4").',
     },
     confirmed: {
       type: ['boolean', 'null'],

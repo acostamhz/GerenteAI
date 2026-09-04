@@ -102,7 +102,20 @@ export interface WhatsAppMessageRequest {
    * justamente cuando se refiere a algo que no es lo ultimo que se dijo. Sin
    * esto, "pero esto es lo que me dijiste" llegaba suelto.
    */
-  quotedMessage?: { fromLuka: boolean; date: string; content: string } | null;
+  quotedMessage?: {
+    fromLuka: boolean;
+    date: string;
+    content: string;
+    /**
+     * Los movimientos que ese mensaje reporto, cuando era una respuesta de
+     * Luka.
+     *
+     * Es la diferencia entre borrar exactamente lo que el usuario esta
+     * senalando y adivinarlo por fecha. Vacio en los mensajes del usuario y en
+     * los de Luka anteriores a que esto se guardara.
+     */
+    transactionIds: string[];
+  } | null;
   /**
    * Nota de voz o foto que acompana al mensaje.
    *
@@ -467,6 +480,7 @@ export class WhatsAppMessageService {
         correction: null,
         payment: null,
         confirmed: null,
+        confirmedCount: null,
         discount: null,
         amount: null,
         category: null,
@@ -534,15 +548,34 @@ export class WhatsAppMessageService {
       );
     }
 
-    this.state.olvidar(request.businessId);
-
     if (intent.confirmed !== true) {
+      this.state.olvidar(request.businessId);
       return this.plainResult(
         intent,
         'Listo, no borré nada. Todo queda como estaba 👍',
         meta,
       );
     }
+
+    // Un "si" a secas no basta para borrar varios. El usuario tiene que repetir
+    // cuantos son: es la unica forma de saber que leyo la lista. La pregunta
+    // sigue abierta, asi que puede confirmar bien o escoger uno.
+    if (
+      borrado.targets.length > 1 &&
+      intent.confirmedCount !== borrado.targets.length
+    ) {
+      this.logger.warn(
+        `Confirmacion floja de un borrado de ${borrado.targets.length} movimientos en sede ${request.businessId}.`,
+      );
+
+      return this.plainResult(
+        intent,
+        renderCountConfirmationNeeded(borrado.targets, currency),
+        meta,
+      );
+    }
+
+    this.state.olvidar(request.businessId);
 
     if (request.persist) {
       for (const objetivo of borrado.targets) {
@@ -770,6 +803,46 @@ export class WhatsAppMessageService {
       return this.handleDeleteAll(intent, request, currency, meta);
     }
 
+    // Con un borrado ya sobre la mesa, un identificador no abre una busqueda
+    // nueva: acota lo que se iba a borrar. "El 2" significa "solo ese", que es
+    // justo lo que hay que poder decir cuando la lista trae de mas.
+    const borradoAbierto = this.state.borradoPendiente(request.businessId);
+
+    if (borradoAbierto && tieneIdentificador(correccion)) {
+      const elegidos = resolverEntreCandidatos(
+        borradoAbierto.targets,
+        correccion,
+      );
+
+      if (elegidos.length) {
+        this.state.recordarBorrado(request.businessId, {
+          targets: elegidos,
+          period: null,
+        });
+
+        return {
+          ...this.plainResult(intent, '', meta),
+          replyText: renderDeleteConfirmation(elegidos, null, currency),
+        };
+      }
+    }
+
+    // Lo que el usuario esta senalando al citar un mensaje de Luka. Manda
+    // sobre cualquier otra pista: son los movimientos exactos de ese mensaje,
+    // no los que se parezcan por fecha.
+    const citados = await this.buscarCitados(request);
+
+    if (citados) {
+      return this.corregirCitados(
+        intent,
+        request,
+        correccion,
+        citados,
+        currency,
+        meta,
+      );
+    }
+
     const pendiente = this.state.correccionPendiente(request.businessId);
 
     // El usuario no repite el valor nuevo cuando solo esta contestando "cual":
@@ -878,6 +951,31 @@ export class WhatsAppMessageService {
       };
     }
 
+    return this.aplicarCorreccion(
+      intent,
+      request,
+      objetivo,
+      cambio,
+      currency,
+      meta,
+    );
+  }
+
+  /**
+   * Escribe la correccion sobre un movimiento ya identificado.
+   *
+   * Vive aparte porque hay dos caminos que llegan aqui —la busqueda normal y
+   * la resolucion por mensaje citado— y duplicar esto significaba que un
+   * arreglo en uno no llegara al otro.
+   */
+  private async aplicarCorreccion(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    objetivo: Transaction,
+    cambio: { newAmount: number | null; newConcept: string | null },
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
     if (cambio.newAmount === null && cambio.newConcept === null) {
       return this.needsClarification(
         intent,
@@ -961,6 +1059,107 @@ export class WhatsAppMessageService {
       ...this.plainResult(intent, '', meta),
       replyText: renderDeleteConfirmation(movimientos, period, currency),
     };
+  }
+
+  /**
+   * Los movimientos del mensaje que el usuario esta citando.
+   *
+   * Devuelve null cuando no hay cita o cuando esa cita no trae ids (mensajes
+   * viejos, o del propio usuario). Devuelve lista vacia cuando los traia pero
+   * ya no existen: no es lo mismo "no se de que hablas" que "eso ya lo
+   * borraste", y responder lo segundo evita que el usuario lo intente otra vez.
+   */
+  private async buscarCitados(
+    request: WhatsAppMessageRequest,
+  ): Promise<Transaction[] | null> {
+    const ids = request.quotedMessage?.transactionIds ?? [];
+    if (!ids.length) return null;
+
+    const hoy = todayIso();
+    const rows = await this.financeData.listTransactions({
+      businessId: request.businessId,
+      // Ventana ancha: un mensaje citado puede ser de hace meses, y aqui no se
+      // esta buscando "algo parecido" sino ids exactos.
+      from: sumarDias(hoy, -QUOTED_WINDOW_DAYS),
+      to: hoy,
+      limit: 2_000,
+    });
+
+    const porId = new Map(rows.map((row) => [row.id, row]));
+    return ids
+      .map((id) => porId.get(id))
+      .filter((row): row is Transaction => row !== undefined);
+  }
+
+  /**
+   * Corrige o borra sobre los movimientos que el usuario esta citando.
+   *
+   * Aqui NO se busca nada: el conjunto ya esta acotado por la cita. Lo unico
+   * que se decide es si habla de todos o de uno solo.
+   *
+   * Sin esto pasaron dos cosas feas. Citando "Registre el fiado de $2.000 a
+   * Kevin", Luka ofrecio borrar un pago de gas de $60.000, porque la cita no
+   * identificaba nada y caia en "el ultimo". Y citando un mensaje con cuatro
+   * compras, listo cinco movimientos —todos los del dia— y el usuario confirmo
+   * sin revisar.
+   */
+  private async corregirCitados(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    correccion: CorrectionRequest,
+    citados: Transaction[],
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    if (!citados.length) {
+      return this.plainResult(
+        intent,
+        'Esos movimientos ya no están: parece que se borraron antes. ¿Te ayudo con otra cosa?',
+        meta,
+      );
+    }
+
+    // Si dio una pista para escoger dentro de la cita, se respeta.
+    const elegidos = resolverEntreCandidatos(citados, correccion);
+    const objetivos =
+      elegidos.length && !correccion.matchAll ? elegidos : citados;
+
+    if (correccion.action === 'delete') {
+      this.state.recordarBorrado(request.businessId, {
+        targets: objetivos,
+        period: null,
+      });
+
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderDeleteConfirmation(objetivos, null, currency),
+      };
+    }
+
+    // Una correccion sobre varios no tiene sentido: hay que saber cual.
+    if (objetivos.length > 1) {
+      this.state.recordarCorreccion(request.businessId, {
+        action: 'update',
+        candidates: objetivos,
+        newAmount: correccion.newAmount,
+        newConcept: correccion.newConcept,
+      });
+
+      return this.plainResult(
+        intent,
+        renderAmbiguousCorrection(objetivos, currency),
+        meta,
+      );
+    }
+
+    return this.aplicarCorreccion(
+      intent,
+      request,
+      objetivos[0],
+      { newAmount: correccion.newAmount, newConcept: correccion.newConcept },
+      currency,
+      meta,
+    );
   }
 
   /**
@@ -1187,6 +1386,7 @@ export class WhatsAppMessageService {
         discount: null,
         payment: null,
         confirmed: null,
+        confirmedCount: null,
         queryKind: null,
         queryPeriod: null,
         // Si no se pudo completar, la interpretacion no puede considerarse
@@ -1229,6 +1429,7 @@ export class WhatsAppMessageService {
       correction: normalizeCorrection(output?.correction),
       payment,
       confirmed: normalizeConfirmed(output?.confirmed),
+      confirmedCount: normalizePosition(output?.confirmedCount),
       amount,
       category,
       concept: conceptoEfectivo,
@@ -2084,6 +2285,14 @@ const DELETE_PREVIEW_MAX = 10;
 /** Tope de un borrado por grupo. Mas que esto es un "borra todo el dia". */
 const MAX_MOVEMENTS_PER_DELETE = 50;
 
+/**
+ * Cuanto hacia atras se buscan los movimientos de un mensaje citado.
+ *
+ * Ancho a proposito: se buscan ids exactos, no coincidencias, asi que no hay
+ * riesgo de traer de mas, y un mensaje se puede citar meses despues.
+ */
+const QUOTED_WINDOW_DAYS = 400;
+
 const CORRECTION_MAX_CANDIDATES = 5;
 
 const SEARCH_WINDOW_DAYS = 120;
@@ -2372,7 +2581,10 @@ export function renderDeleteConfirmation(
   // de cincuenta lineas en WhatsApp no la lee nadie, y hay que decir la verdad
   // sobre cuantos son.
   const mostrados = objetivos.slice(0, DELETE_PREVIEW_MAX);
-  const lineas = mostrados.map((row) => movementLine(row, currency));
+  // Numerada: sin numeros, "dime cuál" no se puede contestar.
+  const lineas = mostrados.map((row, indice) =>
+    movementLine(row, currency, `${indice + 1})`),
+  );
 
   const encabezado = period
     ? `⚠️ Voy a borrar TODOS tus movimientos ${PERIOD_LABELS[period]} (${objetivos.length}):`
@@ -2389,7 +2601,37 @@ export function renderDeleteConfirmation(
     ...resto,
     '',
     `En total son ${formatMoney(total, currency)}. Esto no se puede deshacer.`,
-    '¿Lo confirmas? Respóndeme "sí" o "no".',
+    // No vale un "si": hay que repetir el numero. Un usuario contesto "Si" sin
+    // leer una lista de cinco y perdio los movimientos de todo el dia.
+    `¿Seguro que son los ${objetivos.length}? Respóndeme "borrar los ${objetivos.length}".`,
+    'Si solo era uno, dime cuál: "el 2".',
+  ].join('\n');
+}
+
+/**
+ * Lo que se responde cuando alguien confirma un borrado multiple sin decir
+ * cuantos.
+ *
+ * Se vuelve a enseñar la lista: si el "si" fue distraido, esta es la segunda
+ * oportunidad de leerla.
+ */
+export function renderCountConfirmationNeeded(
+  objetivos: Transaction[],
+  currency: string,
+): string {
+  const mostrados = objetivos.slice(0, DELETE_PREVIEW_MAX);
+
+  return [
+    `Espera, son ${objetivos.length} movimientos y borrarlos no se puede deshacer.`,
+    ...mostrados.map((row, indice) =>
+      movementLine(row, currency, `${indice + 1})`),
+    ),
+    ...(objetivos.length > mostrados.length
+      ? [`...y ${objetivos.length - mostrados.length} más.`]
+      : []),
+    '',
+    `Si de verdad son los ${objetivos.length}, escríbeme "borrar los ${objetivos.length}".`,
+    'Si solo querías uno, dime cuál: "el 2".',
   ].join('\n');
 }
 
