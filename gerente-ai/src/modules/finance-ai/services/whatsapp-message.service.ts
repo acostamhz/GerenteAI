@@ -357,11 +357,35 @@ export class WhatsAppMessageService {
       );
     }
 
-    const descuadre = checkBreakdown(intent.declaredTotal, intent.movements);
+    const descuadre = checkBreakdown(
+      intent.declaredTotal,
+      intent.movements,
+      intent.discount,
+    );
+
     if (descuadre) {
       this.logger.warn(
         `Desglose que no cuadra: total ${descuadre.declared}, partes ${descuadre.sum}.`,
       );
+
+      // Se guarda lo que si se entendio. Cuando el descuadre venia de una foto,
+      // la imagen NO viaja al siguiente turno: sin esto, el usuario explicaba
+      // la diferencia ("es que me dieron un descuento") y Luka le pedia otra
+      // vez la lista de productos que acababa de leer.
+      const entendidos = this.buildTransactions(
+        intent.movements,
+        request,
+        currency,
+        referenceDate,
+      );
+
+      this.state.recordarRegistro(request.businessId, {
+        transactions: entendidos,
+        source: request.media?.kind ?? 'texto',
+        reason: 'descuadre',
+        declaredTotal: intent.declaredTotal,
+      });
+
       return this.needsClarification(
         intent,
         renderMismatch(descuadre, currency),
@@ -374,6 +398,8 @@ export class WhatsAppMessageService {
       request,
       currency,
       referenceDate,
+      undefined,
+      intent.discount,
     );
 
     // De una nota de voz o una foto no se registra nada sin visto bueno: el
@@ -382,6 +408,8 @@ export class WhatsAppMessageService {
       this.state.recordarRegistro(request.businessId, {
         transactions,
         source: request.media.kind,
+        reason: 'media',
+        declaredTotal: intent.declaredTotal,
       });
 
       return {
@@ -395,6 +423,7 @@ export class WhatsAppMessageService {
           transactions,
           request.media.kind,
           currency,
+          intent.discount,
         ),
         meta,
       };
@@ -415,9 +444,9 @@ export class WhatsAppMessageService {
       // natural. Con varios lo arma el backend: son cifras, y las cifras las
       // pone quien tiene los datos.
       replyText:
-        transactions.length === 1
+        transactions.length === 1 && !intent.discount
           ? intent.responseText
-          : renderMovementsRegistered(transactions, currency),
+          : renderMovementsRegistered(transactions, currency, intent.discount),
       meta,
     };
   }
@@ -438,6 +467,7 @@ export class WhatsAppMessageService {
         correction: null,
         payment: null,
         confirmed: null,
+        discount: null,
         amount: null,
         category: null,
         concept: null,
@@ -466,7 +496,10 @@ export class WhatsAppMessageService {
   ): Promise<WhatsAppMessageResult> {
     const registro = this.state.registroPendiente(request.businessId);
 
-    if (registro) {
+    // Un descuadre no se resuelve con un si: lo que se pidio ahi fue la cifra
+    // buena, no un visto bueno. Confirmarlo guardaria justo los montos que no
+    // cuadraban.
+    if (registro && registro.reason === 'media') {
       this.state.olvidar(request.businessId);
 
       if (intent.confirmed !== true) {
@@ -1121,6 +1154,7 @@ export class WhatsAppMessageService {
         movements: [],
         amount: null,
         category: null,
+        discount: null,
         payment: null,
         confirmed: null,
         queryKind: null,
@@ -1160,6 +1194,7 @@ export class WhatsAppMessageService {
       type,
       movements,
       declaredTotal: normalizeAmount(output?.declaredTotal),
+      discount: normalizeAmount(output?.discount),
       profitShares: normalizeProfitShares(output?.profitShares),
       correction: normalizeCorrection(output?.correction),
       payment,
@@ -1200,11 +1235,13 @@ export class WhatsAppMessageService {
     currency: string,
     referenceDate: string,
     groupId?: string,
+    discount?: number | null,
   ): Transaction[] {
     const grupo = groupId ?? (movements.length > 1 ? randomUUID() : null);
     const createdAt = new Date().toISOString();
+    const netos = repartirDescuento(movements, discount ?? null);
 
-    return movements.map((movement) => ({
+    return movements.map((movement, indice) => ({
       id: randomUUID(),
       businessId: request.businessId,
       // La fecha que dijo el usuario manda; si no dijo ninguna, es hoy.
@@ -1213,11 +1250,9 @@ export class WhatsAppMessageService {
       // guarda. Cuando la dijo, no hay hora: el adaptador usa el mediodia para
       // que el movimiento no se corra de dia en ninguna zona horaria.
       occurredAt: movement.date ? null : createdAt,
-      description:
-        movement.concept ??
-        `Movimiento registrado por WhatsApp (${movement.type})`,
+      description: describirMovimiento(movement),
       category: movement.category,
-      amount: movement.amount,
+      amount: netos[indice],
       type: movement.type,
       currency,
       source: 'whatsapp',
@@ -1459,11 +1494,70 @@ function normalizeMovements(value: unknown): MovementDraft[] {
         paymentMethod: normalizePaymentMethod(row.paymentMethod),
         isCredit: row.isCredit === true,
         customerName: cleanText(row.customerName),
+        quantity: normalizeQuantity(row.quantity),
         date: normalizeMovementDate(row.date),
       };
     })
     .filter((movement): movement is MovementDraft => movement !== null)
     .slice(0, MAX_MOVEMENTS_PER_MESSAGE);
+}
+
+/** Unidades: un entero positivo, o nada. */
+function normalizeQuantity(value: unknown): number | null {
+  const numero = Number(value);
+  return Number.isFinite(numero) && numero > 0 ? Math.round(numero) : null;
+}
+
+/**
+ * Reparte el descuento entre los movimientos, en proporcion a lo que pesa cada
+ * uno.
+ *
+ * Lo que salio de la caja es el total pagado, no el subtotal de la factura.
+ * Guardar los precios de lista inflaria los gastos del mes por plata que nunca
+ * se movio, que es el mismo error que se corrigio con los fiados.
+ *
+ * El ultimo movimiento absorbe el redondeo para que la suma cuadre al peso: si
+ * cada linea se redondeara por su cuenta, el total podria quedar uno o dos
+ * pesos lejos del que dijo el usuario.
+ */
+export function repartirDescuento(
+  movements: { amount: number }[],
+  discount: number | null,
+): number[] {
+  const original = movements.map((movimiento) => movimiento.amount);
+  if (!discount || discount <= 0 || !movements.length) return original;
+
+  const total = sumAmounts(movements);
+  if (total <= 0) return original;
+
+  // Un descuento mayor que la compra no tiene sentido: se ignora y se registra
+  // lo que dice la factura, que es mejor que dejar montos en cero.
+  if (discount >= total) return original;
+
+  const netos = original.map((monto) =>
+    round2(monto - (monto / total) * discount),
+  );
+
+  const objetivo = round2(total - discount);
+  const diferencia = round2(
+    objetivo - sumAmounts(netos.map((amount) => ({ amount }))),
+  );
+  netos[netos.length - 1] = round2(netos[netos.length - 1] + diferencia);
+
+  return netos;
+}
+
+/**
+ * El texto con el que se guarda el movimiento.
+ *
+ * Si se dijeron las unidades, van en la descripcion: "480 u." al lado del
+ * producto es lo que permite entender el gasto al releerlo meses despues.
+ */
+function describirMovimiento(movement: MovementDraft): string {
+  const base =
+    movement.concept ?? `Movimiento registrado por WhatsApp (${movement.type})`;
+
+  return movement.quantity ? `${base} · ${movement.quantity} u.` : base;
 }
 
 function normalizeMovementType(value: unknown): TransactionType {
@@ -1677,11 +1771,15 @@ export interface BreakdownMismatch {
 export function checkBreakdown(
   declaredTotal: number | null,
   movements: { amount: number }[],
+  discount: number | null = null,
 ): BreakdownMismatch | null {
   if (declaredTotal === null || movements.length < 2) return null;
 
   const sum = sumAmounts(movements);
-  const difference = round2(declaredTotal - sum);
+  // El descuento explica la diferencia: sin restarlo, una factura con subtotal
+  // 1.920.000, descuento 920.000 y total 1.000.000 se veia como un error de
+  // dedo y no se registraba nada.
+  const difference = round2(declaredTotal - (sum - (discount ?? 0)));
 
   return Math.abs(difference) <= BREAKDOWN_TOLERANCE
     ? null
@@ -2166,6 +2264,7 @@ export function renderRegistrationConfirmation(
   transactions: Transaction[],
   source: 'audio' | 'image',
   currency: string,
+  discount: number | null = null,
 ): string {
   const de = source === 'audio' ? 'tu nota de voz' : 'tu foto';
 
@@ -2174,14 +2273,19 @@ export function renderRegistrationConfirmation(
   }
 
   const lineas = transactions.map((row) => movementLine(row, currency));
-  const total = transactions.reduce((suma, row) => suma + row.amount, 0);
+  const pagado = transactions.reduce((suma, row) => suma + row.amount, 0);
 
   return [
     `Esto entendí de ${de}:`,
     ...lineas,
-    ...(transactions.length > 1
-      ? ['', `Son ${formatMoney(total, currency)} en total.`]
-      : []),
+    ...(discount
+      ? [
+          '',
+          ...lineasDeDescuento(round2(pagado + discount), discount, currency),
+        ]
+      : transactions.length > 1
+        ? ['', `Son ${formatMoney(pagado, currency)} en total.`]
+        : []),
     '',
     '¿Lo registro así? Respóndeme "sí", o dime qué corregir.',
   ].join('\n');
@@ -2305,6 +2409,22 @@ function renderPendingRegistration(
       `- ${row.date} · ${row.description} · ${row.type} · ${formatMoney(row.amount, currency)}`,
   );
 
+  if (pendiente.reason === 'descuadre') {
+    // La foto NO viaja al siguiente turno. Si no se le devuelven aqui las
+    // lineas que ya se leyeron, el modelo le pide al usuario que le dicte otra
+    // vez la factura que acaba de mirar.
+    return [
+      'PREGUNTA ABIERTA (lo mas importante de este turno):',
+      `Entendiste estos movimientos, pero suman distinto del total que dijo el usuario (${formatMoney(pendiente.declaredTotal ?? 0, currency)}), asi que le preguntaste cual es la cifra buena:`,
+      ...lineas,
+      'Estas lineas ya las tienes: NO se las vuelvas a pedir.',
+      'Si explica la diferencia con un DESCUENTO, devuelve otra vez estos mismos',
+      'movimientos con sus montos originales, declaredTotal con el total que paga',
+      'y discount con lo que le rebajaron. Si dice que una cifra estaba mal,',
+      'devuelvelos corregidos.',
+    ].join('\n');
+  }
+
   return [
     'PREGUNTA ABIERTA (lo mas importante de este turno):',
     `Le acabas de enseñar lo que entendiste de su ${pendiente.source === 'audio' ? 'nota de voz' : 'foto'} y le preguntaste si lo registras asi:`,
@@ -2391,17 +2511,47 @@ function movementLine(
  * Se detallan uno por uno a proposito: si el usuario dicto tres gastos y solo
  * ve un total, no tiene forma de saber si se separaron bien.
  */
+/**
+ * Las lineas del descuento, cuando lo hubo.
+ *
+ * Se ensenan las tres cifras —lo que costaba, lo que rebajaron y lo que se
+ * pago— porque el usuario tiene la factura delante y quiere reconocerla.
+ */
+function lineasDeDescuento(
+  bruto: number,
+  discount: number,
+  currency: string,
+): string[] {
+  return [
+    `Subtotal: ${formatMoney(bruto, currency)}`,
+    `Descuento: -${formatMoney(discount, currency)}`,
+    `Total pagado: ${formatMoney(round2(bruto - discount), currency)}`,
+  ];
+}
+
 export function renderMovementsRegistered(
   transactions: Transaction[],
   currency: string,
+  discount: number | null = null,
 ): string {
-  const total = sumAmounts(transactions);
+  const pagado = sumAmounts(transactions);
   const lineas = transactions.map((row) => movementLine(row, currency));
 
+  // Con descuento se ensenan las tres cifras: el usuario tiene la factura
+  // delante y quiere reconocer el subtotal que ahi dice, no solo lo que pago.
+  const cierre = discount
+    ? lineasDeDescuento(round2(pagado + discount), discount, currency)
+    : [`Total: ${formatMoney(pagado, currency)}`];
+
   return [
-    `✅ Registré ${transactions.length} movimientos:`,
+    `✅ Registré ${transactions.length} movimiento${transactions.length === 1 ? '' : 's'}:`,
     ...lineas,
-    `Total: ${formatMoney(total, currency)}`,
+    ...cierre,
+    ...(discount
+      ? [
+          'Repartí el descuento entre los productos, así tus gastos cuadran con lo que de verdad pagaste.',
+        ]
+      : []),
   ].join('\n');
 }
 

@@ -21,6 +21,14 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v14: descuentos y unidades.
+ *
+ * Una factura trae subtotal, descuento y total a pagar. Sin un campo para el
+ * descuento, las lineas sumaban el subtotal, el usuario decia el total, y el
+ * backend lo tomaba por un error de dedo: respondia "las partes no cuadran" y
+ * no registraba nada. Ahora el descuento se declara y se reparte.
+ *
+ * ---------------------------------------------------------------------------
  * v13: notas de voz y fotos.
  *
  * El mensaje puede traer un audio o una imagen ademas del texto. Se interpreta
@@ -62,7 +70,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v13';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v14';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -81,9 +89,11 @@ export interface WhatsAppIntentOutput {
     paymentMethod?: string | null;
     isCredit?: boolean | null;
     customerName?: string | null;
+    quantity?: number | string | null;
     date?: string | null;
   }[];
   declaredTotal?: number | string | null;
+  discount?: number | string | null;
   profitShares?: {
     beneficiary?: string | null;
     name?: string | null;
@@ -138,10 +148,12 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
       "paymentMethod": "efectivo" | "transferencia" | "tarjeta" | "otro" | null,
       "isCredit": boolean,
       "customerName": string | null,
+      "quantity": number | null,
       "date": "YYYY-MM-DD" | null
     }
   ],
   "declaredTotal": number | null,
+  "discount": number | null,
   "profitShares": [
     { "beneficiary": "dueno" | "trabajador", "name": string | null, "percentage": number }
   ],
@@ -227,6 +239,30 @@ REGLAS DE INTERPRETACIÓN:
       cuadre con las partes. El sistema verifica la suma y, si no cuadra, pide
       la aclaración. No corrijas los números por tu cuenta ni escojas cuál es
       el correcto.
+
+5B. DESCUENTOS Y FACTURAS:
+   Una factura casi siempre trae tres cifras: el subtotal, el descuento y el
+   total a pagar. Las tres importan y cada una va en su sitio.
+
+       Subtotal:        $1.920.000   <- lo que suman las líneas (movements)
+       Descuento:         $920.000   <- va en "discount"
+       Total a pagar:   $1.000.000   <- va en "declaredTotal"
+
+   - Cada producto de la factura es un movimiento aparte, con su concepto, su
+     monto de línea y sus unidades en "quantity".
+   - "discount" es el descuento del CONJUNTO, no de cada línea.
+   - NO restes el descuento tú de los montos: pon las líneas como están en la
+     factura y el descuento aparte. El sistema lo reparte y hace las cuentas.
+   - Si no hay descuento, "discount" va null.
+
+   Funciona igual venga de una foto, de un audio o escrito:
+       "Compré 500.000 en mercancía pero me hicieron 50.000 de descuento"
+       -> un movement de 500.000, declaredTotal 450000, discount 50000
+       "Me rebajaron 20.000"  (sobre algo que se está registrando)
+       -> discount 20000
+
+   OJO: un descuento NO es un ingreso ni un gasto aparte. Es menos plata que
+   sale, nada más.
 
 6. FIADOS (ventas a crédito):
    - "Le fié $50.000 a doña Rosa", "vendí 30.000 a crédito", "quedó debiendo"
@@ -495,7 +531,9 @@ REGLAS DE INTERPRETACIÓN:
      Inventar un numero de un audio que no se entendio es meterle un dato falso
      a la contabilidad de alguien.
    - Si la foto trae varios movimientos (un recibo con varias lineas), devuelve
-     uno por cada uno, como con el texto.
+     uno por cada uno, como con el texto, con sus unidades en "quantity".
+   - Si la factura trae descuento, lee la regla 5B: las líneas van con el monto
+     que dice la factura y el descuento va aparte.
    - El sistema NO guarda nada de un audio o una foto sin ensenarselo antes al
      usuario y esperar que confirme. Tu solo interpreta; la confirmacion la
      pide el sistema con las cifras reales.
@@ -561,6 +599,12 @@ Respuesta: {"type":"payment","movements":[],"declaredTotal":null,"profitShares":
 
 Mensaje: "Ya me pagaron el fiado"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"¡Qué bueno! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.","confidence":0.5}
+
+Mensaje: (foto de una factura con 2 productos, subtotal 1.920.000, descuento 920.000, total 1.000.000)
+Respuesta: {"type":"expense","movements":[{"type":"expense","amount":768000,"category":"mercancia","concept":"Postobón Manzana (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":480,"date":null},{"type":"expense","amount":1152000,"category":"mercancia","concept":"Postobón Naranja (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":720,"date":null}],"declaredTotal":1000000,"discount":920000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Leí tu factura.","confidence":0.9}
+
+Mensaje: "Compré 500.000 en mercancía pero me hicieron 50.000 de descuento"
+Respuesta: {"type":"expense","movements":[{"type":"expense","amount":500000,"category":"mercancia","concept":"Mercancía","paymentMethod":null,"isCredit":false,"customerName":null,"quantity":null,"date":null}],"declaredTotal":450000,"discount":50000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Registro la compra con el descuento.","confidence":0.95}
 
 Mensaje: "Borra todos los registros de hoy"
 Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndex":null,"newAmount":null,"newConcept":null,"deleteAll":true},"payment":null,"confirmed":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
@@ -713,6 +757,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'type',
     'movements',
     'declaredTotal',
+    'discount',
     'profitShares',
     'correction',
     'payment',
@@ -758,6 +803,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
           'isCredit',
           'date',
           'customerName',
+          'quantity',
         ],
         properties: {
           type: {
@@ -794,6 +840,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
             type: ['string', 'null'],
             description: 'Cliente al que se le fió, si se menciona.',
           },
+          quantity: {
+            type: ['number', 'null'],
+            description:
+              'Unidades de este producto, si la factura o el mensaje las dicen.',
+          },
           date: {
             type: ['string', 'null'],
             description:
@@ -806,6 +857,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
       type: ['number', 'null'],
       description:
         'Total que el usuario dijo de viva voz cuando además dio el desglose. null si no lo dijo.',
+    },
+    discount: {
+      type: ['number', 'null'],
+      description:
+        'Descuento sobre el conjunto. Las lineas van con su monto de factura, sin restarlo.',
     },
     profitShares: {
       type: 'array',

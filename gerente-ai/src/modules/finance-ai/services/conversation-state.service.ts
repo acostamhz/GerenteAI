@@ -63,7 +63,17 @@ export interface PendingRegistration {
   kind: 'registration';
   transactions: Transaction[];
   /** De donde salio, para poder decirlo en la respuesta. */
-  source: 'audio' | 'image';
+  source: 'audio' | 'image' | 'texto';
+  /**
+   * Por que quedo pendiente.
+   *
+   * "media" = salio de un audio o una foto y hay que ensenarlo antes de
+   * guardar. "descuadre" = las partes no suman el total que dijo el usuario y
+   * hay que aclararlo.
+   */
+  reason: 'media' | 'descuadre';
+  /** El total que dijo el usuario, cuando no cuadraba con las partes. */
+  declaredTotal: number | null;
   at: number;
 }
 

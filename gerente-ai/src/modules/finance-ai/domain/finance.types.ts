@@ -184,6 +184,14 @@ export interface MovementDraft {
   /** A quien se le fio, cuando se menciona. */
   customerName: string | null;
   /**
+   * Cuantas unidades, cuando el mensaje o la factura lo dicen.
+   *
+   * No cambia el monto (ese ya viene total), pero se conserva en la
+   * descripcion: "480 cajas de gaseosa" y "480" a secas no dicen lo mismo
+   * cuando uno relee sus gastos tres meses despues.
+   */
+  quantity: number | null;
+  /**
    * Fecha del movimiento en YYYY-MM-DD, si el usuario la dijo.
    *
    * null = no la menciono, y entonces vale hoy. Sin esto, quien registra el
@@ -290,6 +298,19 @@ export interface MessageIntent {
    * cuadran. null = no dijo un total, solo las partes.
    */
   declaredTotal: number | null;
+  /**
+   * Descuento aplicado al conjunto del mensaje.
+   *
+   * Una factura trae subtotal, descuento y total a pagar. Sin este campo, las
+   * lineas sumaban el subtotal, el usuario decia el total, y el backend lo
+   * tomaba por un error de dedo: respondia "las partes no cuadran" y no
+   * registraba nada. El descuento explica la diferencia.
+   *
+   * Se reparte entre los movimientos, porque lo que salio de la caja es el
+   * total pagado y no el subtotal: guardar el subtotal inflaria los gastos del
+   * mes por plata que nunca se movio.
+   */
+  discount: number | null;
   /** Reparto de utilidades, cuando el mensaje lo menciona. */
   profitShares: ProfitShare[];
   /** Que corregir, cuando el mensaje pide arreglar algo ya registrado. */

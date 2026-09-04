@@ -20,6 +20,7 @@ import {
   periodRange,
   renderMovementList,
   renderSummary,
+  repartirDescuento,
 } from './whatsapp-message.service';
 
 /**
@@ -2172,11 +2173,8 @@ function buildConversacion(rows: Transaction[] = CONVERSACION) {
   } as unknown as LlmService;
 
   const financeData = fakeFinanceData(rows);
-  const service = new WhatsAppMessageService(
-    llm,
-    financeData,
-    new ConversationStateService(),
-  );
+  const state = new ConversationStateService();
+  const service = new WhatsAppMessageService(llm, financeData, state);
 
   const decir = (
     intent: Partial<WhatsAppIntentOutput>,
@@ -2186,7 +2184,7 @@ function buildConversacion(rows: Transaction[] = CONVERSACION) {
     return service.handleMessage({ ...BASE_REQUEST, persist: true, ...extra });
   };
 
-  return { decir, financeData };
+  return { decir, financeData, state };
 }
 
 describe('WhatsAppMessageService · desambiguar una corrección', () => {
@@ -2855,5 +2853,165 @@ describe('WhatsAppMessageService · audio e imagen', () => {
     });
 
     expect(result.intent.type).toBe('unclear');
+  });
+});
+
+// ===========================================================================
+// DESCUENTOS
+//
+// Una factura trae subtotal, descuento y total a pagar. Sin entender el
+// descuento, las líneas sumaban el subtotal, el usuario decía el total, y Luka
+// lo tomaba por un error de dedo: "las partes no cuadran" y no registraba nada.
+// ===========================================================================
+
+/** La factura real que rompió esto: 4 productos, subtotal 1.920.000. */
+const FACTURA: Partial<WhatsAppIntentOutput> = {
+  type: 'expense',
+  movements: [
+    movimiento({
+      amount: 768_000,
+      category: 'mercancia',
+      concept: 'Postobón Manzana (350ml)',
+      quantity: 480,
+    }),
+    movimiento({
+      amount: 576_000,
+      category: 'mercancia',
+      concept: 'Postobón Naranja (350ml)',
+      quantity: 360,
+    }),
+    movimiento({
+      amount: 384_000,
+      category: 'mercancia',
+      concept: 'Postobón Uva (350ml)',
+      quantity: 240,
+    }),
+    movimiento({
+      amount: 192_000,
+      category: 'mercancia',
+      concept: 'Postobón Limonada (350ml)',
+      quantity: 120,
+    }),
+  ],
+  declaredTotal: 1_000_000,
+  discount: 920_000,
+  responseText: 'Leí tu factura.',
+};
+
+describe('WhatsAppMessageService · descuentos', () => {
+  it('el descuento explica la diferencia y ya no reclama descuadre', async () => {
+    const { service, financeData } = buildService(FACTURA);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.intent.type).toBe('expense');
+    expect(result.replyText).not.toContain('no cuadra');
+    expect(financeData.saved).toHaveLength(4);
+  });
+
+  it('guarda lo que de verdad salió de la caja, no el subtotal', async () => {
+    // Guardar 1.920.000 inflaría los gastos del mes por plata que nunca se
+    // movió: es el mismo error que se corrigió con los fiados.
+    const { service, financeData } = buildService(FACTURA);
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    const total = financeData.saved.reduce((suma, row) => suma + row.amount, 0);
+    expect(total).toBe(1_000_000);
+  });
+
+  it('reparte el descuento en proporción a cada línea', () => {
+    // 768.000 pesa el 40% del subtotal, así que se queda con el 40% del total.
+    const netos = repartirDescuento(
+      [{ amount: 768_000 }, { amount: 1_152_000 }],
+      920_000,
+    );
+
+    expect(netos[0]).toBeCloseTo(400_000, 0);
+    expect(netos[1]).toBeCloseTo(600_000, 0);
+    expect(netos[0] + netos[1]).toBe(1_000_000);
+  });
+
+  it('el redondeo nunca deja la suma corrida', () => {
+    // Tres partes iguales de un total impar: si cada una se redondeara por su
+    // cuenta, el total quedaría a un peso del que dijo el usuario.
+    const netos = repartirDescuento(
+      [{ amount: 10_000 }, { amount: 10_000 }, { amount: 10_000 }],
+      1_000,
+    );
+
+    expect(netos.reduce((a, b) => a + b, 0)).toBe(29_000);
+  });
+
+  it('un descuento mayor que la compra se ignora', () => {
+    // Es un error de lectura, y dejar los montos en cero sería peor.
+    const netos = repartirDescuento([{ amount: 5_000 }], 90_000);
+    expect(netos).toEqual([5_000]);
+  });
+
+  it('conserva las unidades en la descripción', async () => {
+    const { service, financeData } = buildService(FACTURA);
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.saved[0].description).toContain('480 u.');
+  });
+
+  it('le muestra al usuario las tres cifras de la factura', async () => {
+    // Tiene la factura delante: quiere reconocer el subtotal que ahí dice.
+    const { service } = buildService(FACTURA);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('$1.920.000');
+    expect(result.replyText).toContain('$920.000');
+    expect(result.replyText).toContain('$1.000.000');
+  });
+
+  it('sin descuento, las cuentas siguen igual que antes', async () => {
+    const { service, financeData } = buildService({
+      ...FACTURA,
+      declaredTotal: 1_920_000,
+      discount: null,
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    const total = financeData.saved.reduce((suma, row) => suma + row.amount, 0);
+    expect(total).toBe(1_920_000);
+  });
+});
+
+describe('WhatsAppMessageService · un descuadre no pierde lo leído', () => {
+  it('guarda lo entendido para el siguiente turno', async () => {
+    // La foto no viaja al siguiente mensaje. Sin esto, el usuario explicaba la
+    // diferencia y Luka le pedía otra vez la lista que acababa de leer.
+    const { decir, state } = buildConversacion();
+
+    const respuesta = await decir({ ...FACTURA, discount: null });
+
+    expect(respuesta.replyText).toContain('las partes suman');
+
+    const pendiente = state.registroPendiente('b1');
+    expect(pendiente?.reason).toBe('descuadre');
+    expect(pendiente?.transactions).toHaveLength(4);
+    expect(pendiente?.declaredTotal).toBe(1_000_000);
+  });
+
+  it('un "sí" no puede confirmar un descuadre', async () => {
+    // Lo que se pidió ahí fue la cifra buena, no un visto bueno: confirmarlo
+    // guardaría justo los montos que no cuadraban.
+    const { decir, financeData } = buildConversacion();
+
+    await decir({ ...FACTURA, discount: null });
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.saved).toHaveLength(0);
   });
 });
