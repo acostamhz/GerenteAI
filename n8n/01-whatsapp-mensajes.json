@@ -347,6 +347,12 @@
               "name": "detalleError",
               "value": "={{ JSON.stringify($json.error ?? $json).slice(0, 500) }}",
               "type": "string"
+            },
+            {
+              "id": "c1000000-0000-4000-8000-000000000024",
+              "name": "mensajeId",
+              "value": "",
+              "type": "string"
             }
           ]
         },
@@ -360,7 +366,7 @@
       ],
       "id": "a1000000-0000-4000-8000-000000000010",
       "name": "Respuesta de emergencia",
-      "notes": "El backend caído o inalcanzable. El usuario NUNCA se queda sin respuesta."
+      "notes": "Lo que se le contesta al usuario cuando el backend no pudo responder.\n\nDeclara `mensajeId` vacio para que los nodos de mas abajo puedan leerlo sin reventar: si no existiera, la referencia al nodo \"Preparar respuesta\" —que en esta rama nunca se ejecuto— tumbaria la ejecucion entera."
     },
     {
       "parameters": {
@@ -505,7 +511,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ mensajeId: $('Preparar respuesta').item.json.mensajeId, wamid: $json.messages?.[0]?.id || '' }) }}",
+        "jsonBody": "={{ JSON.stringify({ mensajeId: $('¿Hay respuesta?').item.json.mensajeId, wamid: $json.messages?.[0]?.id || '' }) }}",
         "options": {
           "timeout": 15000
         }
@@ -513,8 +519,8 @@
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.4,
       "position": [
-        1780,
-        -120
+        2000,
+        -260
       ],
       "id": "c1000000-0000-4000-8000-000000000020",
       "name": "Anotar envío",
@@ -525,7 +531,7 @@
         }
       },
       "onError": "continueRegularOutput",
-      "notes": "Le dice al backend con que wamid quedo enviada la respuesta de Luka.\n\nEl backend calcula la respuesta pero no la envia, asi que ese id solo lo conoce este workflow. Guardarlo es lo que permite que, cuando el usuario responda citando un mensaje de Luka, el backend sepa cual era.\n\nCorre despues de enviar: el usuario ya tiene su respuesta y no espera por esto. Si falla, no pasa nada grave: se pierde la cita de ese mensaje concreto."
+      "notes": "Le dice al backend con que wamid quedo enviada la respuesta de Luka.\n\nEl backend calcula la respuesta pero no la envia, asi que ese id solo lo conoce este workflow. Guardarlo es lo que permite que, cuando el usuario responda citando un mensaje de Luka, el backend sepa cual era.\n\nLee de \"¿Hay respuesta?\" y no de \"Preparar respuesta\": aquel se ejecuta tanto en el camino normal como en el de emergencia, y referenciar un nodo que no corrio tumba la ejecucion.\n\nCorre despues de enviar: el usuario ya tiene su respuesta y no espera por esto. Si falla, solo se pierde la cita de ese mensaje concreto."
     },
     {
       "parameters": {
@@ -632,6 +638,42 @@
       ],
       "id": "c1000000-0000-4000-8000-000000000033",
       "name": "Preparar archivo"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b1-anotar",
+              "leftValue": "={{ $('¿Hay respuesta?').item.json.mensajeId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1780,
+        -220
+      ],
+      "id": "c1000000-0000-4000-8000-000000000040",
+      "name": "¿Hay id que anotar?",
+      "notes": "Cuando la respuesta salio de la rama de emergencia no hay ningun mensaje de Luka guardado en la base, asi que no hay wamid que anotarle."
     }
   ],
   "pinData": {},
@@ -756,7 +798,7 @@
       "main": [
         [
           {
-            "node": "Anotar envío",
+            "node": "¿Hay id que anotar?",
             "type": "main",
             "index": 0
           }
@@ -848,6 +890,18 @@
             "index": 0
           }
         ]
+      ]
+    },
+    "¿Hay id que anotar?": {
+      "main": [
+        [
+          {
+            "node": "Anotar envío",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
       ]
     }
   },

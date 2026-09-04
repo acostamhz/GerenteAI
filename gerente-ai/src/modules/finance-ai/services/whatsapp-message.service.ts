@@ -1784,10 +1784,20 @@ function contenidoDelUsuario(
     { type: 'text', text: request.message },
     {
       type: request.media.kind,
-      mimeType: request.media.mimeType,
+      mimeType: tipoBase(request.media.mimeType),
       dataBase64: request.media.dataBase64,
     },
   ];
+}
+
+/**
+ * El tipo MIME sin sus parametros: "audio/ogg; codecs=opus" -> "audio/ogg".
+ *
+ * Los proveedores esperan el tipo pelado, y Meta manda las notas de voz con el
+ * codec pegado.
+ */
+function tipoBase(mimeType: string): string {
+  return mimeType.split(';')[0].trim();
 }
 
 function todayIso(): string {
