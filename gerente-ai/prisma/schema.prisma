@@ -178,7 +178,13 @@ model Mensaje {
   /// Meta manda en el webhook el wamid del mensaje citado, y sin guardarlo no
   /// habia forma de saber de cual hablaba. Nulo en los mensajes viejos y en
   /// los que aun no se han confirmado como enviados.
-  wamid String? @unique
+  ///
+  /// El indice es normal y NO unico a proposito: un constraint unico nuevo
+  /// hace que `prisma db push` se niegue a correr sin --accept-data-loss, y
+  /// ese flag le daria permiso permanente para borrar columnas y tablas en
+  /// cualquier despliegue futuro. Aqui el wamid siempre se busca acotado por
+  /// sede, asi que un indice corriente hace exactamente el mismo trabajo.
+  wamid String?
 
   /// Quien lo escribio: telefono o identidad de WhatsApp del remitente.
   ///
@@ -191,6 +197,7 @@ model Mensaje {
   sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
 
   @@index([sedeId, fecha])
+  @@index([wamid])
 }
 
 model Reporte {
