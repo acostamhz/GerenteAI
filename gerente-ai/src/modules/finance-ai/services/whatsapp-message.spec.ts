@@ -3015,3 +3015,148 @@ describe('WhatsAppMessageService · un descuadre no pierde lo leído', () => {
     expect(financeData.saved).toHaveLength(0);
   });
 });
+
+// ===========================================================================
+// BORRAR UN GRUPO: "elimina estos dos"
+//
+// Referirse a varios movimientos a la vez caía en el camino de "buscar uno" y
+// Luka respondía que no encontraba nada, aunque el usuario los tuviera a la
+// vista en el mensaje que estaba citando.
+// ===========================================================================
+
+const DOS_DEL_MISMO_DIA: Transaction[] = [
+  {
+    id: 'silla',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'Venta de silla gamer - abono Alexandra',
+    category: 'ventas',
+    amount: 250_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:18:00.000Z',
+  },
+  {
+    id: 'mesa',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'Venta de mesa',
+    category: 'ventas',
+    amount: 180_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:18:30.000Z',
+  },
+  {
+    id: 'viejo',
+    businessId: 'b1',
+    date: '2026-09-02',
+    description: 'Venta cama nube',
+    category: 'ventas',
+    amount: 2_000_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-02T15:00:00.000Z',
+  },
+];
+
+describe('WhatsAppMessageService · "elimina estos dos"', () => {
+  it('los enseña todos y los borra tras el sí', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    // No pregunta "¿cuál de los dos?": el usuario ya dijo que son los dos.
+    expect(pregunta.replyText).toContain('silla gamer');
+    expect(pregunta.replyText).toContain('Venta de mesa');
+    expect(pregunta.replyText).toContain('¿Lo confirmas?');
+    expect(financeData.deleted).toEqual([]);
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted.sort()).toEqual(['mesa', 'silla']);
+  });
+
+  it('no toca los movimientos de otro día', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).not.toContain('viejo');
+  });
+
+  it('sin matchAll sigue preguntando cuál de los dos', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+      }),
+    });
+
+    expect(respuesta.replyText).toContain('Cuál');
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('explica TODO lo que buscó cuando no encuentra nada', async () => {
+    // Antes solo nombraba el primer criterio, así que un "no encontré ningún
+    // movimiento del 2026-09-04" escondía que también estaba filtrando por
+    // texto.
+    const { decir } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-08-01',
+        reference: 'jabones',
+        matchAll: true,
+      }),
+    });
+
+    expect(respuesta.replyText).toContain('2026-08-01');
+    expect(respuesta.replyText).toContain('jabones');
+  });
+
+  it('"todos esos" sobre una lista ya mostrada los toma todos', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    // Primero una desambiguación: dos ventas parecidas.
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Venta' }),
+    });
+
+    // Y ahora "todos esos", sin decir cuál.
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', matchAll: true }),
+    });
+
+    expect(respuesta.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted.length).toBeGreaterThan(1);
+  });
+});
