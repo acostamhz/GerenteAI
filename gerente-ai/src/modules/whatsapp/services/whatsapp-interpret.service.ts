@@ -340,6 +340,7 @@ export class WhatsappInterpretService {
       context.sedeId,
       'ASSISTANT',
       replyText,
+      { movimientoIds: result.transactions.map((row) => row.id) },
     );
 
     const category = result.intent.category as TransactionCategory | null;
@@ -399,7 +400,11 @@ export class WhatsappInterpretService {
     sedeId: string,
     rol: 'USER' | 'ASSISTANT',
     contenido: string,
-    extra: { wamid?: string | null; remitente?: string | null } = {},
+    extra: {
+      wamid?: string | null;
+      remitente?: string | null;
+      movimientoIds?: string[];
+    } = {},
   ): Promise<string | null> {
     try {
       const mensaje = await this.prisma.mensaje.create({
@@ -411,6 +416,9 @@ export class WhatsappInterpretService {
           // cite mas adelante.
           wamid: extra.wamid ?? null,
           remitente: extra.remitente ?? null,
+          // Los ids de lo que se acaba de registrar: sin esto, citar la
+          // respuesta para borrarla obliga a adivinar cuales eran.
+          movimientoIds: extra.movimientoIds ?? [],
         },
       });
       return mensaje.id;
@@ -435,7 +443,12 @@ export class WhatsappInterpretService {
   private async loadQuoted(
     sedeId: string,
     wamid: string | undefined,
-  ): Promise<{ fromLuka: boolean; date: string; content: string } | null> {
+  ): Promise<{
+    fromLuka: boolean;
+    date: string;
+    content: string;
+    transactionIds: string[];
+  } | null> {
     if (!wamid) return null;
 
     try {
@@ -452,6 +465,7 @@ export class WhatsappInterpretService {
         fromLuka: citado.rol === 'ASSISTANT',
         date: fechaColombiana(citado.fecha),
         content: citado.contenido,
+        transactionIds: citado.movimientoIds,
       };
     } catch (error) {
       this.logger.warn(
