@@ -144,7 +144,7 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
     "date": "YYYY-MM-DD" | null
   } | null,
   "concept": string | null,
-  "queryKind": "summary" | "list" | "search" | null,
+  "queryKind": "summary" | "list" | "search" | "receivables" | null,
   "queryPeriod": "day" | "week" | "month" | null,
   "responseText": "texto de respuesta para el usuario",
   "confidence": number entre 0 y 1
@@ -278,7 +278,21 @@ REGLAS DE INTERPRETACIÓN:
         en algo, es una búsqueda, no un resumen.
       - Pon en concept SOLO la palabra clave, sin "cuánto" ni "qué día".
 
-   En los tres casos el sistema pone las cifras reales. En responseText no
+   d) "receivables" -> la cartera completa: quiénes le deben. concept: null
+      - "¿Quién me debe?", "¿quiénes me deben?", "reporte de fiados",
+        "¿cuánto me deben en total?", "¿quién está vencido?", "mis fiados"
+      - Es la lista de TODOS los deudores. Úsalo siempre que la pregunta sea
+        por el conjunto, sin importar el plan: el sistema decide si el plan lo
+        incluye y pone el mensaje comercial si no.
+
+   OJO CON LA DIFERENCIA (es la que más se equivoca):
+      "¿Quién me debe?"                  -> "receivables" (todos los deudores)
+      "¿Qué le vendí fiado a doña Mary?" -> "search", concept "Mary"
+      "¿Cuánto le fié a Juan?"           -> "search", concept "Juan"
+   Preguntar por UNA persona es buscar en sus propios movimientos. Preguntar
+   por el conjunto es el reporte.
+
+   En los cuatro casos el sistema pone las cifras reales. En responseText no
    inventes montos ni fechas: escribe algo breve, el sistema lo reemplaza.
 
 9. CORRECCIONES (type: "correction"):
@@ -390,17 +404,25 @@ REGLAS DE INTERPRETACIÓN:
        - Registrar gastos, ingresos e inversiones, incluidos los fiados
        - Resúmenes de día, semana y mes ("¿cómo voy?", "¿cuánto llevo?")
        - Ver la LISTA de sus propios movimientos ("¿cuáles son esos 8?")
-       - BUSCAR EN SUS PROPIOS MOVIMIENTOS, aunque mencionen un producto:
-           "¿Qué día compré jabones?"      -> queryKind "search", concept "jabones"
-           "¿Cuánto gané en ventas?"       -> queryKind "search", concept "ventas"
-           "¿Cuánto le compré a Meza?"     -> queryKind "search", concept "Meza"
+       - BUSCAR EN SUS PROPIOS MOVIMIENTOS, aunque mencionen un producto o
+         una persona:
+           "¿Qué día compré jabones?"         -> queryKind "search", concept "jabones"
+           "¿Cuánto gané en ventas?"          -> queryKind "search", concept "ventas"
+           "¿Cuánto le compré a Meza?"        -> queryKind "search", concept "Meza"
+           "¿Qué le vendí fiado a doña Mary?" -> queryKind "search", concept "Mary"
+           "¿Cuánto le fié a Juan?"           -> queryKind "search", concept "Juan"
        Consultar lo que uno mismo registró es consultar, no es un reporte.
+       Sí puede ver fechas, nombres y montos de SUS registros, incluidos los
+       fiados de una persona concreta. Cobrarle por eso es cobrarle por algo
+       que ya tiene.
 
    SOLO EN PLANES PAGOS (aquí sí va "premium", y solo si el plan es "Asistente"):
        - Rankings y comparaciones entre productos:
            "¿Cuál producto vendo MÁS?", "¿cuál me deja más margen?",
            "dame el reporte de productos"
-       - Reporte de fiados / cuentas por cobrar
+       - La CARTERA COMPLETA: "¿quién me debe?", "reporte de fiados",
+         "¿quién está vencido?". Aquí NO uses "premium": usa queryKind
+         "receivables" y deja que el sistema decida, que sabe qué plan tiene.
        - Recomendaciones y análisis: "¿qué me recomiendas?", "¿cómo mejoro?",
          "¿en qué estoy gastando de más?"
        - Registrar por foto o por audio
@@ -477,6 +499,12 @@ Respuesta: {"type":"payment","movements":[],"declaredTotal":null,"profitShares":
 
 Mensaje: "Ya me pagaron el fiado"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"¡Qué bueno! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.","confidence":0.5}
+
+Mensaje: "¿Quién me debe?"
+Respuesta: {"type":"query","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":"receivables","queryPeriod":null,"responseText":"Déjame revisar quién te debe.","confidence":0.95}
+
+Mensaje: "¿Qué le vendí fiado a doña Mary?"
+Respuesta: {"type":"query","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":"Mary","queryKind":"search","queryPeriod":null,"responseText":"Déjame buscar lo de doña Mary.","confidence":0.95}
 
 Mensaje: "De las ganancias, 60% para mí y 40% para los trabajadores"
 Respuesta: {"type":"profit_share","movements":[],"declaredTotal":null,"profitShares":[{"beneficiary":"dueno","name":null,"percentage":60},{"beneficiary":"trabajador","name":null,"percentage":40}],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, reparto las utilidades 60/40.","confidence":0.95}
@@ -800,8 +828,9 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     },
     queryKind: {
       type: ['string', 'null'],
-      enum: ['summary', 'list', 'search'],
-      description: 'Clase de consulta. Solo para type "query".',
+      enum: ['summary', 'list', 'search', 'receivables'],
+      description:
+        'Clase de consulta. Solo para type "query". "receivables" es la cartera completa.',
     },
     queryPeriod: {
       type: ['string', 'null'],

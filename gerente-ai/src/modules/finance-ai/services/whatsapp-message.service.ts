@@ -33,6 +33,7 @@ import {
   type ProfitShare,
   type QueryKind,
   type QueryPeriod,
+  type Receivable,
   type Transaction,
   type TransactionCategory,
   type TransactionType,
@@ -806,6 +807,10 @@ export class WhatsAppMessageService {
     const period = intent.queryPeriod ?? 'month';
     const diaInicio = diaInicioDe(request);
 
+    if (intent.queryKind === 'receivables') {
+      return this.handleReceivables(intent, request, currency, meta);
+    }
+
     // Una busqueda sin termino no se puede hacer: cae al resumen.
     if (intent.queryKind === 'search' && intent.concept) {
       const encontrados = await this.searchTransactions(
@@ -1025,6 +1030,37 @@ export class WhatsAppMessageService {
     return rows
       .filter((row) => normalizeText(row.description).includes(buscado))
       .slice(0, SEARCH_MAX_RESULTS);
+  }
+
+  /**
+   * La cartera completa: quien debe, cuanto y desde cuando.
+   *
+   * El corte por plan se hace aqui y no solo en el prompt: que el modelo
+   * clasifique bien es deseable, pero no es una garantia, y de esto depende
+   * que una funcion de pago no se regale. Degradar a "premium" hace que
+   * WhatsappInterpretService ponga el mensaje comercial de siempre, con sus
+   * precios y su enlace.
+   */
+  private async handleReceivables(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    if (request.planIsFree) {
+      return this.plainResult(
+        { ...intent, type: 'premium' },
+        'El reporte de fiados está disponible en los planes pagos.',
+        meta,
+      );
+    }
+
+    const cartera = await this.financeData.listReceivables(request.businessId);
+
+    return {
+      ...this.plainResult(intent, '', meta),
+      replyText: renderReceivables(cartera, currency),
+    };
   }
 
   private async buildSummary(
@@ -1377,7 +1413,12 @@ function normalizePayment(value: unknown): PaymentDraft | null {
 }
 
 function normalizeQueryKind(value: unknown, concept: string | null): QueryKind {
-  if (value === 'summary' || value === 'list' || value === 'search') {
+  if (
+    value === 'summary' ||
+    value === 'list' ||
+    value === 'search' ||
+    value === 'receivables'
+  ) {
     return value;
   }
   return concept ? 'search' : 'summary';
@@ -1631,6 +1672,63 @@ const FECHA_CORTA = new Intl.DateTimeFormat('es-CO', {
  * Se listan los movimientos con su fecha, que es justo lo que se pregunta
  * ("¿que dia fue?"), y el total, que es lo que se pregunta despues.
  */
+/**
+ * La cartera, cliente por cliente.
+ *
+ * Lo que le sirve al dueno no es un total: es a quien llamar. Por eso cada
+ * linea lleva nombre, saldo, lo ya abonado y desde cuando, y la lista viene
+ * ordenada con la deuda mas vieja primero.
+ */
+export function renderReceivables(
+  cartera: Receivable[],
+  currency: string,
+): string {
+  const money = (value: number) => formatMoney(value, currency);
+
+  if (!cartera.length) {
+    return 'Nadie te debe nada ahora mismo 🎉 Todos tus fiados están cobrados.';
+  }
+
+  const lineas = cartera.map((cliente) => {
+    const partes = [
+      `• ${cliente.customerName}: te debe ${money(cliente.pending)}`,
+    ];
+
+    if (cliente.paid > 0) {
+      partes.push(
+        `ya te abonó ${money(cliente.paid)} de ${money(cliente.total)}`,
+      );
+    }
+
+    partes.push(
+      cliente.daysOutstanding === 0
+        ? 'fiado hoy'
+        : `hace ${cliente.daysOutstanding} días`,
+    );
+
+    if (cliente.daysSinceLastPayment !== null) {
+      partes.push(
+        cliente.daysSinceLastPayment === 0
+          ? 'te abonó hoy'
+          : `último abono hace ${cliente.daysSinceLastPayment} días`,
+      );
+    } else {
+      partes.push('no ha abonado nada');
+    }
+
+    return partes.join(' · ');
+  });
+
+  const total = cartera.reduce((suma, cliente) => suma + cliente.pending, 0);
+
+  return [
+    `💰 Te deben ${money(total)} en total:`,
+    ...lineas,
+    '',
+    'Empieza por los de arriba: son los que llevan más tiempo debiendo.',
+  ].join('\n');
+}
+
 export function renderSearch(
   termino: string,
   encontrados: Transaction[],

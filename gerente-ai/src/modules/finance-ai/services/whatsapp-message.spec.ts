@@ -1,7 +1,11 @@
 import type { LlmResponse } from '../../../ai/core/llm.types';
 import type { LlmService } from '../../../ai/services/llm.service';
 import { ConversationStateService } from './conversation-state.service';
-import type { PeriodSummary, Transaction } from '../domain/finance.types';
+import type {
+  PeriodSummary,
+  Receivable,
+  Transaction,
+} from '../domain/finance.types';
 import type {
   FinanceDataPort,
   ProfitDistribution,
@@ -107,6 +111,8 @@ interface FakeFinanceData extends FinanceDataPort {
   payments: PaymentRequest[];
   /** Lo que devolvera `registerPayment`. Cada prueba lo ajusta a su caso. */
   paymentResult: PaymentResult;
+  /** La cartera que ve la consulta "quien me debe". */
+  receivables: Receivable[];
 }
 
 function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
@@ -135,7 +141,8 @@ function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
       payments.push(payment);
       return Promise.resolve(fake.paymentResult);
     },
-    listReceivables: () => Promise.resolve([]),
+    receivables: [],
+    listReceivables: () => Promise.resolve(fake.receivables),
     getSnapshot: () => Promise.reject(new Error('no usado en estas pruebas')),
     listTransactions: () => Promise.resolve(rows),
     saveTransactions: (transactions: Transaction[]) => {
@@ -2420,5 +2427,134 @@ describe('WhatsAppMessageService · la hora del mensaje no se tira', () => {
 
     expect(financeData.payments[0].date).toBe('2026-08-23');
     expect(financeData.payments[0].occurredAt).toBeNull();
+  });
+});
+
+// ===========================================================================
+// "¿QUIÉN ME DEBE?" — la cartera y su corte por plan
+// ===========================================================================
+
+const CARTERA: Receivable[] = [
+  {
+    customerId: 'c1',
+    customerName: 'Doña Rosa',
+    pending: 200_000,
+    paid: 100_000,
+    total: 300_000,
+    oldestSince: '2026-07-18',
+    daysOutstanding: 47,
+    lastPaymentDate: '2026-08-22',
+    daysSinceLastPayment: 12,
+    openSales: 1,
+  },
+  {
+    customerId: 'c2',
+    customerName: 'Juan',
+    pending: 50_000,
+    paid: 0,
+    total: 50_000,
+    oldestSince: '2026-08-20',
+    daysOutstanding: 14,
+    lastPaymentDate: null,
+    daysSinceLastPayment: null,
+    openSales: 1,
+  },
+];
+
+describe('WhatsAppMessageService · ¿quién me debe?', () => {
+  const PREGUNTA: Partial<WhatsAppIntentOutput> = {
+    type: 'query',
+    queryKind: 'receivables',
+    responseText: 'Déjame revisar.',
+  };
+
+  it('responde quién, cuánto debe, cuánto abonó y desde cuándo', async () => {
+    const { service, financeData } = buildService(PREGUNTA);
+    financeData.receivables = CARTERA;
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: false,
+    });
+
+    expect(result.replyText).toContain('Doña Rosa');
+    expect(result.replyText).toContain('$200.000');
+    expect(result.replyText).toContain('$100.000');
+    expect(result.replyText).toContain('47 días');
+    expect(result.replyText).toContain('12 días');
+
+    expect(result.replyText).toContain('Juan');
+    expect(result.replyText).toContain('no ha abonado nada');
+
+    // El total, para no tener que sumarlo a mano.
+    expect(result.replyText).toContain('$250.000');
+  });
+
+  it('en el plan gratuito es una función de pago', async () => {
+    // El corte lo hace el backend, no el modelo: de esto depende que una
+    // función de pago no se regale por una clasificación floja.
+    const { service, financeData } = buildService(PREGUNTA);
+    financeData.receivables = CARTERA;
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: true,
+    });
+
+    expect(result.intent.type).toBe('premium');
+    expect(result.replyText).not.toContain('Doña Rosa');
+  });
+
+  it('buscar los fiados de una persona SÍ es gratis', async () => {
+    // La diferencia del punto 1: preguntar por una persona es consultar lo
+    // propio; la lista completa de deudores es el reporte.
+    const fiadoDeMary: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-08-30',
+        description: 'Fiado a doña Mary',
+        category: 'ventas',
+        amount: 45_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-08-30T15:00:00.000Z',
+        isCredit: true,
+        pendingAmount: 45_000,
+        customerName: 'Doña Mary',
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'search',
+        concept: 'Mary',
+        responseText: 'Déjame buscar.',
+      },
+      fiadoDeMary,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: true,
+    });
+
+    expect(result.intent.type).toBe('query');
+    expect(result.replyText).toContain('Mary');
+    expect(result.replyText).toContain('$45.000');
+  });
+
+  it('lo dice bonito cuando no le deben nada', async () => {
+    const { service, financeData } = buildService(PREGUNTA);
+    financeData.receivables = [];
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: false,
+    });
+
+    expect(result.replyText).toContain('Nadie te debe nada');
   });
 });

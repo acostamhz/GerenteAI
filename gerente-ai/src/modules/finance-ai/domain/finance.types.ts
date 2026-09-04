@@ -250,7 +250,15 @@ export type QueryKind =
   /** "¿Cuales son esos 8 movimientos?" → el detalle, uno por uno. */
   | 'list'
   /** "¿Que dia compre jabones?" → busqueda por concepto. */
-  | 'search';
+  | 'search'
+  /**
+   * "¿Quien me debe?" → la cartera completa, con nombres y saldos.
+   *
+   * Es distinto de buscar los fiados de UNA persona: eso es consultar lo
+   * propio y va por "search". Esto es la vista consolidada y ordenada por
+   * antiguedad, que es lo que se cobra en los planes pagos.
+   */
+  | 'receivables';
 
 /**
  * Lo que el modelo entiende de un mensaje. Es exactamente el JSON del
