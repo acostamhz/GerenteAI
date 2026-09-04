@@ -2763,6 +2763,29 @@ describe('WhatsAppMessageService · audio e imagen', () => {
     });
   });
 
+  it('le quita al MIME los parámetros que manda Meta', async () => {
+    // Meta manda "audio/ogg; codecs=opus"; los proveedores esperan el tipo
+    // pelado.
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: false,
+      media: { ...NOTA_DE_VOZ, mimeType: 'audio/ogg; codecs=opus' },
+    });
+
+    const partes = (
+      visto.messages?.at(-1) as { content: { mimeType?: string }[] }
+    ).content;
+
+    expect(partes[1].mimeType).toBe('audio/ogg');
+  });
+
   it('un mensaje escrito normal sigue yendo como texto plano', async () => {
     const { llm, visto } = espiarLlm(UN_GASTO);
     const service = new WhatsAppMessageService(
