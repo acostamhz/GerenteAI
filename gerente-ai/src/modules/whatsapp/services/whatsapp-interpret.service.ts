@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 import { LlmError, type LlmErrorCode } from '../../../ai/core/llm.errors';
+import { fechaColombiana } from '../../finance-ai/domain/dia-colombia';
 import { PrismaService } from '../../../services/prisma.service';
 import {
   CATEGORY_LABELS,
@@ -48,6 +49,8 @@ export type PublicIntentType =
   | 'reparto_utilidades'
   /** Le pagaron un fiado: baja la deuda, no crea un movimiento. */
   | 'abono'
+  /** Contesto si o no a una pregunta de Luka. */
+  | 'confirmacion'
   | 'consulta'
   | 'correccion'
   | 'no_claro'
@@ -95,6 +98,14 @@ export interface InterpretResponse {
     negocioId: string | null;
     sedeId: string | null;
     duplicate: boolean;
+    /**
+     * Id del mensaje de Luka en la base.
+     *
+     * n8n lo devuelve en `POST /ai/interpret/enviado` junto con el wamid que
+     * le dio Meta al enviarlo. Es lo que permite reconocer despues un mensaje
+     * de Luka cuando el usuario lo cita.
+     */
+    assistantMessageId: string | null;
     promptVersion: string | null;
     provider: string | null;
     model: string | null;
@@ -112,6 +123,7 @@ const TYPE_LABELS: Record<MessageIntentType, PublicIntentType> = {
   breakdown: 'desglose',
   profit_share: 'reparto_utilidades',
   payment: 'abono',
+  confirmation: 'confirmacion',
   query: 'consulta',
   correction: 'correccion',
   unclear: 'no_claro',
@@ -155,8 +167,15 @@ const DEFAULT_PLANS_URL = 'https://luka-gules.vercel.app/subscription';
 /** Panel donde se crea el negocio. Quien ya tiene cuenta va directo aqui. */
 const DEFAULT_APP_URL = 'https://luka-gules.vercel.app/';
 
-/** Turnos de conversacion que se le pasan al modelo. 6 = 3 idas y vueltas. */
-const HISTORY_TURNS = 6;
+/**
+ * Turnos de conversacion que se le pasan al modelo. 12 = 6 idas y vueltas.
+ *
+ * Eran 6, y se quedaban cortos en cuanto la conversacion tenia una pregunta de
+ * por medio: desambiguar una correccion o confirmar un borrado gasta dos o tres
+ * turnos, y para cuando el usuario contestaba, lo que se estaba corrigiendo ya
+ * se habia salido de la ventana.
+ */
+const HISTORY_TURNS = 12;
 
 const GENERIC_FALLBACK =
   'No pude procesar tu mensaje en este momento 😔 Intenta de nuevo en unos minutos.';
@@ -255,7 +274,12 @@ export class WhatsappInterpretService {
     // ---- 3. Historial ------------------------------------------------------
     // Se lee ANTES de guardar el mensaje nuevo: si no, el modelo recibiria dos
     // veces el mismo texto (como turno anterior y como mensaje actual).
-    const history = await this.loadHistory(context.sedeId);
+    const remitente = sender.phone ?? sender.userId ?? null;
+
+    const [history, quotedMessage] = await Promise.all([
+      this.loadHistory(context.sedeId, remitente),
+      this.loadQuoted(context.sedeId, dto.quotedMessageId),
+    ]);
 
     // ---- 4. Interpretacion ------------------------------------------------
     let result: WhatsAppMessageResult;
@@ -274,6 +298,10 @@ export class WhatsappInterpretService {
         planName: context.planName,
         planIsFree: context.planIsFree,
         history,
+        quotedMessage,
+        // La nota de voz o la foto, si venia una. El corte por plan lo hace
+        // WhatsAppMessageService antes de llamar al modelo.
+        media: dto.media ?? null,
         // El bot existe para registrar: se guarda salvo que n8n pida lo contrario.
         persist: dto.persist ?? true,
       });
@@ -296,8 +324,15 @@ export class WhatsappInterpretService {
     // fallaba, un turno sin responder en el historial. El modelo lo veia en el
     // siguiente mensaje, intentaba contestarlo otra vez y volvia a fallar por lo
     // mismo: la conversacion quedaba trabada y hasta un "Hola" devolvia error.
-    await this.saveMessage(context.sedeId, 'USER', dto.message);
-    await this.saveMessage(context.sedeId, 'ASSISTANT', replyText);
+    await this.saveMessage(context.sedeId, 'USER', dto.message, {
+      wamid: dto.messageId,
+      remitente,
+    });
+    const assistantMessageId = await this.saveMessage(
+      context.sedeId,
+      'ASSISTANT',
+      replyText,
+    );
 
     const category = result.intent.category as TransactionCategory | null;
 
@@ -335,6 +370,7 @@ export class WhatsappInterpretService {
         negocioId: context.negocioId,
         sedeId: context.sedeId,
         duplicate: false,
+        assistantMessageId,
         promptVersion: result.meta.promptVersion,
         provider: result.meta.provider,
         model: result.meta.model,
@@ -355,15 +391,92 @@ export class WhatsappInterpretService {
     sedeId: string,
     rol: 'USER' | 'ASSISTANT',
     contenido: string,
-  ): Promise<void> {
+    extra: { wamid?: string | null; remitente?: string | null } = {},
+  ): Promise<string | null> {
     try {
-      await this.prisma.mensaje.create({ data: { sedeId, rol, contenido } });
+      const mensaje = await this.prisma.mensaje.create({
+        data: {
+          sedeId,
+          rol,
+          contenido,
+          // El wamid es lo que permite encontrar este mensaje cuando alguien lo
+          // cite mas adelante.
+          wamid: extra.wamid ?? null,
+          remitente: extra.remitente ?? null,
+        },
+      });
+      return mensaje.id;
     } catch (error) {
       this.logger.error(
         `No se pudo guardar el mensaje (${rol}) de la sede ${sedeId}: ${
           error instanceof Error ? error.message : String(error)
         }`,
       );
+      return null;
+    }
+  }
+
+  /**
+   * El mensaje que el usuario esta citando, si lo tenemos guardado.
+   *
+   * Devuelve null cuando el wamid no esta en la base: pasa con los mensajes
+   * anteriores a que se guardara el wamid, y con las respuestas de Luka cuyo
+   * envio n8n todavia no ha confirmado. En ese caso el modelo se apoya en el
+   * historial normal, que es peor pero no es nada.
+   */
+  private async loadQuoted(
+    sedeId: string,
+    wamid: string | undefined,
+  ): Promise<{ fromLuka: boolean; date: string; content: string } | null> {
+    if (!wamid) return null;
+
+    try {
+      const citado = await this.prisma.mensaje.findFirst({
+        where: { wamid, sedeId },
+      });
+
+      if (!citado) {
+        this.logger.debug(`Mensaje citado ${wamid} no esta guardado.`);
+        return null;
+      }
+
+      return {
+        fromLuka: citado.rol === 'ASSISTANT',
+        date: fechaColombiana(citado.fecha),
+        content: citado.contenido,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo leer el mensaje citado ${wamid}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return null;
+    }
+  }
+
+  /**
+   * Anota el wamid con el que Meta acepto la respuesta de Luka.
+   *
+   * Lo llama n8n despues de enviar. Sin este paso, un usuario que responde
+   * citando un mensaje de Luka manda un wamid que no esta en ninguna parte, y
+   * la cita se pierde. Va aparte de `/ai/interpret` a proposito: el envio
+   * ocurre despues de responder, y el usuario no tiene por que esperarlo.
+   */
+  async registrarEnvio(mensajeId: string, wamid: string): Promise<boolean> {
+    try {
+      const { count } = await this.prisma.mensaje.updateMany({
+        where: { id: mensajeId, rol: 'ASSISTANT' },
+        data: { wamid },
+      });
+      return count > 0;
+    } catch (error) {
+      this.logger.warn(
+        `No se pudo anotar el wamid ${wamid} del mensaje ${mensajeId}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      );
+      return false;
     }
   }
 
@@ -402,6 +515,7 @@ export class WhatsappInterpretService {
         negocioId: context.negocioId,
         sedeId: context.sedeId,
         duplicate: false,
+        assistantMessageId: null,
         promptVersion: null,
         provider: null,
         model: null,
@@ -420,16 +534,36 @@ export class WhatsappInterpretService {
    * modelo preguntaba el monto, el usuario lo respondia suelto y volvia a
    * preguntar lo mismo, porque cada mensaje llegaba sin pasado.
    *
-   * LIMITACION: el historial es por SEDE, no por persona. Si dos empleados
-   * escriben desde la misma sede, sus conversaciones se mezclan. Separarlas
-   * requiere guardar el remitente en `Mensaje`.
+   * Es por PERSONA dentro de la sede. Antes era solo por sede y las
+   * conversaciones de dos empleados del mismo negocio se mezclaban: Luka le
+   * contestaba a uno con el contexto del otro, y una pregunta abierta de uno
+   * se la respondia el otro sin saberlo.
+   *
+   * Los mensajes de Luka no llevan remitente, asi que se traen todos los de la
+   * sede y se filtran despues: un ASSISTANT solo cuenta si viene despues de un
+   * USER de esta misma persona. Los mensajes anteriores a que existiera el
+   * campo tienen remitente nulo y se siguen viendo, para no dejar sin memoria
+   * a las conversaciones que ya estaban en curso.
    */
   private async loadHistory(
     sedeId: string,
+    remitente: string | null,
   ): Promise<{ role: 'user' | 'assistant'; content: string }[]> {
     try {
       const mensajes = await this.prisma.mensaje.findMany({
-        where: { sedeId, rol: { in: ['USER', 'ASSISTANT'] } },
+        where: {
+          sedeId,
+          rol: { in: ['USER', 'ASSISTANT'] },
+          ...(remitente
+            ? {
+                OR: [
+                  { remitente },
+                  { remitente: null },
+                  { rol: 'ASSISTANT' as const },
+                ],
+              }
+            : {}),
+        },
         orderBy: { fecha: 'desc' },
         take: HISTORY_TURNS,
       });
@@ -560,6 +694,7 @@ ${url}`,
         negocioId: null,
         sedeId: null,
         duplicate: options.duplicate,
+        assistantMessageId: null,
         promptVersion: null,
         provider: null,
         model: null,

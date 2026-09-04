@@ -1,10 +1,52 @@
+import { Type } from 'class-transformer';
 import {
+  IsBase64,
   IsBoolean,
+  IsIn,
+  IsNotEmpty,
+  IsObject,
   IsOptional,
   IsString,
   Length,
   Matches,
+  ValidateNested,
 } from 'class-validator';
+
+/**
+ * Una nota de voz o una foto que el usuario mando por WhatsApp.
+ *
+ * Llega en base64 porque quien descarga el archivo de Meta es n8n, que ya tiene
+ * el token: pedirle al backend que lo descargue obligaria a darle una segunda
+ * copia de esa credencial.
+ */
+export class MediaDto {
+  @IsIn(['audio', 'image'], {
+    message: 'media.kind debe ser "audio" o "image".',
+  })
+  kind!: 'audio' | 'image';
+
+  /** Tipo MIME tal como lo reporta Meta ("audio/ogg", "image/jpeg"). */
+  @IsString()
+  @Matches(/^(audio|image)\/[a-zA-Z0-9.+-]{2,40}$/, {
+    message: 'media.mimeType no es un tipo de audio o imagen valido.',
+  })
+  mimeType!: string;
+
+  /**
+   * El archivo en base64, sin el prefijo `data:`.
+   *
+   * El tope son ~9,4 MB de base64 (unos 7 MB de archivo), por debajo del limite
+   * de 12 MB del servidor. Meta ya no acepta imagenes de mas de 5 MB ni audios
+   * de mas de 16, asi que lo que se corta aqui es lo que no deberia llegar.
+   */
+  @IsString()
+  @IsNotEmpty()
+  @Length(1, 9_400_000, {
+    message: 'El archivo es demasiado grande.',
+  })
+  @IsBase64(undefined, { message: 'media.dataBase64 no es base64 valido.' })
+  dataBase64!: string;
+}
 
 /**
  * Contrato de entrada de n8n.
@@ -78,6 +120,30 @@ export class InterpretMessageDto {
   @IsString()
   @Length(1, 200)
   messageId?: string;
+
+  /**
+   * `wamid` del mensaje que el usuario esta citando, cuando responde a otro.
+   *
+   * Meta lo entrega en `messages[0].context.id`. Sin esto, un "pero esto es lo
+   * que me dijiste" llegaba suelto y Luka contestaba cualquier cosa, porque no
+   * tenia forma de saber a que se referia.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  quotedMessageId?: string;
+
+  /**
+   * Nota de voz o foto que acompana al mensaje.
+   *
+   * Solo se atiende en los planes pagos; en el gratuito se responde con el
+   * mensaje de mejora de plan sin llamar al modelo, que es lo caro.
+   */
+  @IsOptional()
+  @IsObject()
+  @ValidateNested()
+  @Type(() => MediaDto)
+  media?: MediaDto;
 
   /**
    * Permite forzar el modo "solo interpretar, no guardar" desde n8n (pruebas).

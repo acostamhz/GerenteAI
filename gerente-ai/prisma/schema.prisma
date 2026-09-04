@@ -172,8 +172,25 @@ model Mensaje {
   contenido String     @db.Text
   fecha     DateTime   @default(now())
 
+  /// Id del mensaje en WhatsApp (wamid).
+  ///
+  /// Es lo que permite encontrar el mensaje que alguien cita al responder:
+  /// Meta manda en el webhook el wamid del mensaje citado, y sin guardarlo no
+  /// habia forma de saber de cual hablaba. Nulo en los mensajes viejos y en
+  /// los que aun no se han confirmado como enviados.
+  wamid String? @unique
+
+  /// Quien lo escribio: telefono o identidad de WhatsApp del remitente.
+  ///
+  /// El historial es por sede, y sin esto las conversaciones de dos empleados
+  /// del mismo negocio se mezclaban: Luka le contestaba a uno con el contexto
+  /// del otro. Nulo en los mensajes de Luka y en los anteriores a este campo.
+  remitente String?
+
   sedeId String
   sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  @@index([sedeId, fecha])
 }
 
 model Reporte {
@@ -426,18 +443,24 @@ model NotificacionPlan {
 }
 
 model ConsumoIa {
-  id           String   @id @default(uuid())
+  id String @id @default(uuid())
 
-  /** Caso de uso: "whatsapp.message", "insights.generate", "assistant.chat". */
+  /**
+   * Caso de uso: "whatsapp.message", "insights.generate", "assistant.chat".
+   */
   feature      String
-  providerId   String              // "gemini", "groq", ...
-  model        String              // "gemini-3.6-flash"
+  providerId   String // "gemini", "groq", ...
+  model        String // "gemini-3.6-flash"
   inputTokens  Int
   outputTokens Int
-  /** Coste en USD. 6 decimales porque una llamada puede costar 0,000045. */
+  /**
+   * Coste en USD. 6 decimales porque una llamada puede costar 0,000045.
+   */
   costoUsd     Decimal  @db.Decimal(12, 6)
   latenciaMs   Int
-  /** Solo las exitosas cuentan contra la cuota; las fallidas se guardan igual. */
+  /**
+   * Solo las exitosas cuentan contra la cuota; las fallidas se guardan igual.
+   */
   exitosa      Boolean
   errorCode    String?
   createdAt    DateTime @default(now())
@@ -445,7 +468,9 @@ model ConsumoIa {
   negocioId String
   negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
 
-  /** La sede desde la que se originó, cuando se sabe. */
+  /**
+   * La sede desde la que se originó, cuando se sabe.
+   */
   sedeId String?
   sede   Sede?   @relation(fields: [sedeId], references: [id], onDelete: SetNull)
 

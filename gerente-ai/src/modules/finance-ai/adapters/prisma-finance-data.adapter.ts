@@ -388,7 +388,9 @@ export class PrismaFinanceDataAdapter implements FinanceDataPort {
     const pedido = payment.amount ?? deuda;
     const aplicado = redondear(Math.min(pedido, deuda));
     const restante = redondear(deuda - aplicado);
-    const fecha = new Date(`${payment.date}T12:00:00.000Z`);
+    // Mismo criterio que los movimientos: la hora real cuando la hay, el
+    // mediodia cuando el usuario dicto una fecha suelta.
+    const fecha = fechaDelPago(payment);
 
     const operations: Prisma.PrismaPromise<unknown>[] = [];
     let porRepartir = aplicado;
@@ -854,6 +856,16 @@ function nuevoSaldo(
   return new Prisma.Decimal(Math.max(0, redondear(nuevoTotal - abonado)));
 }
 
+/** Ver `fechaDelMovimiento`: es el mismo criterio para un abono. */
+function fechaDelPago(payment: PaymentRequest): Date {
+  if (payment.occurredAt) {
+    const instante = new Date(payment.occurredAt);
+    if (!Number.isNaN(instante.getTime())) return instante;
+  }
+
+  return new Date(`${payment.date}T12:00:00.000Z`);
+}
+
 /** Respuesta cuando el pago no se pudo aplicar a nada. */
 function sinAplicar(
   reason: PaymentResult['reason'],
@@ -889,17 +901,30 @@ const CATEGORY_FROM_PRISMA: Record<CategoriaGasto, TransactionCategory> = {
  * lea la tabla, aunque el enum diga OTROS.
  */
 /**
- * Fecha con la que se guarda el movimiento.
+ * Instante con el que se guarda el movimiento. Son dos casos distintos.
  *
- * Es la fecha del HECHO (`date`), no la del registro: quien el lunes anota lo
- * del sabado espera verlo el sabado. Antes se guardaba `createdAt` y todo
- * aparecia con la fecha en que se le escribio al bot, lo que descuadraba los
- * reportes por dia.
+ * 1. EL USUARIO DIJO LA FECHA ("el 23 de agosto vendi una cama").
+ *    No hay hora que registrar, asi que se usa el mediodia UTC: cualquier otra
+ *    hora podria correr el movimiento al dia anterior o al siguiente al
+ *    convertirlo de zona horaria.
  *
- * Se fija al mediodia UTC para que el cambio de zona horaria no corra el
- * movimiento al dia anterior o al siguiente.
+ * 2. NO DIJO NADA.
+ *    Entonces si hay una hora real, la del mensaje, y guardarla importa: es la
+ *    que se le muestra al usuario y la que ordena los movimientos dentro del
+ *    dia. Antes se tiraba y todo quedaba a las 7:00 a. m. hora Colombia, con
+ *    dos consecuencias: la hora que veia era falsa, y un fiado y su abono del
+ *    mismo dia compartian instante, asi que no habia forma de saber cual fue
+ *    primero.
+ *
+ * En los dos casos la FECHA que se lee despues es la misma: `fechaColombiana`
+ * la resuelve en horario de Bogota, y los reportes por dia no cambian.
  */
-function fechaDelMovimiento(transaction: Transaction): Date {
+export function fechaDelMovimiento(transaction: Transaction): Date {
+  if (transaction.occurredAt) {
+    const instante = new Date(transaction.occurredAt);
+    if (!Number.isNaN(instante.getTime())) return instante;
+  }
+
   return new Date(`${transaction.date}T12:00:00.000Z`);
 }
 

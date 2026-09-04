@@ -48,7 +48,15 @@ export interface LlmImagePart {
   dataBase64: string;
 }
 
-export type LlmContentPart = LlmTextPart | LlmImagePart;
+export interface LlmAudioPart {
+  type: 'audio';
+  /** p.ej. "audio/ogg" — las notas de voz de WhatsApp llegan en Opus. */
+  mimeType: string;
+  /** Contenido en base64, sin el prefijo `data:`. */
+  dataBase64: string;
+}
+
+export type LlmContentPart = LlmTextPart | LlmImagePart | LlmAudioPart;
 
 /** Peticion del modelo para ejecutar una herramienta del backend. */
 export interface LlmToolCall {
