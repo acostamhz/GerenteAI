@@ -299,6 +299,9 @@ export class WhatsappInterpretService {
         planIsFree: context.planIsFree,
         history,
         quotedMessage,
+        // La nota de voz o la foto, si venia una. El corte por plan lo hace
+        // WhatsAppMessageService antes de llamar al modelo.
+        media: dto.media ?? null,
         // El bot existe para registrar: se guarda salvo que n8n pida lo contrario.
         persist: dto.persist ?? true,
       });

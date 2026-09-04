@@ -195,6 +195,43 @@ function buildService(
   return { service, financeData, state };
 }
 
+function espiarLlm(intent: Partial<WhatsAppIntentOutput>) {
+  const visto: { system?: string; messages?: unknown[] } = {};
+
+  const llm = {
+    completeJson: (req: { system?: string; messages?: unknown[] }) => {
+      visto.system = req.system;
+      visto.messages = req.messages;
+      return Promise.resolve({
+        data: {
+          type: 'unclear',
+          movements: [],
+          declaredTotal: null,
+          profitShares: [],
+          concept: null,
+          queryKind: null,
+          queryPeriod: null,
+          responseText: 'ok',
+          confidence: 0.9,
+          ...intent,
+        },
+        response: {
+          text: '',
+          toolCalls: [],
+          finishReason: 'stop',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          providerId: 'fake',
+          model: 'fake-1',
+          latencyMs: 1,
+          costUsd: 0,
+        },
+      });
+    },
+  } as unknown as LlmService;
+
+  return { llm, visto };
+}
+
 const BASE_REQUEST = {
   tenantId: 't1',
   businessId: 'b1',
@@ -450,42 +487,6 @@ describe('renderSummary', () => {
 
 describe('WhatsAppMessageService · contexto de la conversación', () => {
   /** Captura lo que se le manda al modelo, para verificar prompt e historial. */
-  function espiarLlm(intent: Partial<WhatsAppIntentOutput>) {
-    const visto: { system?: string; messages?: unknown[] } = {};
-
-    const llm = {
-      completeJson: (req: { system?: string; messages?: unknown[] }) => {
-        visto.system = req.system;
-        visto.messages = req.messages;
-        return Promise.resolve({
-          data: {
-            type: 'unclear',
-            movements: [],
-            declaredTotal: null,
-            profitShares: [],
-            concept: null,
-            queryKind: null,
-            queryPeriod: null,
-            responseText: 'ok',
-            confidence: 0.9,
-            ...intent,
-          },
-          response: {
-            text: '',
-            toolCalls: [],
-            finishReason: 'stop',
-            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-            providerId: 'fake',
-            model: 'fake-1',
-            latencyMs: 1,
-            costUsd: 0,
-          },
-        });
-      },
-    } as unknown as LlmService;
-
-    return { llm, visto };
-  }
 
   it('le pasa al modelo los turnos anteriores', async () => {
     // Sin esto, Luka preguntaba el monto, el usuario lo respondía suelto y
@@ -2177,9 +2178,12 @@ function buildConversacion(rows: Transaction[] = CONVERSACION) {
     new ConversationStateService(),
   );
 
-  const decir = (intent: Partial<WhatsAppIntentOutput>) => {
+  const decir = (
+    intent: Partial<WhatsAppIntentOutput>,
+    extra: Partial<Parameters<typeof service.handleMessage>[0]> = {},
+  ) => {
     siguiente = intent;
-    return service.handleMessage({ ...BASE_REQUEST, persist: true });
+    return service.handleMessage({ ...BASE_REQUEST, persist: true, ...extra });
   };
 
   return { decir, financeData };
@@ -2664,5 +2668,169 @@ describe('WhatsAppMessageService · borrar con confirmación', () => {
 
     expect(financeData.deleted).toEqual([]);
     expect(respuesta.replyText).toContain('No tienes movimientos');
+  });
+});
+
+// ===========================================================================
+// NOTAS DE VOZ Y FOTOS
+//
+// De un audio no le queda al usuario nada que releer, así que nada se guarda
+// sin que vea antes lo que Luka entendió.
+// ===========================================================================
+
+const NOTA_DE_VOZ = {
+  kind: 'audio' as const,
+  mimeType: 'audio/ogg',
+  dataBase64: 'T2dnUwACAAAAAAAAAAA=',
+};
+
+describe('WhatsAppMessageService · audio e imagen', () => {
+  const UN_GASTO: Partial<WhatsAppIntentOutput> = {
+    type: 'expense',
+    movements: [
+      movimiento({
+        amount: 85_000,
+        category: 'mercancia',
+        concept: 'Mercancía',
+      }),
+    ],
+    responseText: 'Registré el gasto.',
+  };
+
+  it('en el plan gratuito ni siquiera llama al modelo', async () => {
+    // Interpretar un audio cuesta: gastarlo para después decir que no está
+    // incluido es tirar la plata.
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+      planIsFree: true,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(visto.system).toBeUndefined();
+    expect(result.intent.type).toBe('premium');
+    expect(result.replyText).toContain('notas de voz');
+  });
+
+  it('en un plan de pago muestra lo entendido y NO guarda todavía', async () => {
+    const { service, financeData } = buildService(UN_GASTO);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+      planIsFree: false,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(result.replyText).toContain('Esto entendí de tu nota de voz');
+    expect(result.replyText).toContain('$85.000');
+    expect(result.replyText).toContain('¿Lo registro así?');
+  });
+
+  it('le manda al modelo el archivo junto al texto', async () => {
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    await service.handleMessage({
+      ...BASE_REQUEST,
+      message: '(nota de voz)',
+      planIsFree: false,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(visto.messages?.at(-1)).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: '(nota de voz)' },
+        {
+          type: 'audio',
+          mimeType: 'audio/ogg',
+          dataBase64: NOTA_DE_VOZ.dataBase64,
+        },
+      ],
+    });
+  });
+
+  it('un mensaje escrito normal sigue yendo como texto plano', async () => {
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, message: 'Gasté 85.000' });
+
+    expect(visto.messages?.at(-1)).toEqual({
+      role: 'user',
+      content: 'Gasté 85.000',
+    });
+  });
+
+  it('el "sí" guarda lo que había entendido del audio', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir(
+      {
+        type: 'expense',
+        movements: [
+          movimiento({
+            amount: 85_000,
+            category: 'mercancia',
+            concept: 'Mercancía',
+          }),
+        ],
+      },
+      { planIsFree: false, media: NOTA_DE_VOZ },
+    );
+
+    expect(financeData.saved).toHaveLength(0);
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.saved).toHaveLength(1);
+    expect(financeData.saved[0].amount).toBe(85_000);
+  });
+
+  it('el "no" descarta lo entendido y pide que se lo cuenten de nuevo', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir(
+      {
+        type: 'expense',
+        movements: [movimiento({ amount: 85_000, category: 'mercancia' })],
+      },
+      { planIsFree: false, media: NOTA_DE_VOZ },
+    );
+
+    const respuesta = await decir({ type: 'confirmation', confirmed: false });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(respuesta.replyText).toContain('no registré nada');
+  });
+
+  it('si no entendió nada del audio, lo dice en vez de inventar', async () => {
+    const { service } = buildService({ type: 'unclear', movements: [] });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+      planIsFree: false,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(result.intent.type).toBe('unclear');
   });
 });

@@ -21,6 +21,13 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v13: notas de voz y fotos.
+ *
+ * El mensaje puede traer un audio o una imagen ademas del texto. Se interpreta
+ * igual, pero nada se guarda sin que el usuario vea antes que se entendio: de
+ * un audio no le queda nada que releer.
+ *
+ * ---------------------------------------------------------------------------
  * v12: borrar pregunta antes, y hay una intencion para el si o el no.
  *
  * Borrar no se deshace, asi que ya no ocurre en el mismo turno en que se
@@ -55,7 +62,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v12';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v13';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -477,6 +484,21 @@ REGLAS DE INTERPRETACIÓN:
    - Si el plan NO es "Asistente", el usuario ya pagó: atiéndelo con normalidad y
      no uses este tipo nunca.
    - En responseText no inventes precios ni enlaces: el sistema los agrega.
+
+15. NOTAS DE VOZ Y FOTOS:
+   El mensaje puede traer un audio o una imagen. Interpretalos igual que un
+   texto: de un audio, lo que dice; de una foto de un recibo o una factura, los
+   montos y los conceptos que se leen.
+
+   - NO ADIVINES. Si no se oye bien un monto, o la foto esta borrosa, o hay
+     varias cifras y no sabes cual es el total, usa type "unclear" y pregunta.
+     Inventar un numero de un audio que no se entendio es meterle un dato falso
+     a la contabilidad de alguien.
+   - Si la foto trae varios movimientos (un recibo con varias lineas), devuelve
+     uno por cada uno, como con el texto.
+   - El sistema NO guarda nada de un audio o una foto sin ensenarselo antes al
+     usuario y esperar que confirme. Tu solo interpreta; la confirmacion la
+     pide el sistema con las cifras reales.
 
 FECHAS DE LOS MOVIMIENTOS:
 - Cada movimiento lleva su propio "date". Si el usuario NO dice cuando fue, deja

@@ -50,7 +50,25 @@ export interface PendingDeletion {
   at: number;
 }
 
-export type PendingAction = PendingCorrection | PendingDeletion;
+/**
+ * Movimientos entendidos de una nota de voz o una foto, esperando el visto
+ * bueno.
+ *
+ * En texto escrito el usuario ve lo que escribio; en un audio o una foto no
+ * hay tal cosa, y el margen de error es mucho mayor. Registrar mal sin avisar
+ * es peor que no registrar: el error se esconde en la contabilidad y nadie lo
+ * encuentra hasta que las cuentas no cuadran.
+ */
+export interface PendingRegistration {
+  kind: 'registration';
+  transactions: Transaction[];
+  /** De donde salio, para poder decirlo en la respuesta. */
+  source: 'audio' | 'image';
+  at: number;
+}
+
+export type PendingAction =
+  PendingCorrection | PendingDeletion | PendingRegistration;
 
 @Injectable()
 export class ConversationStateService {
@@ -101,6 +119,17 @@ export class ConversationStateService {
     });
   }
 
+  recordarRegistro(
+    businessId: string,
+    pendiente: Omit<PendingRegistration, 'at' | 'kind'>,
+  ): void {
+    this.recordar(businessId, {
+      ...pendiente,
+      kind: 'registration',
+      at: Date.now(),
+    });
+  }
+
   /** La pregunta abierta de esa sede, si sigue vigente. */
   pendiente(businessId: string): PendingAction | null {
     const abierta = this.pendientes.get(businessId);
@@ -122,6 +151,11 @@ export class ConversationStateService {
   borradoPendiente(businessId: string): PendingDeletion | null {
     const abierta = this.pendiente(businessId);
     return abierta?.kind === 'deletion' ? abierta : null;
+  }
+
+  registroPendiente(businessId: string): PendingRegistration | null {
+    const abierta = this.pendiente(businessId);
+    return abierta?.kind === 'registration' ? abierta : null;
   }
 
   /** Se resolvio (o el usuario cambio de tema): deja de haber pregunta abierta. */

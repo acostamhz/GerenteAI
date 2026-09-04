@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 
 import { LlmService } from '../../../ai/services/llm.service';
+import type { LlmContentPart } from '../../../ai/core/llm.types';
 import type { AiCallContext } from '../../../ai/usage/usage.service';
 import {
   fechaColombiana,
@@ -48,6 +49,7 @@ import {
   type PendingAction,
   type PendingCorrection,
   type PendingDeletion,
+  type PendingRegistration,
 } from './conversation-state.service';
 import {
   WHATSAPP_ASSISTANT_PROMPT_VERSION,
@@ -101,6 +103,18 @@ export interface WhatsAppMessageRequest {
    * esto, "pero esto es lo que me dijiste" llegaba suelto.
    */
   quotedMessage?: { fromLuka: boolean; date: string; content: string } | null;
+  /**
+   * Nota de voz o foto que acompana al mensaje.
+   *
+   * Solo se atiende en los planes pagos. El corte se hace antes de llamar al
+   * modelo: interpretar audio e imagen es lo caro, y no tiene sentido gastarlo
+   * para despues responder que no esta incluido.
+   */
+  media?: {
+    kind: 'audio' | 'image';
+    mimeType: string;
+    dataBase64: string;
+  } | null;
 }
 
 export interface WhatsAppMessageResult {
@@ -171,6 +185,20 @@ export class WhatsAppMessageService {
     // que es.
     const pendiente = this.state.pendiente(request.businessId);
 
+    // El corte por plan va antes del modelo: interpretar un audio cuesta, y
+    // gastarlo para luego decir que no esta incluido es tirar la plata.
+    if (request.media && request.planIsFree) {
+      // No se llamo al modelo, asi que no hay proveedor ni latencia que
+      // reportar: se deja constancia de la version del prompt y nada mas.
+      return this.mediaNoIncluida(request.media.kind, {
+        promptVersion: WHATSAPP_ASSISTANT_PROMPT_VERSION,
+        provider: 'sin-modelo',
+        model: 'sin-modelo',
+        latencyMs: 0,
+        costUsd: 0,
+      });
+    }
+
     const context: AiCallContext = {
       tenantId: request.tenantId,
       businessId: request.businessId,
@@ -198,7 +226,7 @@ export class WhatsAppMessageService {
           }),
           messages: [
             ...(request.history ?? []),
-            { role: 'user', content: request.message },
+            { role: 'user', content: contenidoDelUsuario(request) },
           ],
           schemaName: 'intencion_financiera',
           schema: WHATSAPP_INTENT_SCHEMA,
@@ -348,6 +376,30 @@ export class WhatsAppMessageService {
       referenceDate,
     );
 
+    // De una nota de voz o una foto no se registra nada sin visto bueno: el
+    // usuario no vio lo que Luka entendio, y ahi es donde se cuelan los errores.
+    if (request.media) {
+      this.state.recordarRegistro(request.businessId, {
+        transactions,
+        source: request.media.kind,
+      });
+
+      return {
+        intent,
+        transactions,
+        transaction: transactions[0] ?? null,
+        profitDistribution: null,
+        payment: null,
+        summary: null,
+        replyText: renderRegistrationConfirmation(
+          transactions,
+          request.media.kind,
+          currency,
+        ),
+        meta,
+      };
+    }
+
     if (request.persist) {
       await this.financeData.saveTransactions(transactions);
     }
@@ -370,6 +422,35 @@ export class WhatsAppMessageService {
     };
   }
 
+  /** Audio y foto son de los planes pagos. */
+  private mediaNoIncluida(
+    kind: 'audio' | 'image',
+    meta: WhatsAppMessageResult['meta'],
+  ): WhatsAppMessageResult {
+    const que = kind === 'audio' ? 'notas de voz' : 'fotos';
+
+    return this.plainResult(
+      {
+        type: 'premium',
+        movements: [],
+        declaredTotal: null,
+        profitShares: [],
+        correction: null,
+        payment: null,
+        confirmed: null,
+        amount: null,
+        category: null,
+        concept: null,
+        responseText: '',
+        queryKind: null,
+        queryPeriod: null,
+        confidence: 0.9,
+      },
+      `Registrar por ${que} está disponible en los planes pagos.`,
+      meta,
+    );
+  }
+
   /**
    * El usuario contesto a una pregunta de si o no.
    *
@@ -383,6 +464,31 @@ export class WhatsAppMessageService {
     currency: string,
     meta: WhatsAppMessageResult['meta'],
   ): Promise<WhatsAppMessageResult> {
+    const registro = this.state.registroPendiente(request.businessId);
+
+    if (registro) {
+      this.state.olvidar(request.businessId);
+
+      if (intent.confirmed !== true) {
+        return this.plainResult(
+          intent,
+          'Listo, no registré nada. Cuéntame de nuevo cómo fue 😊',
+          meta,
+        );
+      }
+
+      if (request.persist) {
+        await this.financeData.saveTransactions(registro.transactions);
+      }
+
+      return {
+        ...this.plainResult(intent, '', meta),
+        transactions: registro.transactions,
+        transaction: registro.transactions[0] ?? null,
+        replyText: renderMovementsRegistered(registro.transactions, currency),
+      };
+    }
+
     const borrado = this.state.borradoPendiente(request.businessId);
 
     if (!borrado) {
@@ -1662,6 +1768,28 @@ function diaInicioDe(request: WhatsAppMessageRequest): number {
   return normalizarDiaInicio(request.diaInicioPeriodo);
 }
 
+/**
+ * Lo que se le manda al modelo como mensaje del usuario.
+ *
+ * Con audio o foto son dos partes: el texto (el pie de foto, o un marcador) y
+ * el archivo. El contrato de IA ya sabia de imagenes; el audio se agrego con la
+ * misma forma, y los proveedores que lo soportan lo traducen igual.
+ */
+function contenidoDelUsuario(
+  request: WhatsAppMessageRequest,
+): string | LlmContentPart[] {
+  if (!request.media) return request.message;
+
+  return [
+    { type: 'text', text: request.message },
+    {
+      type: request.media.kind,
+      mimeType: request.media.mimeType,
+      dataBase64: request.media.dataBase64,
+    },
+  ];
+}
+
 function todayIso(): string {
   return fechaColombiana(new Date());
 }
@@ -2016,6 +2144,39 @@ export function renderAmbiguousCorrection(
  * Se enumeran los movimientos con su fecha, concepto y monto: un "¿seguro?"
  * sin decir sobre que no es una confirmacion. Y borrar no se deshace.
  */
+/**
+ * Lo que Luka entendio de un audio o una foto, antes de guardarlo.
+ *
+ * En texto escrito el usuario ve lo que escribio y puede releerlo; de un audio
+ * no queda nada que revisar. Ensenar la interpretacion es lo que convierte un
+ * error en una correccion de un mensaje en vez de un dato malo en la
+ * contabilidad.
+ */
+export function renderRegistrationConfirmation(
+  transactions: Transaction[],
+  source: 'audio' | 'image',
+  currency: string,
+): string {
+  const de = source === 'audio' ? 'tu nota de voz' : 'tu foto';
+
+  if (!transactions.length) {
+    return `No logré identificar ningún movimiento en ${de} 😅 ¿Me lo cuentas por escrito?`;
+  }
+
+  const lineas = transactions.map((row) => movementLine(row, currency));
+  const total = transactions.reduce((suma, row) => suma + row.amount, 0);
+
+  return [
+    `Esto entendí de ${de}:`,
+    ...lineas,
+    ...(transactions.length > 1
+      ? ['', `Son ${formatMoney(total, currency)} en total.`]
+      : []),
+    '',
+    '¿Lo registro así? Respóndeme "sí", o dime qué corregir.',
+  ].join('\n');
+}
+
 export function renderDeleteConfirmation(
   objetivos: Transaction[],
   period: QueryPeriod | null,
@@ -2113,9 +2274,36 @@ export function renderPendingQuestion(
   pendiente: PendingAction,
   currency: string,
 ): string {
-  return pendiente.kind === 'deletion'
-    ? renderPendingDeletion(pendiente, currency)
-    : renderPendingCorrection(pendiente, currency);
+  if (pendiente.kind === 'deletion') {
+    return renderPendingDeletion(pendiente, currency);
+  }
+
+  if (pendiente.kind === 'registration') {
+    return renderPendingRegistration(pendiente, currency);
+  }
+
+  return renderPendingCorrection(pendiente, currency);
+}
+
+/** Espera un si, un no, o directamente la correccion. */
+function renderPendingRegistration(
+  pendiente: PendingRegistration,
+  currency: string,
+): string {
+  const lineas = pendiente.transactions.map(
+    (row) =>
+      `- ${row.date} · ${row.description} · ${row.type} · ${formatMoney(row.amount, currency)}`,
+  );
+
+  return [
+    'PREGUNTA ABIERTA (lo mas importante de este turno):',
+    `Le acabas de enseñar lo que entendiste de su ${pendiente.source === 'audio' ? 'nota de voz' : 'foto'} y le preguntaste si lo registras asi:`,
+    ...lineas,
+    'Si dice que si, devuelve type "confirmation" con confirmed true.',
+    'Si dice que no sin mas, confirmed false.',
+    'Si en cambio te CORRIGE algo ("no, eran 95.000"), no es una confirmacion:',
+    'devuelve el movimiento completo ya corregido como un registro normal.',
+  ].join('\n');
 }
 
 /** Espera un si o un no, y nada mas. */

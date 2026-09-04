@@ -99,8 +99,8 @@
           "conditions": [
             {
               "id": "b1000000-0000-4000-8000-000000000002",
-              "leftValue": "={{ $json.body.entry[0].changes[0].value?.messages?.[0]?.type || 'ninguno' }}",
-              "rightValue": "text",
+              "leftValue": "={{ ['text', 'audio', 'image'].includes($json.body.entry[0].changes[0].value.messages?.[0]?.type || 'ninguno') }}",
+              "rightValue": "true",
               "operator": {
                 "type": "string",
                 "operation": "equals"
@@ -129,8 +129,8 @@
         120
       ],
       "id": "a1000000-0000-4000-8000-000000000005",
-      "name": "¿Es mensaje de texto?",
-      "notes": "Meta manda por el mismo webhook los acuses (sent/delivered/read) y los audios/imagenes. Sin este filtro el flujo intenta procesarlos y explota.\nLa segunda condicion exige saber quien escribe: telefono (from / wa_id) o identidad (from_user_id / user_id).\n\nPor ahora solo pasa el texto. El audio y la imagen se descartan aqui."
+      "name": "¿Es un mensaje que se pueda leer?",
+      "notes": "Pasa el texto, las notas de voz y las fotos. Todo lo demas (stickers, ubicaciones, estados de entrega) se ignora.\n\nEl audio y la imagen solo se atienden en los planes pagos, pero el corte lo hace el backend: aqui no se sabe que plan tiene el negocio."
     },
     {
       "parameters": {},
@@ -150,7 +150,7 @@
             {
               "id": "c1000000-0000-4000-8000-000000000001",
               "name": "message",
-              "value": "={{ $json.body.entry[0].changes[0].value.messages[0].text.body }}",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.text?.body || $json.body.entry[0].changes[0].value.messages?.[0]?.image?.caption || ($json.body.entry[0].changes[0].value.messages?.[0]?.type === 'audio' ? '(nota de voz)' : '(archivo)') }}",
               "type": "string"
             },
             {
@@ -200,6 +200,24 @@
               "name": "quotedMessageId",
               "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.context?.id || '' }}",
               "type": "string"
+            },
+            {
+              "id": "c1-media-kind",
+              "name": "mediaKind",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.audio ? 'audio' : ($json.body.entry[0].changes[0].value.messages?.[0]?.image ? 'image' : '') }}",
+              "type": "string"
+            },
+            {
+              "id": "c1-media-id",
+              "name": "mediaId",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.audio?.id || $json.body.entry[0].changes[0].value.messages?.[0]?.image?.id || '' }}",
+              "type": "string"
+            },
+            {
+              "id": "c1-media-mime",
+              "name": "mediaMimeType",
+              "value": "={{ $json.body.entry[0].changes[0].value.messages?.[0]?.audio?.mime_type || $json.body.entry[0].changes[0].value.messages?.[0]?.image?.mime_type || '' }}",
+              "type": "string"
             }
           ]
         },
@@ -223,7 +241,7 @@
         "genericAuthType": "httpHeaderAuth",
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify(Object.fromEntries(Object.entries({ message: $json.message, phone: $json.phone, userId: $json.userId, username: $json.username, name: $json.name, conversationId: $json.conversationId, messageId: $json.messageId, quotedMessageId: $json.quotedMessageId }).filter(([, v]) => v !== undefined && v !== null && v !== ''))) }}",
+        "jsonBody": "={{ JSON.stringify(Object.fromEntries(Object.entries({ message: $json.message, phone: $json.phone, userId: $json.userId, username: $json.username, name: $json.name, conversationId: $json.conversationId, messageId: $json.messageId, quotedMessageId: $json.quotedMessageId, media: $json.media }).filter(([, v]) => v !== undefined && v !== null && v !== ''))) }}",
         "options": {
           "timeout": 90000
         }
@@ -246,7 +264,7 @@
       "retryOnFail": true,
       "maxTries": 2,
       "waitBetweenTries": 3000,
-      "notes": "Timeout 90 s: si Render tenia el servicio dormido, el arranque en frio se lleva 30-60 s. Con 45 s el primer mensaje del dia se perdia por timeout.\nn8n ya respondio 200 a Meta antes de este nodo, asi que esperar de mas no rompe nada: el usuario solo tarda mas en recibir la respuesta.\n2 intentos. Si aun asi falla, sale por la salida roja y el usuario recibe el mensaje de emergencia.\nEl body se arma con JSON.stringify: si se escribiera a mano, un mensaje con comillas o saltos de linea romperia el JSON."
+      "notes": "Timeout 90 s: si Render tenia el servicio dormido, el arranque en frio se lleva 30-60 s. Con 45 s el primer mensaje del dia se perdia por timeout.\nn8n ya respondio 200 a Meta antes de este nodo, asi que esperar de mas no rompe nada: el usuario solo tarda mas en recibir la respuesta.\n2 intentos. Si aun asi falla, sale por la salida roja y el usuario recibe el mensaje de emergencia.\nEl body se arma con JSON.stringify: si se escribiera a mano, un mensaje con comillas o saltos de linea romperia el JSON.\n\nEl cuerpo puede llevar `media` con la nota de voz o la foto en base64. Por eso el timeout es largo: subir 5 MB por la red de Render no es inmediato."
     },
     {
       "parameters": {
@@ -508,6 +526,112 @@
       },
       "onError": "continueRegularOutput",
       "notes": "Le dice al backend con que wamid quedo enviada la respuesta de Luka.\n\nEl backend calcula la respuesta pero no la envia, asi que ese id solo lo conoce este workflow. Guardarlo es lo que permite que, cuando el usuario responda citando un mensaje de Luka, el backend sepa cual era.\n\nCorre despues de enviar: el usuario ya tiene su respuesta y no espera por esto. Si falla, no pasa nada grave: se pierde la cita de ese mensaje concreto."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "b1-media",
+              "leftValue": "={{ $json.mediaId }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        660,
+        -400
+      ],
+      "id": "c1000000-0000-4000-8000-000000000030",
+      "name": "¿Trae archivo?",
+      "notes": "Una nota de voz o una foto hay que bajarla de Meta en dos pasos: primero se pide la URL del medio y despues se descarga. El texto se salta esto."
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "=https://graph.facebook.com/{{ $env.WHATSAPP_API_VERSION || 'v25.0' }}/{{ $json.mediaId }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "timeout": 20000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        880,
+        -480
+      ],
+      "id": "c1000000-0000-4000-8000-000000000031",
+      "name": "URL del archivo",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "Pjjumysctcj1HMVh",
+          "name": "Bearer Auth account"
+        }
+      },
+      "notes": "Meta no manda el archivo en el webhook, solo su id. Este paso devuelve una URL temporal (vale unos minutos) y el tamano."
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.url }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "archivo"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1100,
+        -480
+      ],
+      "id": "c1000000-0000-4000-8000-000000000032",
+      "name": "Descargar archivo",
+      "credentials": {
+        "httpBearerAuth": {
+          "id": "Pjjumysctcj1HMVh",
+          "name": "Bearer Auth account"
+        }
+      },
+      "notes": "La URL de Meta tambien exige el token. Se guarda como binario en `archivo`; n8n ya lo tiene en base64 por dentro, asi que el siguiente paso solo lo copia."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Junta los datos del remitente con el archivo ya descargado.\n//\n// n8n guarda los binarios en base64, asi que no hay que convertir nada: solo\n// leerlo de donde esta. El backend espera el base64 pelado, sin el prefijo\n// \"data:\".\nconst datos = $('Extraer datos').item.json;\nconst binario = $input.first().binary?.archivo;\n\nif (!binario) {\n  console.error('[WhatsApp] No se pudo descargar el archivo de Meta');\n  return [{ json: { ...datos, media: null } }];\n}\n\nconst tamanoMb = (binario.fileSize || '').toString();\nconsole.log(`[WhatsApp] Archivo ${datos.mediaKind} descargado (${tamanoMb})`);\n\nreturn [\n  {\n    json: {\n      ...datos,\n      media: {\n        kind: datos.mediaKind,\n        mimeType: datos.mediaMimeType || binario.mimeType,\n        dataBase64: binario.data,\n      },\n    },\n  },\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1320,
+        -480
+      ],
+      "id": "c1000000-0000-4000-8000-000000000033",
+      "name": "Preparar archivo"
     }
   ],
   "pinData": {},
@@ -552,25 +676,7 @@
       "main": [
         [
           {
-            "node": "¿Es mensaje de texto?",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "¿Es mensaje de texto?": {
-      "main": [
-        [
-          {
-            "node": "Extraer datos",
-            "type": "main",
-            "index": 0
-          }
-        ],
-        [
-          {
-            "node": "Ignorar evento",
+            "node": "¿Es un mensaje que se pueda leer?",
             "type": "main",
             "index": 0
           }
@@ -581,7 +687,7 @@
       "main": [
         [
           {
-            "node": "Interpretar con IA",
+            "node": "¿Trae archivo?",
             "type": "main",
             "index": 0
           }
@@ -669,6 +775,75 @@
         [
           {
             "node": "Responder privacidad",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Trae archivo?": {
+      "main": [
+        [
+          {
+            "node": "URL del archivo",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Interpretar con IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "URL del archivo": {
+      "main": [
+        [
+          {
+            "node": "Descargar archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Descargar archivo": {
+      "main": [
+        [
+          {
+            "node": "Preparar archivo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar archivo": {
+      "main": [
+        [
+          {
+            "node": "Interpretar con IA",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "¿Es un mensaje que se pueda leer?": {
+      "main": [
+        [
+          {
+            "node": "Extraer datos",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ignorar evento",
             "type": "main",
             "index": 0
           }
