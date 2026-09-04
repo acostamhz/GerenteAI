@@ -80,6 +80,18 @@ export class InterpretMessageDto {
   messageId?: string;
 
   /**
+   * `wamid` del mensaje que el usuario esta citando, cuando responde a otro.
+   *
+   * Meta lo entrega en `messages[0].context.id`. Sin esto, un "pero esto es lo
+   * que me dijiste" llegaba suelto y Luka contestaba cualquier cosa, porque no
+   * tenia forma de saber a que se referia.
+   */
+  @IsOptional()
+  @IsString()
+  @Length(1, 200)
+  quotedMessageId?: string;
+
+  /**
    * Permite forzar el modo "solo interpretar, no guardar" desde n8n (pruebas).
    * Por defecto se guarda: el bot existe para registrar.
    */

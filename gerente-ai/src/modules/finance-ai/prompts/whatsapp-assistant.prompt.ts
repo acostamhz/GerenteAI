@@ -574,6 +574,14 @@ export interface PromptContext {
    * habia mostrado.
    */
   pendingQuestion?: string | null;
+  /**
+   * El mensaje que el usuario esta citando al responder, ya redactado.
+   *
+   * En WhatsApp se puede responder a un mensaje concreto, y la gente lo usa
+   * para senalar de que esta hablando. Sin esto llegaba solo la respuesta
+   * ("pero esto es lo que me dijiste") y no habia forma de entenderla.
+   */
+  quotedMessage?: string | null;
 }
 
 /**
@@ -596,6 +604,12 @@ CONTEXTO DE ESTA CONVERSACIÓN:
     context.planIsFree === false
       ? ' (de pago: tiene acceso a todas las funciones, nunca uses type "premium")'
       : ' (gratuito: las funciones de la regla 14 no están incluidas)'
+  }${
+    context.quotedMessage
+      ? `
+
+${context.quotedMessage}`
+      : ''
   }${
     context.pendingQuestion
       ? `

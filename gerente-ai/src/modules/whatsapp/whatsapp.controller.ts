@@ -10,6 +10,7 @@ import {
 import { DestinatariosService } from './services/destinatarios.service';
 import { InterpretMessageDto } from './dto/interpret-message.dto';
 import { N8nApiKeyGuard } from './guards/n8n-api-key.guard';
+import { RegistrarEnvioDto } from './dto/registrar-envio.dto';
 import {
   WhatsappInterpretService,
   type InterpretResponse,
@@ -47,6 +48,27 @@ export class WhatsappController {
   @HttpCode(200)
   interpret(@Body() dto: InterpretMessageDto): Promise<InterpretResponse> {
     return this.interpretService.interpret(dto);
+  }
+
+  /**
+   * n8n avisa con que id quedo enviada la respuesta de Luka.
+   *
+   * El backend calcula la respuesta pero no la envia, asi que el `wamid` con
+   * el que Meta la acepta solo lo conoce el workflow. Guardarlo es lo que
+   * permite reconocer despues ese mensaje cuando el usuario lo cita para
+   * responderle ("pero esto es lo que me dijiste").
+   *
+   * Responde 200 aunque el mensaje ya no exista: es una anotacion util, no una
+   * operacion critica, y no vale la pena que n8n reintente por ella.
+   */
+  @Post('interpret/enviado')
+  @HttpCode(200)
+  async registrarEnvio(@Body() dto: RegistrarEnvioDto) {
+    const anotado = await this.interpretService.registrarEnvio(
+      dto.mensajeId,
+      dto.wamid,
+    );
+    return { ok: true, anotado };
   }
 
   /**

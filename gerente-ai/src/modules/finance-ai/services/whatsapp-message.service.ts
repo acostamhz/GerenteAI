@@ -91,6 +91,14 @@ export interface WhatsAppMessageRequest {
   planName?: string;
   /** true si el plan vigente es el gratuito. */
   planIsFree?: boolean;
+  /**
+   * El mensaje al que el usuario esta respondiendo, cuando cito uno.
+   *
+   * En WhatsApp se puede responder a un mensaje concreto, y la gente lo usa
+   * justamente cuando se refiere a algo que no es lo ultimo que se dijo. Sin
+   * esto, "pero esto es lo que me dijiste" llegaba suelto.
+   */
+  quotedMessage?: { fromLuka: boolean; date: string; content: string } | null;
 }
 
 export interface WhatsAppMessageResult {
@@ -181,6 +189,9 @@ export class WhatsAppMessageService {
             planIsFree: request.planIsFree,
             pendingQuestion: pendiente
               ? renderPendingQuestion(pendiente, currency)
+              : null,
+            quotedMessage: request.quotedMessage
+              ? renderQuotedMessage(request.quotedMessage)
               : null,
           }),
           messages: [
@@ -1866,6 +1877,28 @@ export function renderAmbiguousCorrection(
  * septiembre" se entiende; 'no encontre ningun movimiento que mencione
  * "2026-09-03"' parece un error del sistema.
  */
+/**
+ * El mensaje citado, redactado para el modelo (no para el usuario).
+ *
+ * Se dice de quien era y de cuando: "pero esto es lo que me dijiste" solo se
+ * entiende sabiendo cual de las cosas que dijo Luka es, y un mensaje propio de
+ * hace semanas necesita su fecha para ubicarse.
+ */
+export function renderQuotedMessage(quoted: {
+  fromLuka: boolean;
+  date: string;
+  content: string;
+}): string {
+  const autor = quoted.fromLuka ? 'TUYO' : 'del usuario';
+
+  return [
+    'EL USUARIO ESTA RESPONDIENDO A ESTE MENSAJE ' + autor + ':',
+    `(${quoted.date}) "${quoted.content}"`,
+    'Lo que escriba ahora se refiere a ese mensaje, no necesariamente al ultimo',
+    'de la conversacion. Usalo para entenderlo.',
+  ].join('\n');
+}
+
 export function renderCorrectionNotFound(
   correccion: CorrectionRequest,
   currency: string,
