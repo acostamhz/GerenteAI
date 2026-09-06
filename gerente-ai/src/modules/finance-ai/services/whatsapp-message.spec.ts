@@ -3413,3 +3413,238 @@ describe('WhatsAppMessageService · un "sí" distraído no borra varios', () => 
     expect(financeData.deleted).toHaveLength(1);
   });
 });
+
+// ===========================================================================
+// ESCOGER VARIOS DE UNA LISTA
+//
+// Dos fallos reales, misma causa: `referenceIndex` era un solo número, así que
+// una selección de dos no cabía. El modelo tenía que elegir entre marcar
+// "todos" —y Luka ofrecía borrar los tres— o quedarse con uno.
+//
+//   1. "borra el segundo y tercero, el primero sí déjalo"  ->  listó los 3
+//   2. "no, solo el 2 y el 3"                              ->  tomó 1
+// ===========================================================================
+
+const TRES_DEL_MENSAJE: Transaction[] = [
+  {
+    id: 'venta',
+    businessId: 'b1',
+    date: '2026-09-05',
+    description: 'Venta',
+    category: 'ventas',
+    amount: 20_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-05T16:00:00.000Z',
+  },
+  {
+    id: 'desayuno',
+    businessId: 'b1',
+    date: '2026-09-05',
+    description: 'Desayuno para empleados',
+    category: 'otros_gastos',
+    amount: 1_000_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-05T16:00:01.000Z',
+  },
+  {
+    id: 'insumos',
+    businessId: 'b1',
+    date: '2026-09-05',
+    description: 'Insumos y herramientas',
+    category: 'insumos',
+    amount: 2_000_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-05T16:00:02.000Z',
+  },
+];
+
+function citandoLosTres() {
+  return {
+    ...BASE_REQUEST,
+    persist: true,
+    quotedMessage: {
+      fromLuka: true,
+      date: '2026-09-05',
+      content: '✅ Registré 3 movimientos: ...',
+      transactionIds: ['venta', 'desayuno', 'insumos'],
+    },
+  };
+}
+
+describe('WhatsAppMessageService · escoger varios de una lista', () => {
+  it('"el segundo y tercero, el primero déjalo" respeta el primero', async () => {
+    // El modelo marca matchAll porque "el segundo y tercero" suena a varios.
+    // La selección tiene que mandar sobre eso: si no, Luka ofrece borrar
+    // también el que el usuario acaba de pedir que conserve.
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          action: 'delete',
+          referenceIndexes: [2, 3],
+          matchAll: true,
+        }),
+      },
+      TRES_DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citandoLosTres());
+
+    expect(pregunta.replyText).toContain('Desayuno para empleados');
+    expect(pregunta.replyText).toContain('Insumos y herramientas');
+    expect(pregunta.replyText).toContain('estos 2 movimientos');
+    expect(pregunta.replyText).not.toContain('+$20.000');
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('acota un borrado ya ofrecido a "solo el 2 y el 3"', async () => {
+    const { decir, financeData } = buildConversacion(TRES_DEL_MENSAJE);
+
+    const primera = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-05',
+        matchAll: true,
+      }),
+    });
+
+    expect(primera.replyText).toContain('estos 3 movimientos');
+
+    // Aquí antes se quedaba con uno solo.
+    const acotado = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceIndexes: [2, 3],
+      }),
+    });
+
+    expect(acotado.replyText).toContain('estos 2 movimientos');
+    expect(acotado.replyText).toContain('Desayuno');
+    expect(acotado.replyText).toContain('Insumos');
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
+
+    expect(financeData.deleted.sort()).toEqual(['desayuno', 'insumos']);
+  });
+
+  it('una sola posición sigue funcionando igual', async () => {
+    const { decir, financeData } = buildConversacion(TRES_DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-05',
+        matchAll: true,
+      }),
+    });
+
+    const acotado = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', referenceIndexes: [2] }),
+    });
+
+    expect(acotado.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['desayuno']);
+  });
+
+  it('acepta un número suelto por si el modelo no manda la lista', async () => {
+    // Robustez: perder esa respuesta significaría borrar de más o preguntar
+    // otra vez.
+    const { decir, financeData } = buildConversacion(TRES_DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-05',
+        matchAll: true,
+      }),
+    });
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', referenceIndex: 3 }),
+    });
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['insumos']);
+  });
+
+  it('ignora las posiciones que no existen en la lista', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          action: 'delete',
+          referenceIndexes: [2, 9],
+        }),
+      },
+      TRES_DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citandoLosTres());
+
+    expect(pregunta.replyText).toContain('Voy a borrar este movimiento');
+    expect(pregunta.replyText).toContain('Desayuno');
+  });
+
+  it('los enseña en el orden en que los vio el usuario', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          action: 'delete',
+          // Los nombra al revés; la lista debe salir 2 y luego 3.
+          referenceIndexes: [3, 2],
+        }),
+      },
+      TRES_DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citandoLosTres());
+    const posDesayuno = pregunta.replyText.indexOf('Desayuno');
+    const posInsumos = pregunta.replyText.indexOf('Insumos');
+
+    expect(posDesayuno).toBeLessThan(posInsumos);
+  });
+
+  it('el modelo recibe la lista numerada del borrado pendiente', async () => {
+    // Sin la lista delante, "solo el 2 y el 3" no se puede convertir en
+    // posiciones y termina borrando otra cosa.
+    const { llm, visto } = espiarLlm({ type: 'unclear' });
+    const state = new ConversationStateService();
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(TRES_DEL_MENSAJE),
+      state,
+    );
+
+    state.recordarBorrado('b1', {
+      targets: TRES_DEL_MENSAJE,
+      period: null,
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(visto.system).toContain('1) 2026-09-05 · Venta');
+    expect(visto.system).toContain('referenceIndexes');
+    expect(visto.system).toContain('solo el 2 y el 3');
+  });
+});
