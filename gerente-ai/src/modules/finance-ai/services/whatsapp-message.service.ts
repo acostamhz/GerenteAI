@@ -1119,10 +1119,13 @@ export class WhatsAppMessageService {
       );
     }
 
-    // Si dio una pista para escoger dentro de la cita, se respeta.
+    // Si dio una pista para escoger dentro de la cita, se respeta. La
+    // seleccion MANDA sobre matchAll: "borra el segundo y el tercero" suena a
+    // varios, y el modelo tiende a marcar matchAll; hacerle caso ahi hacia que
+    // Luka ofreciera borrar tambien el primero, que el usuario acababa de
+    // pedir que dejara.
     const elegidos = resolverEntreCandidatos(citados, correccion);
-    const objetivos =
-      elegidos.length && !correccion.matchAll ? elegidos : citados;
+    const objetivos = elegidos.length ? elegidos : citados;
 
     if (correccion.action === 'delete') {
       this.state.recordarBorrado(request.businessId, {
@@ -1853,7 +1856,9 @@ function normalizeCorrection(value: unknown): CorrectionRequest | null {
     reference: cleanText(row.reference),
     referenceAmount: normalizeAmount(row.referenceAmount),
     referenceDate: normalizeMovementDate(row.referenceDate),
-    referenceIndex: normalizePosition(row.referenceIndex),
+    referenceIndexes: normalizePositions(
+      row.referenceIndexes ?? row.referenceIndex,
+    ),
     newAmount: normalizeAmount(row.newAmount),
     newConcept: cleanText(row.newConcept),
     deleteAll: row.deleteAll === true,
@@ -1873,6 +1878,23 @@ function normalizePosition(value: unknown): number | null {
 }
 
 /**
+ * Las posiciones que señalo el usuario, ya limpias y sin repetir.
+ *
+ * Acepta tambien un numero suelto: un modelo puede devolver `referenceIndex: 2`
+ * en vez de la lista, y perder esa respuesta significaria borrar de mas o
+ * preguntar otra vez.
+ */
+function normalizePositions(value: unknown): number[] {
+  const crudos = Array.isArray(value) ? value : [value];
+
+  const posiciones = crudos
+    .map((posicion) => normalizePosition(posicion))
+    .filter((posicion): posicion is number => posicion !== null);
+
+  return [...new Set(posiciones)];
+}
+
+/**
  * Con que se busco, en una linea, para el log.
  *
  * Cuando alguien reporta que Luka "no encontro" algo que si existe, esto es lo
@@ -1885,8 +1907,8 @@ function describirBusqueda(correccion: CorrectionRequest): string {
       ? `monto=${correccion.referenceAmount}`
       : null,
     correccion.referenceDate ? `fecha=${correccion.referenceDate}` : null,
-    correccion.referenceIndex !== null
-      ? `posicion=${correccion.referenceIndex}`
+    correccion.referenceIndexes.length
+      ? `posiciones=${correccion.referenceIndexes.join('+')}`
       : null,
     correccion.matchAll ? 'todos los que coincidan' : null,
   ].filter(Boolean);
@@ -1900,7 +1922,7 @@ export function tieneIdentificador(correccion: CorrectionRequest): boolean {
     correccion.reference !== null ||
     correccion.referenceAmount !== null ||
     correccion.referenceDate !== null ||
-    correccion.referenceIndex !== null
+    correccion.referenceIndexes.length > 0
   );
 }
 
@@ -1957,9 +1979,15 @@ export function resolverEntreCandidatos(
     return candidatos;
   }
 
-  if (correccion.referenceIndex !== null) {
-    const elegido = candidatos[correccion.referenceIndex - 1];
-    return elegido ? [elegido] : [];
+  if (correccion.referenceIndexes.length) {
+    const elegidos = new Set(
+      correccion.referenceIndexes
+        .map((posicion) => candidatos[posicion - 1])
+        .filter((row): row is Transaction => row !== undefined),
+    );
+
+    // En el orden en que se los enseñamos, que es como los vio el usuario.
+    return candidatos.filter((row) => elegidos.has(row));
   }
 
   if (!tieneIdentificador(correccion)) return [];
@@ -2749,14 +2777,30 @@ function renderPendingDeletion(
 ): string {
   const total = pendiente.targets.reduce((suma, row) => suma + row.amount, 0);
 
+  // La lista numerada tiene que estar delante del modelo: sin ella, "solo el
+  // 2 y el 3" no se puede convertir en posiciones y termina borrando otra cosa.
+  const lineas = pendiente.targets.map(
+    (row, indice) =>
+      `${indice + 1}) ${row.date} · ${row.description} · ${formatMoney(row.amount, currency)}`,
+  );
+
   return [
     'PREGUNTA ABIERTA (lo mas importante de este turno):',
-    `Le acabas de preguntar si confirma borrar ${pendiente.targets.length} movimiento(s) por ${formatMoney(total, currency)}.`,
-    'El mensaje que sigue es la RESPUESTA a esa pregunta. Devuelve type',
-    '"confirmation" con confirmed true si dijo que si ("si", "dale", "hazlo",',
-    '"confirmo") o false si dijo que no ("no", "mejor no", "cancela").',
-    'Si contesta otra cosa distinta de si o no, entonces NO es una',
-    'confirmacion: interpretalo normalmente.',
+    `Le acabas de preguntar si confirma borrar estos ${pendiente.targets.length} movimiento(s), ${formatMoney(total, currency)} en total:`,
+    ...lineas,
+    '',
+    'El mensaje que sigue es la RESPUESTA a esa pregunta. Hay tres caminos:',
+    `1. CONFIRMA TODOS: type "confirmation", confirmed true, y confirmedCount ${pendiente.targets.length}`,
+    '   si repitio el numero ("borrar los 3", "si, los 3").',
+    '2. CANCELA: type "confirmation", confirmed false ("no", "mejor no", "cancela").',
+    '3. ESCOGE ALGUNOS de la lista de arriba: type "correction", action "delete",',
+    '   y referenceIndexes con TODAS las posiciones que nombro.',
+    '       "solo el 2 y el 3"        -> referenceIndexes [2, 3]',
+    '       "el segundo y el tercero" -> referenceIndexes [2, 3]',
+    '       "solo el ultimo"          -> referenceIndexes [' +
+      '${pendiente.targets.length}]',
+    '       "todos menos el 1"        -> las posiciones restantes, una por una',
+    '   Con posiciones, matchAll SIEMPRE va en false.',
   ].join('\n');
 }
 

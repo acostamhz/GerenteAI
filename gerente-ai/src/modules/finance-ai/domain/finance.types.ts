@@ -249,11 +249,16 @@ export interface CorrectionRequest {
   /** Fecha que IDENTIFICA cual movimiento es, en YYYY-MM-DD. */
   referenceDate: string | null;
   /**
-   * Posicion en la lista que Luka acaba de mostrar, empezando en 1.
+   * Posiciones de la lista que Luka acaba de mostrar, empezando en 1.
    *
-   * Es como contesta la gente de verdad: "la primera", "la de arriba", "esa".
+   * Es una LISTA porque la gente escoge varios de una: "borra el segundo y el
+   * tercero, el primero dejalo". Con un solo numero eso no se podia expresar:
+   * el modelo o marcaba "todos" —y Luka ofrecia borrar los tres— o se quedaba
+   * con uno solo. Los dos casos se vieron en produccion.
+   *
+   * Vacia cuando el usuario no señalo ninguna posicion.
    */
-  referenceIndex: number | null;
+  referenceIndexes: number[];
   /** Monto corregido. Solo el valor NUEVO, nunca el que identifica. */
   newAmount: number | null;
   newConcept: string | null;
