@@ -6,7 +6,9 @@
         "multipleMethods": true,
         "path": "whatsapp",
         "responseMode": "responseNode",
-        "options": {}
+        "options": {
+          "rawBody": true
+        }
       },
       "type": "n8n-nodes-base.webhook",
       "typeVersion": 2.1,
@@ -17,7 +19,7 @@
       "id": "a1000000-0000-4000-8000-000000000001",
       "name": "Webhook WhatsApp",
       "webhookId": "2b53f42f-20b7-45b1-be53-8d0a207a0f9a",
-      "notes": "Salida 1 = GET (verificación de Meta). Salida 2 = POST (eventos)."
+      "notes": "Recibe los mensajes de WhatsApp desde Meta.\n\n\"Raw Body\" esta activo porque la firma de Meta se calcula sobre los bytes exactos del cuerpo: un JSON.stringify del objeto ya parseado no sirve para verificarla."
     },
     {
       "parameters": {
@@ -675,6 +677,20 @@
       "id": "c1000000-0000-4000-8000-000000000040",
       "name": "¿Hay id que anotar?",
       "notes": "Cuando la respuesta salio de la rama de emergencia no hay ningun mensaje de Luka guardado en la base, asi que no hay wamid que anotarle."
+    },
+    {
+      "parameters": {
+        "jsCode": "// Comprueba que el evento lo mando Meta y no cualquiera que conozca la URL.\n//\n// El webhook esta abierto a internet: sin esta comprobacion, quien sepa la URL\n// y un numero de telefono registrado puede inyectar movimientos falsos y borrar\n// la contabilidad de un negocio real. El N8N_API_KEY no cubre esto: protege el\n// tramo n8n -> backend, no internet -> n8n.\n//\n// Meta firma el cuerpo con el App Secret y manda el resultado en la cabecera\n// x-hub-signature-256. Ese secreto no lo tiene nadie mas, asi que quien no\n// pueda producir la firma correcta no es Meta.\n//\n// MODO DE OPERACION\n//   META_FIRMA_ESTRICTA = \"true\"  -> descarta lo que no venga firmado por Meta\n//   cualquier otro valor          -> solo avisa en el log y deja pasar\n//\n// Se arranca en modo aviso a proposito: si el calculo estuviera mal, en\n// estricto se rechazarian TODOS los mensajes y el bot moriria en silencio.\n// Primero se comprueba en los logs que la firma cuadra siempre, y despues se\n// activa el modo estricto.\nconst crypto = require('crypto');\n\nconst item = $input.first();\nconst entrada = item.json;\nconst estricto = String($env.META_FIRMA_ESTRICTA || '').toLowerCase() === 'true';\n\n// El GET con el que Meta verifica el webhook no trae cuerpo ni firma. Se\n// reconoce por hub.mode y pasa tal cual.\nif (entrada.query && entrada.query['hub.mode']) {\n  return $input.all();\n}\n\nconst secreto = $env.META_APP_SECRET;\n\nif (!secreto) {\n  console.error('[Seguridad] Falta META_APP_SECRET: no se puede verificar la firma.');\n  return estricto ? [] : $input.all();\n}\n\nconst binario = item.binary && item.binary.data;\n\nif (!binario) {\n  console.error('[Seguridad] No llego el cuerpo crudo. Falta activar \"Raw Body\" en el webhook.');\n  return estricto ? [] : $input.all();\n}\n\nconst crudo = Buffer.from(binario.data, 'base64');\nconst recibida = (entrada.headers && entrada.headers['x-hub-signature-256']) || '';\nconst esperada = 'sha256=' + crypto.createHmac('sha256', secreto).update(crudo).digest('hex');\n\n// Comparar con === filtraria informacion por el tiempo que tarda: al cortar en\n// el primer caracter distinto se podria ir adivinando la firma byte a byte.\nconst a = Buffer.from(esperada, 'utf8');\nconst b = Buffer.from(recibida, 'utf8');\nconst valida = a.length === b.length && crypto.timingSafeEqual(a, b);\n\nif (valida) {\n  console.log('[Seguridad] Firma de Meta OK' + (estricto ? '' : ' (modo aviso)'));\n} else {\n  console.error(\n    '[Seguridad] FIRMA INVALIDA' +\n      (estricto ? ' - evento DESCARTADO' : ' - modo aviso, se deja pasar') +\n      ' | recibida: ' + (recibida ? recibida.slice(0, 24) + '...' : '(ninguna)') +\n      ' | esperada: ' + esperada.slice(0, 24) + '...',\n  );\n\n  if (estricto) return [];\n}\n\n// El resto del flujo espera el cuerpo ya parseado en $json.body, que es lo que\n// habria puesto el webhook si no estuviera en modo crudo.\nlet cuerpo;\ntry {\n  cuerpo = JSON.parse(crudo.toString('utf8'));\n} catch (error) {\n  console.error('[Seguridad] El cuerpo no es JSON valido, se descarta.');\n  return [];\n}\n\nreturn [{ json: Object.assign({}, entrada, { body: cuerpo }) }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1060,
+        0
+      ],
+      "id": "c1000000-0000-4000-8000-000000000050",
+      "name": "Verificar firma de Meta",
+      "notes": "Descarta los eventos que no vengan firmados por Meta.\n\nArranca en modo aviso (solo registra en el log). Para activarlo de verdad, poner META_FIRMA_ESTRICTA=true en las variables de n8n, DESPUES de comprobar en los logs que la firma cuadra siempre.\n\nNecesita en n8n: META_APP_SECRET, NODE_FUNCTION_ALLOW_BUILTIN=crypto y N8N_BLOCK_ENV_ACCESS_IN_NODE=false."
     }
   ],
   "pinData": {},
@@ -683,14 +699,14 @@
       "main": [
         [
           {
-            "node": "¿Es verificación?",
+            "node": "Verificar firma de Meta",
             "type": "main",
             "index": 0
           }
         ],
         [
           {
-            "node": "¿Es verificación?",
+            "node": "Verificar firma de Meta",
             "type": "main",
             "index": 0
           }
@@ -903,6 +919,17 @@
           }
         ],
         []
+      ]
+    },
+    "Verificar firma de Meta": {
+      "main": [
+        [
+          {
+            "node": "¿Es verificación?",
+            "type": "main",
+            "index": 0
+          }
+        ]
       ]
     }
   },
