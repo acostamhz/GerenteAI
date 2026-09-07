@@ -44,6 +44,128 @@ interface UsuarioMeResponse {
   }>;
 }
 
+function isSameDay(dateA: Date, dateB: Date): boolean {
+  return (
+    dateA.getFullYear() === dateB.getFullYear() &&
+    dateA.getMonth() === dateB.getMonth() &&
+    dateA.getDate() === dateB.getDate()
+  );
+}
+
+function isWithinLast7Days(date: Date, now: Date): boolean {
+  const start = new Date(now);
+  start.setDate(now.getDate() - 6);
+  start.setHours(0, 0, 0, 0);
+
+  const end = new Date(now);
+  end.setHours(23, 59, 59, 999);
+
+  return date >= start && date <= end;
+}
+
+function isSameMonthAndYear(date: Date, now: Date): boolean {
+  return (
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth()
+  );
+}
+
+function isWithinLast6Months(date: Date, now: Date): boolean {
+  const start = new Date(now.getFullYear(), now.getMonth() - 5, 1, 0, 0, 0, 0);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+  return date >= start && date <= end;
+}
+
+function isSameYear(date: Date, now: Date): boolean {
+  return date.getFullYear() === now.getFullYear();
+}
+
+function computeReportFromTransactions(
+  transactions: DashboardTransactionItem[],
+  periodo: PeriodoTipo,
+): ReporteFinanciero {
+  const now = new Date();
+  const filtered = transactions.filter((tx) => {
+    if (!tx.rawDate) return false;
+    const txDate = new Date(tx.rawDate);
+    if (isNaN(txDate.getTime())) return false;
+
+    switch (periodo) {
+      case "diario":
+        return isSameDay(txDate, now);
+      case "semanal":
+        return isWithinLast7Days(txDate, now);
+      case "mensual":
+        return isSameMonthAndYear(txDate, now);
+      case "semestral":
+        return isWithinLast6Months(txDate, now);
+      case "anual":
+        return isSameYear(txDate, now);
+      default:
+        return true;
+    }
+  });
+
+  let ventasContado = 0;
+  let abonos = 0;
+  let compras = 0;
+  let gastos = 0;
+  let conteoVentas = 0;
+  let conteoAbonos = 0;
+  let conteoCompras = 0;
+  let conteoGastos = 0;
+
+  filtered.forEach((tx) => {
+    const amt = Number(tx.amount) || 0;
+    if (tx.type === "Venta") {
+      ventasContado += amt;
+      conteoVentas++;
+    } else if (tx.type === "Abono") {
+      abonos += amt;
+      conteoAbonos++;
+    } else if (tx.type === "Compra") {
+      compras += amt;
+      conteoCompras++;
+    } else if (tx.type === "Gasto") {
+      gastos += amt;
+      conteoGastos++;
+    }
+  });
+
+  const totalIngresos = ventasContado + abonos;
+  const totalEgresos = compras + gastos;
+
+  return {
+    periodo: {
+      tipo: periodo,
+      desde: new Date().toISOString(),
+      hasta: new Date().toISOString(),
+      zonaHoraria: "UTC-5",
+    },
+    ingresos: {
+      ventasContado,
+      abonos,
+      total: totalIngresos,
+    },
+    egresos: {
+      compras,
+      gastos,
+      total: totalEgresos,
+    },
+    balance: totalIngresos - totalEgresos,
+    informativo: {
+      ventasFiado: 0,
+      ventasTotales: totalIngresos,
+      conteos: {
+        ventas: conteoVentas,
+        abonos: conteoAbonos,
+        compras: conteoCompras,
+        gastos: conteoGastos,
+      },
+    },
+  };
+}
+
 const EMPTY_METRICS = (
   periodo: PeriodoTipo,
 ): ReporteFinanciero => ({
@@ -89,14 +211,14 @@ export function useDashboardMetrics(
 
   const [periodo, setPeriodoState] =
     useState<PeriodoTipo>(
-      "mensual",
+      "semanal",
     );
 
   const [
     periodMetrics,
     setPeriodMetrics,
   ] = useState<ReporteFinanciero>(
-    EMPTY_METRICS("mensual"),
+    EMPTY_METRICS("semanal"),
   );
 
   const [
@@ -785,12 +907,11 @@ export function useDashboardMetrics(
             );
           }
 
-          const targetBusinessId =
-            await resolveActiveBusiness();
-
-          setResolvedBusinessId(
-            targetBusinessId,
-          );
+          // Pre-resolución no bloqueante desde almacenamiento local o estado
+          const cachedBusinessId =
+            customBusinessId ||
+            resolvedBusinessId ||
+            localStorage.getItem("active_business_id");
 
           const currentSedeStorage =
             localStorage.getItem(
@@ -819,6 +940,19 @@ export function useDashboardMetrics(
               ? currentSedeName ||
                   "Sede Seleccionada"
               : "Todas las sedes",
+          );
+
+          // Disparamos resolución de negocio y carga de datos en paralelo
+          const businessPromise = resolveActiveBusiness();
+
+          let targetBusinessId = cachedBusinessId;
+
+          if (!targetBusinessId && !effectiveSedeId) {
+            targetBusinessId = await businessPromise;
+          }
+
+          setResolvedBusinessId(
+            targetBusinessId,
           );
 
           if (
@@ -859,25 +993,27 @@ export function useDashboardMetrics(
             false,
           );
 
-          let reportResult:
-            | ReporteFinanciero
-            | undefined;
+          // Peticiones paralelas: Reporte + Movimientos + Cartera
+          const reportPromise = effectiveSedeId
+            ? dashboardApi.getReporteSede(effectiveSedeId, periodo)
+            : targetBusinessId
+            ? dashboardApi.getReporteNegocio(targetBusinessId, periodo)
+            : Promise.resolve(EMPTY_METRICS(periodo));
 
-          if (effectiveSedeId) {
-            reportResult =
-              await dashboardApi.getReporteSede(
-                effectiveSedeId,
-                periodo,
-              );
-          } else if (
-            targetBusinessId
-          ) {
-            reportResult =
-              await dashboardApi.getReporteNegocio(
-                targetBusinessId,
-                periodo,
-              );
-          }
+          const [reportResult] = await Promise.all([
+            reportPromise,
+            loadTransactions(
+              targetBusinessId,
+              effectiveSedeId,
+              EMPTY_METRICS(periodo),
+            ),
+            loadFiados(
+              targetBusinessId,
+              effectiveSedeId,
+              EMPTY_METRICS(periodo),
+              isSilent,
+            ),
+          ]);
 
           const safeReport =
             reportResult ||
@@ -902,25 +1038,6 @@ export function useDashboardMetrics(
           setPeriodMetrics(
             safeReport,
           );
-
-          /*
-           * Cargar movimientos y cartera en paralelo para máxima velocidad.
-           * loadTransactions se encarga de calcular el Saldo Total Histórico
-           * con el 100% de los registros y actualizar generalMetrics.
-           */
-          await Promise.all([
-            loadTransactions(
-              targetBusinessId,
-              effectiveSedeId,
-              safeReport,
-            ),
-            loadFiados(
-              targetBusinessId,
-              effectiveSedeId,
-              safeReport,
-              isSilent,
-            ),
-          ]);
         } catch (err: any) {
           console.error(
             "Error al obtener métricas del dashboard:",
@@ -1117,86 +1234,79 @@ export function useDashboardMetrics(
         newPeriodo,
       );
 
-      const currentSedeStorage =
-        localStorage.getItem(
-          "active_sede_id",
-        );
-
-      const effectiveSedeId =
-        customSedeId ||
-        (currentSedeStorage &&
-        currentSedeStorage !==
-          "all"
-          ? currentSedeStorage
-          : null);
-
-      if (
-        !resolvedBusinessId &&
-        !effectiveSedeId
-      ) {
-        return;
-      }
-
       setIsChartLoading(
         true,
       );
 
       try {
-        let reportResult:
-          | ReporteFinanciero
-          | undefined;
-
-        if (effectiveSedeId) {
-          reportResult =
-            await dashboardApi.getReporteSede(
-              effectiveSedeId,
-              newPeriodo,
-            );
-        } else if (
-          resolvedBusinessId
+        if (
+          newPeriodo === "semestral" ||
+          newPeriodo === "anual"
         ) {
-          reportResult =
-            await dashboardApi.getReporteNegocio(
-              resolvedBusinessId,
+          const computed =
+            computeReportFromTransactions(
+              allTransactions,
               newPeriodo,
             );
-        }
-
-        const safeReport =
-          reportResult ||
-          EMPTY_METRICS(
-            newPeriodo,
+          setPeriodMetrics(
+            computed,
           );
+        } else {
+          const currentSedeStorage =
+            localStorage.getItem(
+              "active_sede_id",
+            );
 
-        setPeriodMetrics(
-          safeReport,
-        );
+          const effectiveSedeId =
+            customSedeId ||
+            (currentSedeStorage &&
+            currentSedeStorage !==
+              "all"
+              ? currentSedeStorage
+              : null);
 
-        await loadTransactions(
-          resolvedBusinessId,
-          effectiveSedeId,
-          safeReport,
-        );
+          let reportResult:
+            | ReporteFinanciero
+            | undefined;
 
-        await loadFiados(
-          resolvedBusinessId,
-          effectiveSedeId,
-          safeReport,
-        );
+          if (effectiveSedeId) {
+            reportResult =
+              await dashboardApi.getReporteSede(
+                effectiveSedeId,
+                newPeriodo,
+              );
+          } else if (
+            resolvedBusinessId
+          ) {
+            reportResult =
+              await dashboardApi.getReporteNegocio(
+                resolvedBusinessId,
+                newPeriodo,
+              );
+          }
+
+          const safeReport =
+            reportResult ||
+            computeReportFromTransactions(
+              allTransactions,
+              newPeriodo,
+            );
+
+          setPeriodMetrics(
+            safeReport,
+          );
+        }
       } catch (err) {
         console.warn(
-          "Error al cambiar período:",
+          "Error al cambiar período, usando cálculo local:",
           err,
         );
 
         setPeriodMetrics(
-          EMPTY_METRICS(
+          computeReportFromTransactions(
+            allTransactions,
             newPeriodo,
           ),
-        );
-
-        setAllTransactions(
-          [],
         );
       } finally {
         setIsChartLoading(
@@ -1371,77 +1481,63 @@ export function useDashboardMetrics(
 
   /*
    * ============================================================
-   * RETURN
+   * RETURN (MEMOIZADO)
    * ============================================================
    */
-  return {
-    user,
+  const refreshMetricsCb = useCallback(() => fetchMetrics(true), [fetchMetrics]);
+  const refreshFiadosCb = useCallback(
+    () => loadFiados(resolvedBusinessId, resolvedSedeId, periodMetrics),
+    [loadFiados, resolvedBusinessId, resolvedSedeId, periodMetrics]
+  );
 
-    metrics:
+  return useMemo(
+    () => ({
+      user,
+      metrics: periodMetrics,
+      generalMetrics: generalMetrics || periodMetrics,
+      transactions: allTransactions,
+      fiados,
+      isFiadosLoading,
+      isLoading,
+      isChartLoading,
+      isRefreshing,
+      lastUpdated,
+      error,
+      hasNoBusiness,
+      refreshMetrics: refreshMetricsCb,
+      refreshFiados: refreshFiadosCb,
+      registerPayment,
+      periodo,
+      setPeriodo: handlePeriodChange,
+      businessName,
+      sedeName,
+      businessId: resolvedBusinessId,
+      sedeId: resolvedSedeId,
+      isConsolidated,
+    }),
+    [
+      user,
       periodMetrics,
-
-    generalMetrics:
-      generalMetrics ||
-      periodMetrics,
-
-    transactions:
+      generalMetrics,
       allTransactions,
-
-    /*
-     * Cartera real.
-     */
-    fiados,
-
-    isFiadosLoading,
-
-    isLoading,
-
-    isChartLoading,
-
-    isRefreshing,
-
-    lastUpdated,
-
-    error,
-
-    hasNoBusiness,
-
-    /*
-     * Refrescar todo el dashboard.
-     */
-    refreshMetrics: () =>
-      fetchMetrics(true),
-
-    /*
-     * Refrescar solamente cartera.
-     */
-    refreshFiados: () =>
-      loadFiados(
-        resolvedBusinessId,
-        resolvedSedeId,
-        periodMetrics,
-      ),
-
-    /*
-     * Registrar un abono real.
-     */
-    registerPayment,
-
-    periodo,
-
-    setPeriodo:
+      fiados,
+      isFiadosLoading,
+      isLoading,
+      isChartLoading,
+      isRefreshing,
+      lastUpdated,
+      error,
+      hasNoBusiness,
+      refreshMetricsCb,
+      refreshFiadosCb,
+      registerPayment,
+      periodo,
       handlePeriodChange,
-
-    businessName,
-
-    sedeName,
-
-    businessId:
+      businessName,
+      sedeName,
       resolvedBusinessId,
-
-    sedeId:
       resolvedSedeId,
-
-    isConsolidated,
-  };
+      isConsolidated,
+    ]
+  );
 }

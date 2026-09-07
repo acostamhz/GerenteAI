@@ -26,14 +26,46 @@ interface InsightsResponse {
   };
 }
 
+interface CachedInsights {
+  timestamp: number;
+  insights: Insight[];
+}
+
+const INSIGHTS_CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutos
+
 export const insightsApi = {
   /**
+   * Obtiene insights en caché síncronamente si existen y son válidos.
+   */
+  getCached: (sedeId: string): Insight[] | null => {
+    try {
+      const raw = sessionStorage.getItem(`insights_cache_${sedeId}`);
+      if (!raw) return null;
+      const parsed: CachedInsights = JSON.parse(raw);
+      if (Date.now() - parsed.timestamp < INSIGHTS_CACHE_TTL_MS) {
+        return parsed.insights;
+      }
+    } catch {
+      // Ignorar error de parsing
+    }
+    return null;
+  },
+
+  /**
    * Genera las recomendaciones del negocio activo.
+   * Utiliza caché de sesión (10 min) para acelerar recargas a menos que forceRefresh sea true.
    * POST /ai/insights — el límite máximo que acepta el backend es 5.
    */
-  generate: async (limit = 5): Promise<Insight[]> => {
+  generate: async (limit = 5, forceRefresh = false): Promise<Insight[]> => {
     const sedeId = await resolveActiveSedeId();
     if (!sedeId) return [];
+
+    if (!forceRefresh) {
+      const cached = insightsApi.getCached(sedeId);
+      if (cached && cached.length > 0) {
+        return cached;
+      }
+    }
 
     const negocioId = localStorage.getItem('active_business_id') ?? undefined;
 
@@ -46,7 +78,19 @@ export const insightsApi = {
       }),
     });
 
-    return res.data.insights;
+    const insights = res.data.insights;
+
+    try {
+      const cacheData: CachedInsights = {
+        timestamp: Date.now(),
+        insights,
+      };
+      sessionStorage.setItem(`insights_cache_${sedeId}`, JSON.stringify(cacheData));
+    } catch {
+      // SessionStorage puede fallar si está lleno
+    }
+
+    return insights;
   },
 };
 

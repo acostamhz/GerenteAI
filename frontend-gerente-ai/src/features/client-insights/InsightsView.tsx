@@ -65,7 +65,7 @@ export function InsightsView() {
   // GENERAR RECOMENDACIONES
   // ============================================================
 
-  const cargar = useCallback(async () => {
+  const cargar = useCallback(async (forceRefresh = false) => {
     /*
      * Plan Asistente:
      * no hacemos llamadas costosas al backend.
@@ -89,7 +89,7 @@ export function InsightsView() {
     setIsQuotaExceeded(false);
 
     try {
-      const insights = await insightsApi.generate();
+      const insights = await insightsApi.generate(5, forceRefresh);
 
       setItems(insights);
     } catch (e: unknown) {
@@ -232,7 +232,7 @@ export function InsightsView() {
         {tieneAccesoInsights && (
           <button
             type="button"
-            onClick={() => void cargar()}
+            onClick={() => void cargar(true)}
             disabled={isLoading}
             className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-xl text-xs sm:text-sm font-bold text-muted-foreground border border-border hover:bg-muted hover:text-foreground transition-all disabled:opacity-40 cursor-pointer shrink-0"
           >

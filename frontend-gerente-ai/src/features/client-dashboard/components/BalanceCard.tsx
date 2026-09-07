@@ -1,6 +1,4 @@
-"use client";
-
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import {
   ArrowUpRight,
   ArrowDownLeft,
@@ -28,7 +26,7 @@ interface TRMRecord {
 const TRM_API_URL =
   "https://www.datos.gov.co/resource/32sa-8pi3.json";
 
-export function BalanceCard({
+function BalanceCardComponent({
   metrics,
   goalTarget = null,
   isLoading,
@@ -66,6 +64,23 @@ export function BalanceCard({
         setTrmLoading(true);
         setTrmError(false);
 
+        // Intentar leer de caché de sesión (válido por 12 horas)
+        const cachedTRM = sessionStorage.getItem("trm_cache");
+        if (cachedTRM) {
+          try {
+            const parsed = JSON.parse(cachedTRM);
+            if (parsed && Date.now() - parsed.timestamp < 12 * 60 * 60 * 1000) {
+              if (!cancelled) {
+                setTrm(parsed.data);
+                setTrmLoading(false);
+                return;
+              }
+            }
+          } catch {
+            // fallback a fetch
+          }
+        }
+
         const url =
           `${TRM_API_URL}?$order=vigenciadesde%20DESC&$limit=1`;
 
@@ -74,7 +89,7 @@ export function BalanceCard({
           headers: {
             Accept: "application/json",
           },
-          cache: "no-store",
+          cache: "default",
         });
 
         if (!response.ok) {
@@ -93,6 +108,14 @@ export function BalanceCard({
 
         if (!cancelled) {
           setTrm(data[0]);
+          try {
+            sessionStorage.setItem(
+              "trm_cache",
+              JSON.stringify({ data: data[0], timestamp: Date.now() })
+            );
+          } catch {
+            // storage quota fallback
+          }
         }
       } catch (error) {
         console.error("Error obteniendo la TRM:", error);
@@ -334,3 +357,5 @@ export function BalanceCard({
     </div>
   );
 }
+
+export const BalanceCard = memo(BalanceCardComponent);
