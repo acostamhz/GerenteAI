@@ -64,21 +64,30 @@ export function DashboardView() {
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.4, delay: 0.05 }}
-              className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6"
+              className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6"
             >
               <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <h1 className="text-3xl font-black text-foreground tracking-tight">
-                    Detalles de saldo
-                  </h1>
-                </div>
-                <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-muted-foreground">
-                  <span className="inline-flex items-center gap-1.5 text-foreground bg-muted/60 px-2.5 py-0.5 rounded-lg border border-border">
+                <h1 className="text-3xl font-black text-foreground tracking-tight">
+                  Detalles de saldo
+                </h1>
+              </div>
+              
+              <div className="flex flex-wrap items-center gap-2.5 sm:gap-3">
+                {/* 1. Estado En Vivo */}
+                <LiveStatusBadge
+                  lastUpdated={lastUpdated}
+                  isRefreshing={isRefreshing}
+                  onManualRefresh={refreshMetrics}
+                />
+
+                {/* 2. Sede / Negocio Badge */}
+                <div className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground bg-muted/60 dark:bg-muted/30 px-3 py-1.5 rounded-xl border border-border/80 shadow-2xs">
+                  <span className="inline-flex items-center gap-1.5 text-foreground font-bold">
                     <Building2 className="w-3.5 h-3.5 text-emerald-500" />
                     <span>{businessName}</span>
                   </span>
                   <span className="text-muted-foreground/40">/</span>
-                  <span className="inline-flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 bg-emerald-50/70 dark:bg-emerald-500/10 px-2.5 py-0.5 rounded-lg border border-emerald-500/20">
+                  <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400 font-bold">
                     {sedeId && sedeId !== 'all' ? (
                       <MapPin className="w-3.5 h-3.5 text-emerald-500" />
                     ) : (
@@ -87,66 +96,15 @@ export function DashboardView() {
                     <span>{sedeName}</span>
                   </span>
                 </div>
-              </div>
-              
-              <div className="flex flex-wrap items-center gap-3">
-                <LiveStatusBadge
-                  lastUpdated={lastUpdated}
-                  isRefreshing={isRefreshing}
-                  onManualRefresh={refreshMetrics}
-                />
 
+                {/* 3. Mejora tu plan */}
                 <Link
                   to="/subscription"
-                  className="flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-lg text-sm font-bold text-emerald-700 dark:text-emerald-400 shadow-sm hover:from-emerald-500/20 hover:to-emerald-500/10 transition-colors"
+                  className="flex items-center gap-2 px-3.5 py-1.5 bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 border border-emerald-500/20 rounded-xl text-xs font-bold text-emerald-700 dark:text-emerald-400 shadow-xs hover:from-emerald-500/20 hover:to-emerald-500/10 transition-colors"
                 >
-                  <Sparkles className="w-4 h-4 text-emerald-500" />
+                  <Sparkles className="w-3.5 h-3.5 text-emerald-500" />
                   Mejora tu plan
                 </Link>
-                
-                {/* Selector Segmentado Interactivo y Reactivo */}
-                <div className="flex items-center bg-card border border-border rounded-lg shadow-sm p-0.5">
-                  <button
-                    onClick={() => setPeriodo('mensual')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                      periodo === 'mensual'
-                        ? "bg-foreground text-background shadow-xs"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    }`}
-                  >
-                    Últimos meses <span className="text-[9px]">▼</span>
-                  </button>
-                  <button
-                    onClick={() => setPeriodo('semanal')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                      periodo === 'semanal'
-                        ? "bg-foreground text-background shadow-xs"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    }`}
-                  >
-                    Esta semana <span className="text-[9px]">▼</span>
-                  </button>
-                  <button
-                    onClick={() => setPeriodo('diario')}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer flex items-center gap-1.5 ${
-                      periodo === 'diario'
-                        ? "bg-foreground text-background shadow-xs"
-                        : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
-                    }`}
-                  >
-                    Hoy <span className="text-[9px]">▼</span>
-                  </button>
-                </div>
-                
-                <button
-                  onClick={refreshMetrics}
-                  disabled={isRefreshing || isLoading}
-                  className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-lg text-sm font-bold text-foreground/80 shadow-sm hover:bg-muted/50 transition-colors cursor-pointer disabled:opacity-50"
-                  title="Sincronizar saldo con el servidor"
-                >
-                  <RefreshCw className={`w-4 h-4 text-muted-foreground ${isRefreshing ? "animate-spin text-emerald-500" : ""}`} />
-                  Gestionar saldo
-                </button>
               </div>
             </motion.div>
 
@@ -176,14 +134,15 @@ export function DashboardView() {
               transition={{ duration: 0.45, delay: 0.1 }}
               className="grid grid-cols-1 lg:grid-cols-12 gap-6"
             >
-              <div className="lg:col-span-6 xl:col-span-5">
+              <div className="lg:col-span-4 xl:col-span-4">
                 <BalanceCard metrics={generalMetrics} isLoading={isLoading} />
               </div>
-              <div className="lg:col-span-6 xl:col-span-7">
+              <div className="lg:col-span-8 xl:col-span-8">
                 <SpendChartCard 
                   metrics={metrics} 
                   transactions={transactions}
-                  periodo={periodo} 
+                  periodo={periodo}
+                  onPeriodoChange={setPeriodo}
                   isLoading={isLoading || isChartLoading} 
                   sedeName={sedeName}
                   isConsolidated={isConsolidated}

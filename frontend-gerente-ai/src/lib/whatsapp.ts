@@ -7,6 +7,7 @@
  * el panel de desarrolladores.
  */
 const NUMERO_POR_DEFECTO = '573043904488';
+const NUMERO_VENTAS_POR_DEFECTO = '573008880018';
 
 export function lukaWhatsappUrl(mensaje = 'Hola'): string {
   // wa.me exige el número en formato internacional y solo dígitos.
@@ -16,3 +17,15 @@ export function lukaWhatsappUrl(mensaje = 'Hola'): string {
 
   return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
 }
+
+/**
+ * Enlace para contactar al Asesor de Ventas y activación de planes de pago.
+ */
+export function salesWhatsappUrl(mensaje = 'Hola'): string {
+  const numero = (
+    (import.meta.env.VITE_SALES_WHATSAPP_NUMBER as string | undefined) || NUMERO_VENTAS_POR_DEFECTO
+  ).replace(/\D/g, '');
+
+  return `https://wa.me/${numero}?text=${encodeURIComponent(mensaje)}`;
+}
+

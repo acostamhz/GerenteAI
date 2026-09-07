@@ -33,4 +33,32 @@ export default defineConfig({
 
   // File types to support raw imports. Never add .css, .tsx, or .ts files to this.
   assetsInclude: ['**/*.svg', '**/*.csv'],
+  build: {
+    chunkSizeWarningLimit: 600,
+    rollupOptions: {
+      output: {
+        manualChunks: (id) => {
+          if (id.includes('node_modules/exceljs')) {
+            return 'excel-vendor';
+          }
+          if (
+            id.includes('node_modules/recharts') ||
+            id.includes('node_modules/d3-') ||
+            id.includes('node_modules/victory-vendor')
+          ) {
+            return 'recharts-vendor';
+          }
+          if (
+            id.includes('node_modules/motion') ||
+            id.includes('node_modules/framer-motion')
+          ) {
+            return 'motion-vendor';
+          }
+          if (id.includes('node_modules/lucide-react')) {
+            return 'lucide-vendor';
+          }
+        },
+      },
+    },
+  },
 })

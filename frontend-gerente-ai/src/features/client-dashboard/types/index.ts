@@ -1,7 +1,9 @@
 export type PeriodoTipo =
   | "diario"
   | "semanal"
-  | "mensual";
+  | "mensual"
+  | "semestral"
+  | "anual";
 
 export interface ReportePeriodoInfo {
   tipo: PeriodoTipo;

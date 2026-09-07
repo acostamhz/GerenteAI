@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, memo } from "react";
 
 import {
   Area,
@@ -46,6 +46,14 @@ const PERIODOS = [
     value: "mensual",
     label: "Este mes",
   },
+  {
+    value: "semestral",
+    label: "Últimos 6 meses",
+  },
+  {
+    value: "anual",
+    label: "Este año",
+  },
 ];
 
 const ETIQUETA_DIA =
@@ -64,15 +72,19 @@ export interface RealCashflowProps {
   setPeriodo: (periodo: PeriodoTipo) => void;
   isLoading: boolean;
   isChartLoading: boolean;
+  planNombre?: string;
+  esPagoPlan?: boolean;
 }
 
-export function RealCashflow({
+function RealCashflowComponent({
   metrics,
   transactions,
   periodo,
   setPeriodo,
   isLoading,
   isChartLoading,
+  planNombre,
+  esPagoPlan,
 }: RealCashflowProps) {
   const [busqueda, setBusqueda] =
     useState("");
@@ -80,11 +92,6 @@ export function RealCashflow({
   const [exportando, setExportando] =
     useState(false);
 
-
-  /*
-   * El negocio activo lo deja el dashboard en localStorage: la contabilidad es
-   * del negocio completo, no de la sede que se este mirando.
-   */
   const negocioId =
     localStorage.getItem(
       "active_business_id",
@@ -95,14 +102,13 @@ export function RealCashflow({
       "active_business_name",
     ) || "Mi negocio";
 
-  /*
-   * La exportacion es una funcion de los planes pagos.
-   *
-   * El boton se muestra igual en el plan gratuito, con candado: esconderla no
-   * la vende, y quien no sabe que existe nunca la va a pedir. Al abrirla se ve
-   * que trae el Excel y el camino a los planes.
-   */
-  const plan = usePlanNegocio(negocioId);
+  // Reutilizamos el permiso ya calculado en CashflowView evitando llamada redundante a /negocios/:id
+  const planFallback = usePlanNegocio(esPagoPlan !== undefined ? "" : negocioId);
+  const plan = {
+    cargando: esPagoPlan !== undefined ? false : planFallback.cargando,
+    esPago: esPagoPlan !== undefined ? esPagoPlan : planFallback.esPago,
+    nombre: planNombre || planFallback.nombre,
+  };
 
   /*
    * Métricas financieras reales.
@@ -646,3 +652,5 @@ export function RealCashflow({
     </div>
   );
 }
+
+export const RealCashflow = memo(RealCashflowComponent);
