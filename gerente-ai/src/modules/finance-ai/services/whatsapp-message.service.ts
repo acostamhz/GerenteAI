@@ -102,7 +102,20 @@ export interface WhatsAppMessageRequest {
    * justamente cuando se refiere a algo que no es lo ultimo que se dijo. Sin
    * esto, "pero esto es lo que me dijiste" llegaba suelto.
    */
-  quotedMessage?: { fromLuka: boolean; date: string; content: string } | null;
+  quotedMessage?: {
+    fromLuka: boolean;
+    date: string;
+    content: string;
+    /**
+     * Los movimientos que ese mensaje reporto, cuando era una respuesta de
+     * Luka.
+     *
+     * Es la diferencia entre borrar exactamente lo que el usuario esta
+     * senalando y adivinarlo por fecha. Vacio en los mensajes del usuario y en
+     * los de Luka anteriores a que esto se guardara.
+     */
+    transactionIds: string[];
+  } | null;
   /**
    * Nota de voz o foto que acompana al mensaje.
    *
@@ -357,11 +370,35 @@ export class WhatsAppMessageService {
       );
     }
 
-    const descuadre = checkBreakdown(intent.declaredTotal, intent.movements);
+    const descuadre = checkBreakdown(
+      intent.declaredTotal,
+      intent.movements,
+      intent.discount,
+    );
+
     if (descuadre) {
       this.logger.warn(
         `Desglose que no cuadra: total ${descuadre.declared}, partes ${descuadre.sum}.`,
       );
+
+      // Se guarda lo que si se entendio. Cuando el descuadre venia de una foto,
+      // la imagen NO viaja al siguiente turno: sin esto, el usuario explicaba
+      // la diferencia ("es que me dieron un descuento") y Luka le pedia otra
+      // vez la lista de productos que acababa de leer.
+      const entendidos = this.buildTransactions(
+        intent.movements,
+        request,
+        currency,
+        referenceDate,
+      );
+
+      this.state.recordarRegistro(request.businessId, {
+        transactions: entendidos,
+        source: request.media?.kind ?? 'texto',
+        reason: 'descuadre',
+        declaredTotal: intent.declaredTotal,
+      });
+
       return this.needsClarification(
         intent,
         renderMismatch(descuadre, currency),
@@ -374,6 +411,8 @@ export class WhatsAppMessageService {
       request,
       currency,
       referenceDate,
+      undefined,
+      intent.discount,
     );
 
     // De una nota de voz o una foto no se registra nada sin visto bueno: el
@@ -382,6 +421,8 @@ export class WhatsAppMessageService {
       this.state.recordarRegistro(request.businessId, {
         transactions,
         source: request.media.kind,
+        reason: 'media',
+        declaredTotal: intent.declaredTotal,
       });
 
       return {
@@ -395,6 +436,7 @@ export class WhatsAppMessageService {
           transactions,
           request.media.kind,
           currency,
+          intent.discount,
         ),
         meta,
       };
@@ -415,9 +457,9 @@ export class WhatsAppMessageService {
       // natural. Con varios lo arma el backend: son cifras, y las cifras las
       // pone quien tiene los datos.
       replyText:
-        transactions.length === 1
+        transactions.length === 1 && !intent.discount
           ? intent.responseText
-          : renderMovementsRegistered(transactions, currency),
+          : renderMovementsRegistered(transactions, currency, intent.discount),
       meta,
     };
   }
@@ -438,6 +480,8 @@ export class WhatsAppMessageService {
         correction: null,
         payment: null,
         confirmed: null,
+        confirmedCount: null,
+        discount: null,
         amount: null,
         category: null,
         concept: null,
@@ -466,7 +510,10 @@ export class WhatsAppMessageService {
   ): Promise<WhatsAppMessageResult> {
     const registro = this.state.registroPendiente(request.businessId);
 
-    if (registro) {
+    // Un descuadre no se resuelve con un si: lo que se pidio ahi fue la cifra
+    // buena, no un visto bueno. Confirmarlo guardaria justo los montos que no
+    // cuadraban.
+    if (registro && registro.reason === 'media') {
       this.state.olvidar(request.businessId);
 
       if (intent.confirmed !== true) {
@@ -501,15 +548,34 @@ export class WhatsAppMessageService {
       );
     }
 
-    this.state.olvidar(request.businessId);
-
     if (intent.confirmed !== true) {
+      this.state.olvidar(request.businessId);
       return this.plainResult(
         intent,
         'Listo, no borré nada. Todo queda como estaba 👍',
         meta,
       );
     }
+
+    // Un "si" a secas no basta para borrar varios. El usuario tiene que repetir
+    // cuantos son: es la unica forma de saber que leyo la lista. La pregunta
+    // sigue abierta, asi que puede confirmar bien o escoger uno.
+    if (
+      borrado.targets.length > 1 &&
+      intent.confirmedCount !== borrado.targets.length
+    ) {
+      this.logger.warn(
+        `Confirmacion floja de un borrado de ${borrado.targets.length} movimientos en sede ${request.businessId}.`,
+      );
+
+      return this.plainResult(
+        intent,
+        renderCountConfirmationNeeded(borrado.targets, currency),
+        meta,
+      );
+    }
+
+    this.state.olvidar(request.businessId);
 
     if (request.persist) {
       for (const objetivo of borrado.targets) {
@@ -737,6 +803,46 @@ export class WhatsAppMessageService {
       return this.handleDeleteAll(intent, request, currency, meta);
     }
 
+    // Con un borrado ya sobre la mesa, un identificador no abre una busqueda
+    // nueva: acota lo que se iba a borrar. "El 2" significa "solo ese", que es
+    // justo lo que hay que poder decir cuando la lista trae de mas.
+    const borradoAbierto = this.state.borradoPendiente(request.businessId);
+
+    if (borradoAbierto && tieneIdentificador(correccion)) {
+      const elegidos = resolverEntreCandidatos(
+        borradoAbierto.targets,
+        correccion,
+      );
+
+      if (elegidos.length) {
+        this.state.recordarBorrado(request.businessId, {
+          targets: elegidos,
+          period: null,
+        });
+
+        return {
+          ...this.plainResult(intent, '', meta),
+          replyText: renderDeleteConfirmation(elegidos, null, currency),
+        };
+      }
+    }
+
+    // Lo que el usuario esta senalando al citar un mensaje de Luka. Manda
+    // sobre cualquier otra pista: son los movimientos exactos de ese mensaje,
+    // no los que se parezcan por fecha.
+    const citados = await this.buscarCitados(request);
+
+    if (citados) {
+      return this.corregirCitados(
+        intent,
+        request,
+        correccion,
+        citados,
+        currency,
+        meta,
+      );
+    }
+
     const pendiente = this.state.correccionPendiente(request.businessId);
 
     // El usuario no repite el valor nuevo cuando solo esta contestando "cual":
@@ -755,12 +861,15 @@ export class WhatsAppMessageService {
         correccion,
       );
 
-      if (elegidos.length === 1) {
-        // Contesto cual: se aplica lo que ya habia pedido, sobre el movimiento
-        // que el mismo eligio de la lista.
+      if (
+        elegidos.length === 1 ||
+        (elegidos.length > 1 && correccion.matchAll)
+      ) {
+        // Contesto cual: se aplica lo que ya habia pedido, sobre lo que el
+        // mismo eligio de la lista. Con "todos esos", sobre todos.
         candidatos = elegidos;
         accion = pendiente.action;
-      } else if (!tieneIdentificador(correccion)) {
+      } else if (!tieneIdentificador(correccion) && !correccion.matchAll) {
         // AQUI ESTABA EL DANO: sin identificador y con una lista abierta, el
         // codigo caia en "sin referencia = el ultimo movimiento" y corregia uno
         // que ni siquiera estaba en la lista. Con una pregunta abierta, no
@@ -781,11 +890,31 @@ export class WhatsAppMessageService {
     }
 
     if (candidatos.length === 0) {
+      // Se deja traza de lo que se busco: cuando alguien reporta un "no
+      // encontre" que no deberia serlo, esto es lo unico que dice por que.
+      this.logger.warn(
+        `Correccion sin resultados en sede ${request.businessId}: ${describirBusqueda(correccion)}`,
+      );
+
       return this.plainResult(
         intent,
         renderCorrectionNotFound(correccion, currency),
         meta,
       );
+    }
+
+    // "Elimina estos dos" habla de un grupo, no de uno: no hay que preguntar
+    // cual, hay que ensenar los que se van a ir y esperar el si.
+    if (accion === 'delete' && correccion.matchAll) {
+      this.state.recordarBorrado(request.businessId, {
+        targets: candidatos,
+        period: null,
+      });
+
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderDeleteConfirmation(candidatos, null, currency),
+      };
     }
 
     // Varios candidatos: no se elige por el usuario. Corregir el equivocado es
@@ -822,6 +951,31 @@ export class WhatsAppMessageService {
       };
     }
 
+    return this.aplicarCorreccion(
+      intent,
+      request,
+      objetivo,
+      cambio,
+      currency,
+      meta,
+    );
+  }
+
+  /**
+   * Escribe la correccion sobre un movimiento ya identificado.
+   *
+   * Vive aparte porque hay dos caminos que llegan aqui —la busqueda normal y
+   * la resolucion por mensaje citado— y duplicar esto significaba que un
+   * arreglo en uno no llegara al otro.
+   */
+  private async aplicarCorreccion(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    objetivo: Transaction,
+    cambio: { newAmount: number | null; newConcept: string | null },
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
     if (cambio.newAmount === null && cambio.newConcept === null) {
       return this.needsClarification(
         intent,
@@ -908,6 +1062,110 @@ export class WhatsAppMessageService {
   }
 
   /**
+   * Los movimientos del mensaje que el usuario esta citando.
+   *
+   * Devuelve null cuando no hay cita o cuando esa cita no trae ids (mensajes
+   * viejos, o del propio usuario). Devuelve lista vacia cuando los traia pero
+   * ya no existen: no es lo mismo "no se de que hablas" que "eso ya lo
+   * borraste", y responder lo segundo evita que el usuario lo intente otra vez.
+   */
+  private async buscarCitados(
+    request: WhatsAppMessageRequest,
+  ): Promise<Transaction[] | null> {
+    const ids = request.quotedMessage?.transactionIds ?? [];
+    if (!ids.length) return null;
+
+    const hoy = todayIso();
+    const rows = await this.financeData.listTransactions({
+      businessId: request.businessId,
+      // Ventana ancha: un mensaje citado puede ser de hace meses, y aqui no se
+      // esta buscando "algo parecido" sino ids exactos.
+      from: sumarDias(hoy, -QUOTED_WINDOW_DAYS),
+      to: hoy,
+      limit: 2_000,
+    });
+
+    const porId = new Map(rows.map((row) => [row.id, row]));
+    return ids
+      .map((id) => porId.get(id))
+      .filter((row): row is Transaction => row !== undefined);
+  }
+
+  /**
+   * Corrige o borra sobre los movimientos que el usuario esta citando.
+   *
+   * Aqui NO se busca nada: el conjunto ya esta acotado por la cita. Lo unico
+   * que se decide es si habla de todos o de uno solo.
+   *
+   * Sin esto pasaron dos cosas feas. Citando "Registre el fiado de $2.000 a
+   * Kevin", Luka ofrecio borrar un pago de gas de $60.000, porque la cita no
+   * identificaba nada y caia en "el ultimo". Y citando un mensaje con cuatro
+   * compras, listo cinco movimientos —todos los del dia— y el usuario confirmo
+   * sin revisar.
+   */
+  private async corregirCitados(
+    intent: MessageIntent,
+    request: WhatsAppMessageRequest,
+    correccion: CorrectionRequest,
+    citados: Transaction[],
+    currency: string,
+    meta: WhatsAppMessageResult['meta'],
+  ): Promise<WhatsAppMessageResult> {
+    if (!citados.length) {
+      return this.plainResult(
+        intent,
+        'Esos movimientos ya no están: parece que se borraron antes. ¿Te ayudo con otra cosa?',
+        meta,
+      );
+    }
+
+    // Si dio una pista para escoger dentro de la cita, se respeta. La
+    // seleccion MANDA sobre matchAll: "borra el segundo y el tercero" suena a
+    // varios, y el modelo tiende a marcar matchAll; hacerle caso ahi hacia que
+    // Luka ofreciera borrar tambien el primero, que el usuario acababa de
+    // pedir que dejara.
+    const elegidos = resolverEntreCandidatos(citados, correccion);
+    const objetivos = elegidos.length ? elegidos : citados;
+
+    if (correccion.action === 'delete') {
+      this.state.recordarBorrado(request.businessId, {
+        targets: objetivos,
+        period: null,
+      });
+
+      return {
+        ...this.plainResult(intent, '', meta),
+        replyText: renderDeleteConfirmation(objetivos, null, currency),
+      };
+    }
+
+    // Una correccion sobre varios no tiene sentido: hay que saber cual.
+    if (objetivos.length > 1) {
+      this.state.recordarCorreccion(request.businessId, {
+        action: 'update',
+        candidates: objetivos,
+        newAmount: correccion.newAmount,
+        newConcept: correccion.newConcept,
+      });
+
+      return this.plainResult(
+        intent,
+        renderAmbiguousCorrection(objetivos, currency),
+        meta,
+      );
+    }
+
+    return this.aplicarCorreccion(
+      intent,
+      request,
+      objetivos[0],
+      { newAmount: correccion.newAmount, newConcept: correccion.newConcept },
+      currency,
+      meta,
+    );
+  }
+
+  /**
    * Movimientos que encajan con lo que el usuario dijo para identificar cual.
    *
    * Antes solo se comparaba contra el texto de la descripcion, asi que Luka
@@ -940,9 +1198,16 @@ export class WhatsAppMessageService {
       return rows.slice(0, 1);
     }
 
-    return rows
-      .filter((row) => coincideConIdentificador(row, correccion))
-      .slice(0, CORRECTION_MAX_CANDIDATES);
+    const coinciden = rows.filter((row) =>
+      coincideConIdentificador(row, correccion),
+    );
+
+    // Con "estos dos" no se recorta a los candidatos de una desambiguacion: se
+    // van a ensenar todos antes de borrar, y recortar dejaria fuera justo los
+    // que el usuario esta senalando.
+    return correccion.matchAll
+      ? coinciden.slice(0, MAX_MOVEMENTS_PER_DELETE)
+      : coinciden.slice(0, CORRECTION_MAX_CANDIDATES);
   }
 
   // --------------------------------------------------- reparto de utilidades
@@ -1121,8 +1386,10 @@ export class WhatsAppMessageService {
         movements: [],
         amount: null,
         category: null,
+        discount: null,
         payment: null,
         confirmed: null,
+        confirmedCount: null,
         queryKind: null,
         queryPeriod: null,
         // Si no se pudo completar, la interpretacion no puede considerarse
@@ -1160,10 +1427,12 @@ export class WhatsAppMessageService {
       type,
       movements,
       declaredTotal: normalizeAmount(output?.declaredTotal),
+      discount: normalizeAmount(output?.discount),
       profitShares: normalizeProfitShares(output?.profitShares),
       correction: normalizeCorrection(output?.correction),
       payment,
       confirmed: normalizeConfirmed(output?.confirmed),
+      confirmedCount: normalizePosition(output?.confirmedCount),
       amount,
       category,
       concept: conceptoEfectivo,
@@ -1200,11 +1469,13 @@ export class WhatsAppMessageService {
     currency: string,
     referenceDate: string,
     groupId?: string,
+    discount?: number | null,
   ): Transaction[] {
     const grupo = groupId ?? (movements.length > 1 ? randomUUID() : null);
     const createdAt = new Date().toISOString();
+    const netos = repartirDescuento(movements, discount ?? null);
 
-    return movements.map((movement) => ({
+    return movements.map((movement, indice) => ({
       id: randomUUID(),
       businessId: request.businessId,
       // La fecha que dijo el usuario manda; si no dijo ninguna, es hoy.
@@ -1213,11 +1484,9 @@ export class WhatsAppMessageService {
       // guarda. Cuando la dijo, no hay hora: el adaptador usa el mediodia para
       // que el movimiento no se corra de dia en ninguna zona horaria.
       occurredAt: movement.date ? null : createdAt,
-      description:
-        movement.concept ??
-        `Movimiento registrado por WhatsApp (${movement.type})`,
+      description: describirMovimiento(movement),
       category: movement.category,
-      amount: movement.amount,
+      amount: netos[indice],
       type: movement.type,
       currency,
       source: 'whatsapp',
@@ -1459,11 +1728,70 @@ function normalizeMovements(value: unknown): MovementDraft[] {
         paymentMethod: normalizePaymentMethod(row.paymentMethod),
         isCredit: row.isCredit === true,
         customerName: cleanText(row.customerName),
+        quantity: normalizeQuantity(row.quantity),
         date: normalizeMovementDate(row.date),
       };
     })
     .filter((movement): movement is MovementDraft => movement !== null)
     .slice(0, MAX_MOVEMENTS_PER_MESSAGE);
+}
+
+/** Unidades: un entero positivo, o nada. */
+function normalizeQuantity(value: unknown): number | null {
+  const numero = Number(value);
+  return Number.isFinite(numero) && numero > 0 ? Math.round(numero) : null;
+}
+
+/**
+ * Reparte el descuento entre los movimientos, en proporcion a lo que pesa cada
+ * uno.
+ *
+ * Lo que salio de la caja es el total pagado, no el subtotal de la factura.
+ * Guardar los precios de lista inflaria los gastos del mes por plata que nunca
+ * se movio, que es el mismo error que se corrigio con los fiados.
+ *
+ * El ultimo movimiento absorbe el redondeo para que la suma cuadre al peso: si
+ * cada linea se redondeara por su cuenta, el total podria quedar uno o dos
+ * pesos lejos del que dijo el usuario.
+ */
+export function repartirDescuento(
+  movements: { amount: number }[],
+  discount: number | null,
+): number[] {
+  const original = movements.map((movimiento) => movimiento.amount);
+  if (!discount || discount <= 0 || !movements.length) return original;
+
+  const total = sumAmounts(movements);
+  if (total <= 0) return original;
+
+  // Un descuento mayor que la compra no tiene sentido: se ignora y se registra
+  // lo que dice la factura, que es mejor que dejar montos en cero.
+  if (discount >= total) return original;
+
+  const netos = original.map((monto) =>
+    round2(monto - (monto / total) * discount),
+  );
+
+  const objetivo = round2(total - discount);
+  const diferencia = round2(
+    objetivo - sumAmounts(netos.map((amount) => ({ amount }))),
+  );
+  netos[netos.length - 1] = round2(netos[netos.length - 1] + diferencia);
+
+  return netos;
+}
+
+/**
+ * El texto con el que se guarda el movimiento.
+ *
+ * Si se dijeron las unidades, van en la descripcion: "480 u." al lado del
+ * producto es lo que permite entender el gasto al releerlo meses despues.
+ */
+function describirMovimiento(movement: MovementDraft): string {
+  const base =
+    movement.concept ?? `Movimiento registrado por WhatsApp (${movement.type})`;
+
+  return movement.quantity ? `${base} · ${movement.quantity} u.` : base;
 }
 
 function normalizeMovementType(value: unknown): TransactionType {
@@ -1528,10 +1856,13 @@ function normalizeCorrection(value: unknown): CorrectionRequest | null {
     reference: cleanText(row.reference),
     referenceAmount: normalizeAmount(row.referenceAmount),
     referenceDate: normalizeMovementDate(row.referenceDate),
-    referenceIndex: normalizePosition(row.referenceIndex),
+    referenceIndexes: normalizePositions(
+      row.referenceIndexes ?? row.referenceIndex,
+    ),
     newAmount: normalizeAmount(row.newAmount),
     newConcept: cleanText(row.newConcept),
     deleteAll: row.deleteAll === true,
+    matchAll: row.matchAll === true,
   };
 }
 
@@ -1546,13 +1877,52 @@ function normalizePosition(value: unknown): number | null {
   return Number.isInteger(numero) && numero >= 1 ? numero : null;
 }
 
+/**
+ * Las posiciones que señalo el usuario, ya limpias y sin repetir.
+ *
+ * Acepta tambien un numero suelto: un modelo puede devolver `referenceIndex: 2`
+ * en vez de la lista, y perder esa respuesta significaria borrar de mas o
+ * preguntar otra vez.
+ */
+function normalizePositions(value: unknown): number[] {
+  const crudos = Array.isArray(value) ? value : [value];
+
+  const posiciones = crudos
+    .map((posicion) => normalizePosition(posicion))
+    .filter((posicion): posicion is number => posicion !== null);
+
+  return [...new Set(posiciones)];
+}
+
+/**
+ * Con que se busco, en una linea, para el log.
+ *
+ * Cuando alguien reporta que Luka "no encontro" algo que si existe, esto es lo
+ * unico que dice si el problema fue el identificador, la fecha o el texto.
+ */
+function describirBusqueda(correccion: CorrectionRequest): string {
+  const partes = [
+    correccion.reference ? `texto="${correccion.reference}"` : null,
+    correccion.referenceAmount !== null
+      ? `monto=${correccion.referenceAmount}`
+      : null,
+    correccion.referenceDate ? `fecha=${correccion.referenceDate}` : null,
+    correccion.referenceIndexes.length
+      ? `posiciones=${correccion.referenceIndexes.join('+')}`
+      : null,
+    correccion.matchAll ? 'todos los que coincidan' : null,
+  ].filter(Boolean);
+
+  return partes.length ? partes.join(', ') : 'sin identificadores';
+}
+
 /** ¿Dijo algo que sirva para saber de cual movimiento habla? */
 export function tieneIdentificador(correccion: CorrectionRequest): boolean {
   return (
     correccion.reference !== null ||
     correccion.referenceAmount !== null ||
     correccion.referenceDate !== null ||
-    correccion.referenceIndex !== null
+    correccion.referenceIndexes.length > 0
   );
 }
 
@@ -1604,9 +1974,20 @@ export function resolverEntreCandidatos(
   candidatos: Transaction[],
   correccion: CorrectionRequest,
 ): Transaction[] {
-  if (correccion.referenceIndex !== null) {
-    const elegido = candidatos[correccion.referenceIndex - 1];
-    return elegido ? [elegido] : [];
+  // "Todos esos" sin mas identificadores: son los de la lista, tal cual.
+  if (correccion.matchAll && !tieneIdentificador(correccion)) {
+    return candidatos;
+  }
+
+  if (correccion.referenceIndexes.length) {
+    const elegidos = new Set(
+      correccion.referenceIndexes
+        .map((posicion) => candidatos[posicion - 1])
+        .filter((row): row is Transaction => row !== undefined),
+    );
+
+    // En el orden en que se los enseñamos, que es como los vio el usuario.
+    return candidatos.filter((row) => elegidos.has(row));
   }
 
   if (!tieneIdentificador(correccion)) return [];
@@ -1677,11 +2058,15 @@ export interface BreakdownMismatch {
 export function checkBreakdown(
   declaredTotal: number | null,
   movements: { amount: number }[],
+  discount: number | null = null,
 ): BreakdownMismatch | null {
   if (declaredTotal === null || movements.length < 2) return null;
 
   const sum = sumAmounts(movements);
-  const difference = round2(declaredTotal - sum);
+  // El descuento explica la diferencia: sin restarlo, una factura con subtotal
+  // 1.920.000, descuento 920.000 y total 1.000.000 se veia como un error de
+  // dedo y no se registraba nada.
+  const difference = round2(declaredTotal - (sum - (discount ?? 0)));
 
   return Math.abs(difference) <= BREAKDOWN_TOLERANCE
     ? null
@@ -1784,10 +2169,20 @@ function contenidoDelUsuario(
     { type: 'text', text: request.message },
     {
       type: request.media.kind,
-      mimeType: request.media.mimeType,
+      mimeType: tipoBase(request.media.mimeType),
       dataBase64: request.media.dataBase64,
     },
   ];
+}
+
+/**
+ * El tipo MIME sin sus parametros: "audio/ogg; codecs=opus" -> "audio/ogg".
+ *
+ * Los proveedores esperan el tipo pelado, y Meta manda las notas de voz con el
+ * codec pegado.
+ */
+function tipoBase(mimeType: string): string {
+  return mimeType.split(';')[0].trim();
 }
 
 function todayIso(): string {
@@ -1914,6 +2309,17 @@ const CORRECTION_WINDOW_DAYS = 31;
  * muestran los primeros y se dice cuantos faltan.
  */
 const DELETE_PREVIEW_MAX = 10;
+
+/** Tope de un borrado por grupo. Mas que esto es un "borra todo el dia". */
+const MAX_MOVEMENTS_PER_DELETE = 50;
+
+/**
+ * Cuanto hacia atras se buscan los movimientos de un mensaje citado.
+ *
+ * Ancho a proposito: se buscan ids exactos, no coincidencias, asi que no hay
+ * riesgo de traer de mas, y un mensaje se puede citar meses despues.
+ */
+const QUOTED_WINDOW_DAYS = 400;
 
 const CORRECTION_MAX_CANDIDATES = 5;
 
@@ -2156,6 +2562,7 @@ export function renderRegistrationConfirmation(
   transactions: Transaction[],
   source: 'audio' | 'image',
   currency: string,
+  discount: number | null = null,
 ): string {
   const de = source === 'audio' ? 'tu nota de voz' : 'tu foto';
 
@@ -2164,14 +2571,19 @@ export function renderRegistrationConfirmation(
   }
 
   const lineas = transactions.map((row) => movementLine(row, currency));
-  const total = transactions.reduce((suma, row) => suma + row.amount, 0);
+  const pagado = transactions.reduce((suma, row) => suma + row.amount, 0);
 
   return [
     `Esto entendí de ${de}:`,
     ...lineas,
-    ...(transactions.length > 1
-      ? ['', `Son ${formatMoney(total, currency)} en total.`]
-      : []),
+    ...(discount
+      ? [
+          '',
+          ...lineasDeDescuento(round2(pagado + discount), discount, currency),
+        ]
+      : transactions.length > 1
+        ? ['', `Son ${formatMoney(pagado, currency)} en total.`]
+        : []),
     '',
     '¿Lo registro así? Respóndeme "sí", o dime qué corregir.',
   ].join('\n');
@@ -2197,7 +2609,10 @@ export function renderDeleteConfirmation(
   // de cincuenta lineas en WhatsApp no la lee nadie, y hay que decir la verdad
   // sobre cuantos son.
   const mostrados = objetivos.slice(0, DELETE_PREVIEW_MAX);
-  const lineas = mostrados.map((row) => movementLine(row, currency));
+  // Numerada: sin numeros, "dime cuál" no se puede contestar.
+  const lineas = mostrados.map((row, indice) =>
+    movementLine(row, currency, `${indice + 1})`),
+  );
 
   const encabezado = period
     ? `⚠️ Voy a borrar TODOS tus movimientos ${PERIOD_LABELS[period]} (${objetivos.length}):`
@@ -2214,7 +2629,37 @@ export function renderDeleteConfirmation(
     ...resto,
     '',
     `En total son ${formatMoney(total, currency)}. Esto no se puede deshacer.`,
-    '¿Lo confirmas? Respóndeme "sí" o "no".',
+    // No vale un "si": hay que repetir el numero. Un usuario contesto "Si" sin
+    // leer una lista de cinco y perdio los movimientos de todo el dia.
+    `¿Seguro que son los ${objetivos.length}? Respóndeme "borrar los ${objetivos.length}".`,
+    'Si solo era uno, dime cuál: "el 2".',
+  ].join('\n');
+}
+
+/**
+ * Lo que se responde cuando alguien confirma un borrado multiple sin decir
+ * cuantos.
+ *
+ * Se vuelve a enseñar la lista: si el "si" fue distraido, esta es la segunda
+ * oportunidad de leerla.
+ */
+export function renderCountConfirmationNeeded(
+  objetivos: Transaction[],
+  currency: string,
+): string {
+  const mostrados = objetivos.slice(0, DELETE_PREVIEW_MAX);
+
+  return [
+    `Espera, son ${objetivos.length} movimientos y borrarlos no se puede deshacer.`,
+    ...mostrados.map((row, indice) =>
+      movementLine(row, currency, `${indice + 1})`),
+    ),
+    ...(objetivos.length > mostrados.length
+      ? [`...y ${objetivos.length - mostrados.length} más.`]
+      : []),
+    '',
+    `Si de verdad son los ${objetivos.length}, escríbeme "borrar los ${objetivos.length}".`,
+    'Si solo querías uno, dime cuál: "el 2".',
   ].join('\n');
 }
 
@@ -2249,19 +2694,22 @@ export function renderCorrectionNotFound(
   correccion: CorrectionRequest,
   currency: string,
 ): string {
-  if (correccion.referenceDate) {
-    return `No encontré ningún movimiento del ${correccion.referenceDate}. ¿Me dices de cuál se trata?`;
+  // Se nombran TODOS los criterios, no solo el primero: buscar por fecha Y por
+  // texto a la vez y no encontrar nada se explicaba antes como si solo hubiera
+  // fallado la fecha, y el usuario no entendia por que.
+  const criterios = [
+    correccion.referenceDate ? `del ${correccion.referenceDate}` : null,
+    correccion.referenceAmount !== null
+      ? `por ${formatMoney(correccion.referenceAmount, currency)}`
+      : null,
+    correccion.reference ? `que mencione "${correccion.reference}"` : null,
+  ].filter(Boolean);
+
+  if (!criterios.length) {
+    return 'No encontré movimientos recientes para corregir.';
   }
 
-  if (correccion.referenceAmount !== null) {
-    return `No encontré ningún movimiento por ${formatMoney(correccion.referenceAmount, currency)}. ¿Me dices de cuál se trata?`;
-  }
-
-  if (correccion.reference) {
-    return `No encontré ningún movimiento que mencione "${correccion.reference}". ¿Me dices de cuál se trata?`;
-  }
-
-  return 'No encontré movimientos recientes para corregir.';
+  return `No encontré ningún movimiento ${criterios.join(' y ')}. ¿Me dices de cuál se trata?`;
 }
 
 /**
@@ -2295,6 +2743,22 @@ function renderPendingRegistration(
       `- ${row.date} · ${row.description} · ${row.type} · ${formatMoney(row.amount, currency)}`,
   );
 
+  if (pendiente.reason === 'descuadre') {
+    // La foto NO viaja al siguiente turno. Si no se le devuelven aqui las
+    // lineas que ya se leyeron, el modelo le pide al usuario que le dicte otra
+    // vez la factura que acaba de mirar.
+    return [
+      'PREGUNTA ABIERTA (lo mas importante de este turno):',
+      `Entendiste estos movimientos, pero suman distinto del total que dijo el usuario (${formatMoney(pendiente.declaredTotal ?? 0, currency)}), asi que le preguntaste cual es la cifra buena:`,
+      ...lineas,
+      'Estas lineas ya las tienes: NO se las vuelvas a pedir.',
+      'Si explica la diferencia con un DESCUENTO, devuelve otra vez estos mismos',
+      'movimientos con sus montos originales, declaredTotal con el total que paga',
+      'y discount con lo que le rebajaron. Si dice que una cifra estaba mal,',
+      'devuelvelos corregidos.',
+    ].join('\n');
+  }
+
   return [
     'PREGUNTA ABIERTA (lo mas importante de este turno):',
     `Le acabas de enseñar lo que entendiste de su ${pendiente.source === 'audio' ? 'nota de voz' : 'foto'} y le preguntaste si lo registras asi:`,
@@ -2313,14 +2777,30 @@ function renderPendingDeletion(
 ): string {
   const total = pendiente.targets.reduce((suma, row) => suma + row.amount, 0);
 
+  // La lista numerada tiene que estar delante del modelo: sin ella, "solo el
+  // 2 y el 3" no se puede convertir en posiciones y termina borrando otra cosa.
+  const lineas = pendiente.targets.map(
+    (row, indice) =>
+      `${indice + 1}) ${row.date} · ${row.description} · ${formatMoney(row.amount, currency)}`,
+  );
+
   return [
     'PREGUNTA ABIERTA (lo mas importante de este turno):',
-    `Le acabas de preguntar si confirma borrar ${pendiente.targets.length} movimiento(s) por ${formatMoney(total, currency)}.`,
-    'El mensaje que sigue es la RESPUESTA a esa pregunta. Devuelve type',
-    '"confirmation" con confirmed true si dijo que si ("si", "dale", "hazlo",',
-    '"confirmo") o false si dijo que no ("no", "mejor no", "cancela").',
-    'Si contesta otra cosa distinta de si o no, entonces NO es una',
-    'confirmacion: interpretalo normalmente.',
+    `Le acabas de preguntar si confirma borrar estos ${pendiente.targets.length} movimiento(s), ${formatMoney(total, currency)} en total:`,
+    ...lineas,
+    '',
+    'El mensaje que sigue es la RESPUESTA a esa pregunta. Hay tres caminos:',
+    `1. CONFIRMA TODOS: type "confirmation", confirmed true, y confirmedCount ${pendiente.targets.length}`,
+    '   si repitio el numero ("borrar los 3", "si, los 3").',
+    '2. CANCELA: type "confirmation", confirmed false ("no", "mejor no", "cancela").',
+    '3. ESCOGE ALGUNOS de la lista de arriba: type "correction", action "delete",',
+    '   y referenceIndexes con TODAS las posiciones que nombro.',
+    '       "solo el 2 y el 3"        -> referenceIndexes [2, 3]',
+    '       "el segundo y el tercero" -> referenceIndexes [2, 3]',
+    '       "solo el ultimo"          -> referenceIndexes [' +
+      '${pendiente.targets.length}]',
+    '       "todos menos el 1"        -> las posiciones restantes, una por una',
+    '   Con posiciones, matchAll SIEMPRE va en false.',
   ].join('\n');
 }
 
@@ -2381,17 +2861,47 @@ function movementLine(
  * Se detallan uno por uno a proposito: si el usuario dicto tres gastos y solo
  * ve un total, no tiene forma de saber si se separaron bien.
  */
+/**
+ * Las lineas del descuento, cuando lo hubo.
+ *
+ * Se ensenan las tres cifras —lo que costaba, lo que rebajaron y lo que se
+ * pago— porque el usuario tiene la factura delante y quiere reconocerla.
+ */
+function lineasDeDescuento(
+  bruto: number,
+  discount: number,
+  currency: string,
+): string[] {
+  return [
+    `Subtotal: ${formatMoney(bruto, currency)}`,
+    `Descuento: -${formatMoney(discount, currency)}`,
+    `Total pagado: ${formatMoney(round2(bruto - discount), currency)}`,
+  ];
+}
+
 export function renderMovementsRegistered(
   transactions: Transaction[],
   currency: string,
+  discount: number | null = null,
 ): string {
-  const total = sumAmounts(transactions);
+  const pagado = sumAmounts(transactions);
   const lineas = transactions.map((row) => movementLine(row, currency));
 
+  // Con descuento se ensenan las tres cifras: el usuario tiene la factura
+  // delante y quiere reconocer el subtotal que ahi dice, no solo lo que pago.
+  const cierre = discount
+    ? lineasDeDescuento(round2(pagado + discount), discount, currency)
+    : [`Total: ${formatMoney(pagado, currency)}`];
+
   return [
-    `✅ Registré ${transactions.length} movimientos:`,
+    `✅ Registré ${transactions.length} movimiento${transactions.length === 1 ? '' : 's'}:`,
     ...lineas,
-    `Total: ${formatMoney(total, currency)}`,
+    ...cierre,
+    ...(discount
+      ? [
+          'Repartí el descuento entre los productos, así tus gastos cuadran con lo que de verdad pagaste.',
+        ]
+      : []),
   ].join('\n');
 }
 

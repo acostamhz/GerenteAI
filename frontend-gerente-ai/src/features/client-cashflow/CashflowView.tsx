@@ -22,6 +22,7 @@ export function CashflowView() {
   // ============================================================
 
   const {
+    planUsuarioId,
     planNombre,
     puedeVerFiados,
     isPaywallOpen,
@@ -212,6 +213,8 @@ export function CashflowView() {
             setPeriodo={setPeriodo}
             isLoading={isLoading}
             isChartLoading={isChartLoading}
+            planNombre={planNombre}
+            esPagoPlan={planUsuarioId >= 2}
           />
         </div>
 

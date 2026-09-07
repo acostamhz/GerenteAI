@@ -184,6 +184,14 @@ export interface MovementDraft {
   /** A quien se le fio, cuando se menciona. */
   customerName: string | null;
   /**
+   * Cuantas unidades, cuando el mensaje o la factura lo dicen.
+   *
+   * No cambia el monto (ese ya viene total), pero se conserva en la
+   * descripcion: "480 cajas de gaseosa" y "480" a secas no dicen lo mismo
+   * cuando uno relee sus gastos tres meses despues.
+   */
+  quantity: number | null;
+  /**
    * Fecha del movimiento en YYYY-MM-DD, si el usuario la dijo.
    *
    * null = no la menciono, y entonces vale hoy. Sin esto, quien registra el
@@ -241,11 +249,16 @@ export interface CorrectionRequest {
   /** Fecha que IDENTIFICA cual movimiento es, en YYYY-MM-DD. */
   referenceDate: string | null;
   /**
-   * Posicion en la lista que Luka acaba de mostrar, empezando en 1.
+   * Posiciones de la lista que Luka acaba de mostrar, empezando en 1.
    *
-   * Es como contesta la gente de verdad: "la primera", "la de arriba", "esa".
+   * Es una LISTA porque la gente escoge varios de una: "borra el segundo y el
+   * tercero, el primero dejalo". Con un solo numero eso no se podia expresar:
+   * el modelo o marcaba "todos" —y Luka ofrecia borrar los tres— o se quedaba
+   * con uno solo. Los dos casos se vieron en produccion.
+   *
+   * Vacia cuando el usuario no señalo ninguna posicion.
    */
-  referenceIndex: number | null;
+  referenceIndexes: number[];
   /** Monto corregido. Solo el valor NUEVO, nunca el que identifica. */
   newAmount: number | null;
   newConcept: string | null;
@@ -254,6 +267,15 @@ export interface CorrectionRequest {
    * movimiento suelto. El periodo viaja en `queryPeriod`.
    */
   deleteAll: boolean;
+  /**
+   * true cuando habla de un GRUPO de movimientos, no de uno: "elimina estos
+   * dos", "borra esos", "ambos".
+   *
+   * Sin esto, referirse a varios caia en el camino de "buscar uno" y Luka
+   * respondia que no encontraba nada o preguntaba cual, cuando el usuario ya
+   * habia dicho que eran todos los que estaba senalando.
+   */
+  matchAll: boolean;
 }
 
 /** Que clase de consulta hizo el usuario. */
@@ -290,6 +312,19 @@ export interface MessageIntent {
    * cuadran. null = no dijo un total, solo las partes.
    */
   declaredTotal: number | null;
+  /**
+   * Descuento aplicado al conjunto del mensaje.
+   *
+   * Una factura trae subtotal, descuento y total a pagar. Sin este campo, las
+   * lineas sumaban el subtotal, el usuario decia el total, y el backend lo
+   * tomaba por un error de dedo: respondia "las partes no cuadran" y no
+   * registraba nada. El descuento explica la diferencia.
+   *
+   * Se reparte entre los movimientos, porque lo que salio de la caja es el
+   * total pagado y no el subtotal: guardar el subtotal inflaria los gastos del
+   * mes por plata que nunca se movio.
+   */
+  discount: number | null;
   /** Reparto de utilidades, cuando el mensaje lo menciona. */
   profitShares: ProfitShare[];
   /** Que corregir, cuando el mensaje pide arreglar algo ya registrado. */
@@ -301,6 +336,15 @@ export interface MessageIntent {
    * ninguna, o cuando contesto algo que no es ni si ni no.
    */
   confirmed: boolean | null;
+  /**
+   * Cuantos movimientos dijo el usuario al confirmar ("borrar los 4").
+   *
+   * Un borrado de varios no se acepta con un "si" a secas. Paso de verdad: Luka
+   * ofrecio borrar cinco movimientos, el usuario contesto "Si" sin leer la
+   * lista y perdio todo el dia. Obligar a repetir el numero convierte el visto
+   * bueno en un acto consciente.
+   */
+  confirmedCount: number | null;
   /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.

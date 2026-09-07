@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, memo } from "react";
 import {
   Search,
   ArrowUp,
@@ -6,6 +6,7 @@ import {
   Download,
   AlertCircle,
   RefreshCw,
+  User,
 } from "lucide-react";
 
 import { Skeleton } from "@/shared/components/ui/Skeleton";
@@ -22,7 +23,7 @@ interface TransactionTableProps {
   onRetry?: () => void;
 }
 
-export function TransactionTable({
+function TransactionTableComponent({
   transactions = [],
   isLoading = false,
   error = null,
@@ -36,39 +37,42 @@ export function TransactionTable({
 
   /*
    * ============================================================
-   * FILTROS
+   * FILTROS (MEMOIZADO)
    * ============================================================
    */
 
-  const filtered = transactions.filter((tx) => {
-    const matchesTab =
-      activeTab === "todas"
-        ? true
-        : activeTab === "ventas"
-          ? tx.type === "Venta"
-          : activeTab === "gastos"
-            ? tx.type === "Gasto"
-            : tx.type === "Convertida";
+  const filtered = useMemo(() => {
+    return transactions.filter((tx) => {
+      const matchesTab =
+        activeTab === "todas"
+          ? true
+          : activeTab === "ventas"
+            ? tx.type === "Venta"
+            : activeTab === "gastos"
+              ? tx.type === "Gasto"
+              : tx.type === "Convertida";
 
-    const normalizedSearch =
-      search.toLowerCase().trim();
+      const normalizedSearch =
+        search.toLowerCase().trim();
 
-    const matchesSearch =
-      tx.personName
-        .toLowerCase()
-        .includes(normalizedSearch) ||
-      tx.activity
-        .toLowerCase()
-        .includes(normalizedSearch) ||
-      tx.paymentMethod
-        .toLowerCase()
-        .includes(normalizedSearch) ||
-      tx.amountFormatted
-        .toLowerCase()
-        .includes(normalizedSearch);
+      const matchesSearch =
+        !normalizedSearch ||
+        tx.personName
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        tx.activity
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        tx.paymentMethod
+          .toLowerCase()
+          .includes(normalizedSearch) ||
+        tx.amountFormatted
+          .toLowerCase()
+          .includes(normalizedSearch);
 
-    return matchesTab && matchesSearch;
-  });
+      return matchesTab && matchesSearch;
+    });
+  }, [transactions, activeTab, search]);
 
   /*
    * ============================================================
@@ -514,9 +518,22 @@ export function TransactionTable({
                       {/* PERSONA */}
 
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-sm font-bold text-foreground">
-                          {tx.personName}
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span
+                            className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${
+                              tx.type === "Gasto"
+                                ? "bg-muted/60 text-muted-foreground border border-border"
+                                : tx.type === "Compra"
+                                  ? "bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20"
+                                  : "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20"
+                            }`}
+                          >
+                            <User className="w-3 h-3 shrink-0" />
+                            <span className="max-w-[150px] truncate">
+                              {tx.personName || (tx.type === "Gasto" ? "Gasto operativo" : "Cliente general")}
+                            </span>
+                          </span>
+                        </div>
                       </td>
 
                       {/* FECHA */}
@@ -549,3 +566,5 @@ export function TransactionTable({
     </div>
   );
 }
+
+export const TransactionTable = memo(TransactionTableComponent);

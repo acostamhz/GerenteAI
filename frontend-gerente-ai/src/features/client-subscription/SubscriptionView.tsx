@@ -26,7 +26,7 @@ import {
   DESCRIPCIONES_POR_PLAN,
 } from "@/shared/api/planesApi";
 
-import { lukaWhatsappUrl } from "@/lib/whatsapp";
+import { lukaWhatsappUrl, salesWhatsappUrl } from "@/lib/whatsapp";
 import { WompiCheckoutModal } from "./components/WompiCheckoutModal";
 
 const PRECIO_FORMATTER =
@@ -477,16 +477,15 @@ export function SubscriptionView() {
     }
 
     /* ========================================================
-       PLANES DE PAGO
+       PLANES DE PAGO VIA WHATSAPP ASESOR
     ======================================================== */
 
-    setSelectedPlanForCheckout(
-      plan,
-    );
+    const precioTexto = `$${PRECIO_FORMATTER.format(
+      ciclo === 'anual' && plan.precioAnual ? plan.precioAnual : plan.precioMensual
+    )} COP/${ciclo === 'anual' ? 'año' : 'mes'}`;
 
-    setIsCheckoutOpen(
-      true,
-    );
+    const msg = `Hola 👋, quiero activar el Plan ${plan.nombre} (${precioTexto}) para mi negocio "${negocioNombre || 'Mi Negocio'}". ¿Me pueden compartir los datos de transferencia o pago guiado?`;
+    window.open(salesWhatsappUrl(msg), '_blank', 'noopener,noreferrer');
   };
 
   /* ==========================================================
@@ -508,7 +507,7 @@ export function SubscriptionView() {
 
             <Sparkles className="w-3.5 h-3.5" />
 
-            Pasarela Oficial Wompi Bancolombia
+            Atención y activación directa vía WhatsApp
 
           </div>
 
@@ -939,50 +938,46 @@ export function SubscriptionView() {
                           plan,
                         )
                       }
-                      className={`w-full py-3.5 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-2 ${
+                      className={`w-full py-3 px-2 sm:px-3 rounded-2xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 text-center leading-tight cursor-pointer ${
                         esActual
                           ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20 cursor-default opacity-80"
                           : esCorporativo
-                            ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 cursor-pointer"
+                            ? "bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20"
                             : esDowngrade
-                              ? "bg-muted text-foreground border border-border hover:bg-muted/80 cursor-pointer"
+                              ? "bg-muted text-foreground border border-border hover:bg-muted/80"
                               : esPopular
-                                ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20 cursor-pointer"
-                                : "bg-foreground text-background hover:opacity-90 cursor-pointer"
+                                ? "bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white shadow-md shadow-emerald-500/20"
+                                : "bg-foreground text-background hover:opacity-90"
                       }`}
                     >
 
                       {esActual ? (
                         <>
-                          <Check className="w-4 h-4 text-emerald-500" />
-
-                          <span>
+                          <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                          <span className="truncate">
                             Plan Actual Activo
                           </span>
                         </>
                       ) : esCorporativo ? (
                         <>
-                          <MessageSquare className="w-4 h-4" />
-
-                          <span>
+                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">
                             Hablar con Ventas
                           </span>
                         </>
                       ) : esDowngrade ? (
                         <>
-                          <Bot className="w-4 h-4" />
-
-                          <span>
+                          <Bot className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">
                             {isChangingToAssistant
-                              ? "Cambiando plan..."
-                              : "Cambiar al plan Asistente"}
+                              ? "Cambiando..."
+                              : "Plan Asistente"}
                           </span>
                         </>
                       ) : (
                         <>
-                          <Sparkles className="w-4 h-4" />
-
-                          <span>
+                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                          <span className="truncate">
                             {esPlanGerente && ciclo === "anual"
                               ? "Elegir Plan Mensual"
                               : `Elegir Plan ${plan.nombre}`}
@@ -1017,13 +1012,11 @@ export function SubscriptionView() {
           <div>
 
             <h4 className="text-sm font-bold text-foreground">
-              Pagos protegidos por Wompi Bancolombia
+              Activación guiada y directa vía WhatsApp
             </h4>
 
             <p className="text-xs text-muted-foreground">
-              Cambia de plan en cualquier
-              momento sin contratos de permanencia
-              ni cobros ocultos.
+              Asesoría personalizada con nuestro equipo comercial (+57 3008880018). Transferencias Nequi, Daviplata, Bancolombia y PSE.
             </p>
 
           </div>

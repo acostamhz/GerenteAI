@@ -205,7 +205,7 @@ export class WhatsappInterpretService {
     }
 
     this.logger.log(
-      `Mensaje de ${dto.name ?? 'sin nombre'} (${describeSender(sender)}): "${dto.message.slice(0, 120)}"`,
+      `Mensaje de ${dto.name ?? 'sin nombre'} (${describeSender(sender)}): "${dto.message.slice(0, 120)}"${dto.quotedMessageId ? ' [responde a un mensaje citado]' : ''}${dto.media ? ` [${dto.media.kind}]` : ''}`,
     );
 
     // ---- 1. Duplicados ----------------------------------------------------
@@ -281,6 +281,14 @@ export class WhatsappInterpretService {
       this.loadQuoted(context.sedeId, dto.quotedMessageId),
     ]);
 
+    // Sin esto no hay forma de saber, leyendo los logs, si una cita no llego o
+    // si llego y el modelo la ignoro.
+    if (dto.quotedMessageId && !quotedMessage) {
+      this.logger.warn(
+        `El mensaje citado ${dto.quotedMessageId} no esta guardado: la respuesta se interpreta sin ese contexto.`,
+      );
+    }
+
     // ---- 4. Interpretacion ------------------------------------------------
     let result: WhatsAppMessageResult;
     try {
@@ -332,6 +340,7 @@ export class WhatsappInterpretService {
       context.sedeId,
       'ASSISTANT',
       replyText,
+      { movimientoIds: result.transactions.map((row) => row.id) },
     );
 
     const category = result.intent.category as TransactionCategory | null;
@@ -391,7 +400,11 @@ export class WhatsappInterpretService {
     sedeId: string,
     rol: 'USER' | 'ASSISTANT',
     contenido: string,
-    extra: { wamid?: string | null; remitente?: string | null } = {},
+    extra: {
+      wamid?: string | null;
+      remitente?: string | null;
+      movimientoIds?: string[];
+    } = {},
   ): Promise<string | null> {
     try {
       const mensaje = await this.prisma.mensaje.create({
@@ -403,6 +416,9 @@ export class WhatsappInterpretService {
           // cite mas adelante.
           wamid: extra.wamid ?? null,
           remitente: extra.remitente ?? null,
+          // Los ids de lo que se acaba de registrar: sin esto, citar la
+          // respuesta para borrarla obliga a adivinar cuales eran.
+          movimientoIds: extra.movimientoIds ?? [],
         },
       });
       return mensaje.id;
@@ -427,7 +443,12 @@ export class WhatsappInterpretService {
   private async loadQuoted(
     sedeId: string,
     wamid: string | undefined,
-  ): Promise<{ fromLuka: boolean; date: string; content: string } | null> {
+  ): Promise<{
+    fromLuka: boolean;
+    date: string;
+    content: string;
+    transactionIds: string[];
+  } | null> {
     if (!wamid) return null;
 
     try {
@@ -444,6 +465,7 @@ export class WhatsappInterpretService {
         fromLuka: citado.rol === 'ASSISTANT',
         date: fechaColombiana(citado.fecha),
         content: citado.contenido,
+        transactionIds: citado.movimientoIds,
       };
     } catch (error) {
       this.logger.warn(

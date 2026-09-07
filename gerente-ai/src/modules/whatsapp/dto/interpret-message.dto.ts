@@ -25,11 +25,19 @@ export class MediaDto {
   })
   kind!: 'audio' | 'image';
 
-  /** Tipo MIME tal como lo reporta Meta ("audio/ogg", "image/jpeg"). */
+  /**
+   * Tipo MIME tal como lo reporta Meta.
+   *
+   * Puede traer parametros: las notas de voz llegan como
+   * "audio/ogg; codecs=opus", no como "audio/ogg" pelado. Rechazarlas por eso
+   * hacia que toda nota de voz respondiera "no pude procesar tu mensaje". El
+   * backend se queda con el tipo base antes de mandarselo al modelo.
+   */
   @IsString()
-  @Matches(/^(audio|image)\/[a-zA-Z0-9.+-]{2,40}$/, {
-    message: 'media.mimeType no es un tipo de audio o imagen valido.',
-  })
+  @Matches(
+    /^(audio|image)\/[a-zA-Z0-9.+-]{2,40}(?:\s*;\s*[a-zA-Z0-9.+=-]{1,60})*$/,
+    { message: 'media.mimeType no es un tipo de audio o imagen valido.' },
+  )
   mimeType!: string;
 
   /**

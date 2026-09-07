@@ -62,11 +62,53 @@ function formatErrorMessage(data: any, statusText: string, status: number): stri
   return `Error ${status}: ${statusText || 'Ocurrió un problema inesperado'}`;
 }
 
+// In-Flight Request Deduplication & Memory Cache
+const inFlightRequests = new Map<string, Promise<any>>();
+const memoryCache = new Map<string, { data: any; timestamp: number }>();
+
+const CACHE_TTL_MS = 15_000; // 15 segundos para configuración y perfil
+
+const CACHEABLE_GET_ROUTES = [
+  '/planes/catalogo',
+  '/auth/usuarios/me',
+];
+
+export function clearApiCache(): void {
+  memoryCache.clear();
+  inFlightRequests.clear();
+}
+
 export async function apiClient<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit & { skipCache?: boolean } = {}
 ): Promise<T> {
+  const method = (options.method || 'GET').toUpperCase();
   const token = localStorage.getItem('access_token');
+
+  // Si es una mutación, invalidamos la caché de lectura
+  if (method !== 'GET') {
+    memoryCache.clear();
+  }
+
+  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const cacheKey = `${token || 'anon'}:${method}:${url}`;
+
+  // 1. Verificación de Caché en Memoria (solo para GETs cacheables)
+  if (method === 'GET' && !options.skipCache) {
+    const isCacheable = CACHEABLE_GET_ROUTES.some((route) => endpoint.includes(route));
+    if (isCacheable) {
+      const cached = memoryCache.get(cacheKey);
+      if (cached && Date.now() - cached.timestamp < CACHE_TTL_MS) {
+        return cached.data as T;
+      }
+    }
+
+    // 2. In-Flight Request Deduplication: Reutilizar Promise en curso
+    const inFlight = inFlightRequests.get(cacheKey);
+    if (inFlight) {
+      return inFlight as Promise<T>;
+    }
+  }
 
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
@@ -74,68 +116,76 @@ export async function apiClient<T>(
     ...options.headers,
   };
 
-  const url = endpoint.startsWith('http') ? endpoint : `${BASE_URL}${endpoint}`;
+  const executeRequest = async (): Promise<T> => {
+    try {
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
 
-  console.log(
-    `📡 [API Request] ${options.method || 'GET'} ${url}`,
-    options.body ? JSON.parse(options.body as string) : ''
-  );
-
-  try {
-    const response = await fetch(url, {
-      ...options,
-      headers,
-    });
-
-    if (response.status === 204) {
-      console.log(`✅ [API Response 204 No Content] ${url}`);
-      return {} as T;
-    }
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      console.warn(`⚠️ [API Response Error ${response.status}] ${url}:`, data);
-
-      // Si el token es inválido o expiró en una ruta protegida
-      if (
-        response.status === 401 &&
-        !endpoint.includes('/auth/login') &&
-        !endpoint.includes('/auth/register') &&
-        !endpoint.includes('/auth/verificar-email') &&
-        !endpoint.includes('/auth/forgot-password') &&
-        !endpoint.includes('/auth/reset-password')
-      ) {
-        localStorage.removeItem('access_token');
-        localStorage.removeItem('user_session');
-        localStorage.removeItem('session_expires_at');
-        localStorage.removeItem('session_login_time');
-        window.location.href = '/login';
+      if (response.status === 204) {
+        return {} as T;
       }
 
-      const errorMessage = formatErrorMessage(data, response.statusText, response.status);
+      const data = await response.json().catch(() => ({}));
 
+      if (!response.ok) {
+        // Si el token es inválido o expiró en una ruta protegida
+        if (
+          response.status === 401 &&
+          !endpoint.includes('/auth/login') &&
+          !endpoint.includes('/auth/register') &&
+          !endpoint.includes('/auth/verificar-email') &&
+          !endpoint.includes('/auth/forgot-password') &&
+          !endpoint.includes('/auth/reset-password')
+        ) {
+          localStorage.removeItem('access_token');
+          localStorage.removeItem('user_session');
+          localStorage.removeItem('session_expires_at');
+          localStorage.removeItem('session_login_time');
+          window.location.href = '/login';
+        }
+
+        const errorMessage = formatErrorMessage(data, response.statusText, response.status);
+
+        throw new ApiError(
+          response.status,
+          errorMessage,
+          Array.isArray(data.message) ? data.message : undefined
+        );
+      }
+
+      // Guardar en caché si es cacheable
+      if (method === 'GET') {
+        const isCacheable = CACHEABLE_GET_ROUTES.some((route) => endpoint.includes(route));
+        if (isCacheable) {
+          memoryCache.set(cacheKey, { data, timestamp: Date.now() });
+        }
+      }
+
+      return data as T;
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      const rawMsg = (error as Error).message || '';
+      const cleanMsg = translateErrorMessage(rawMsg);
       throw new ApiError(
-        response.status,
-        errorMessage,
-        Array.isArray(data.message) ? data.message : undefined
+        500,
+        cleanMsg.toLowerCase().includes('fetch') || cleanMsg.toLowerCase().includes('failed')
+          ? 'No pudimos conectar con el servidor. Por favor verifica tu conexión a internet o intenta en unos momentos.'
+          : cleanMsg || 'No pudimos conectar con el servidor.'
       );
+    } finally {
+      inFlightRequests.delete(cacheKey);
     }
+  };
 
-    console.log(`✅ [API Response ${response.status}] ${url}:`, data);
-    return data as T;
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
-    }
-    console.error(`🚨 [API Connection Error] ${url}:`, error);
-    const rawMsg = (error as Error).message || '';
-    const cleanMsg = translateErrorMessage(rawMsg);
-    throw new ApiError(
-      500,
-      cleanMsg.toLowerCase().includes('fetch') || cleanMsg.toLowerCase().includes('failed')
-        ? 'No pudimos conectar con el servidor. Por favor verifica tu conexión a internet o intenta en unos momentos.'
-        : cleanMsg || 'No pudimos conectar con el servidor.'
-    );
+  if (method === 'GET') {
+    const requestPromise = executeRequest();
+    inFlightRequests.set(cacheKey, requestPromise);
+    return requestPromise;
   }
+
+  return executeRequest();
 }
