@@ -31,12 +31,12 @@ const steps = [
 ];
 
 /* =========================================================
-   TELÉFONO — PRIMER PISO / WHATSAPP
+   TELÉFONO — WHATSAPP
    ========================================================= */
 
 function WhatsAppGraphic() {
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[245px] overflow-hidden sm:h-[270px] md:h-full">
       {/* Glow */}
       <div className="absolute -right-20 -top-20 h-72 w-72 rounded-full bg-emerald-300/30 blur-3xl" />
 
@@ -46,26 +46,30 @@ function WhatsAppGraphic() {
       {/* Decorative dot */}
       <div className="absolute bottom-12 left-10 h-3 w-3 rounded-full bg-emerald-900/20" />
 
-      {/* =====================================================
-          PHONE
-          ===================================================== */}
-
+      {/* PHONE */}
       <div
         className="
           absolute
-          bottom-[-42px]
-          right-3
+          bottom-[-55px]
+          right-[-12px]
           z-10
-          h-[330px]
-          w-[175px]
+          h-[300px]
+          w-[160px]
           rotate-[6deg]
           rounded-[2.2rem]
           border-[7px]
           border-slate-950
           bg-white
           shadow-2xl
-          sm:right-8
-          md:right-10
+
+          sm:right-4
+          sm:h-[330px]
+          sm:w-[175px]
+
+          md:bottom-[-42px]
+          md:right-3
+          md:h-[330px]
+          md:w-[175px]
         "
       >
         {/* Dynamic Island */}
@@ -83,7 +87,9 @@ function WhatsAppGraphic() {
                 Luka AI
               </div>
 
-              <div className="text-[7px] text-slate-400">En línea</div>
+              <div className="text-[7px] text-slate-400">
+                En línea
+              </div>
             </div>
           </div>
 
@@ -106,17 +112,15 @@ function WhatsAppGraphic() {
         </div>
       </div>
 
-      {/* =====================================================
-          AUDIO FLOATING CARD
-          ===================================================== */}
-
+      {/* AUDIO */}
       <div
         className="
           absolute
-          bottom-8
-          left-6
+          bottom-4
+          left-4
           z-20
           flex
+          max-w-[245px]
           items-center
           gap-3
           rounded-2xl
@@ -124,7 +128,11 @@ function WhatsAppGraphic() {
           px-4
           py-3
           shadow-xl
+
           sm:left-8
+          sm:max-w-[275px]
+
+          md:bottom-8
           md:left-10
         "
       >
@@ -156,13 +164,47 @@ function WhatsAppGraphic() {
 
 function BrainGraphic() {
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div
+      className="
+        absolute
+        inset-x-0
+        bottom-0
+        h-[220px]
+        overflow-hidden
+
+        sm:h-[235px]
+
+        md:absolute
+        md:inset-0
+        md:h-full
+      "
+    >
       <div className="absolute -left-20 -top-20 h-80 w-80 rounded-full bg-cyan-300/30 blur-3xl" />
 
       <div className="absolute bottom-0 right-0 h-64 w-64 rounded-full bg-emerald-300/20 blur-3xl" />
 
       {/* Inventory */}
-      <div className="absolute left-8 top-12 rotate-[-6deg] rounded-2xl bg-white/90 px-4 py-3 shadow-xl backdrop-blur-md sm:left-14">
+      <div
+        className="
+          absolute
+          bottom-7
+          left-5
+          z-20
+          rotate-[-6deg]
+          rounded-2xl
+          bg-white/90
+          px-4
+          py-3
+          shadow-xl
+          backdrop-blur-md
+
+          sm:left-10
+
+          md:bottom-auto
+          md:left-8
+          md:top-12
+        "
+      >
         <div className="flex items-center gap-2">
           <Package size={16} className="text-cyan-600" />
 
@@ -177,7 +219,26 @@ function BrainGraphic() {
       </div>
 
       {/* IA */}
-      <div className="absolute right-8 top-20 rotate-[5deg] rounded-2xl bg-slate-950 px-4 py-3 shadow-2xl sm:right-14">
+      <div
+        className="
+          absolute
+          bottom-9
+          right-5
+          z-20
+          rotate-[5deg]
+          rounded-2xl
+          bg-slate-950
+          px-4
+          py-3
+          shadow-2xl
+
+          sm:right-10
+
+          md:bottom-auto
+          md:right-8
+          md:top-20
+        "
+      >
         <div className="flex items-center gap-2">
           <Sparkles size={15} className="text-emerald-400" />
 
@@ -196,18 +257,52 @@ function BrainGraphic() {
       </div>
 
       {/* Brain */}
-      <div className="absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 items-center justify-center">
-        <div className="absolute h-44 w-44 rounded-full border border-cyan-400/20" />
+      <div
+        className="
+          absolute
+          bottom-[-5px]
+          left-1/2
+          flex
+          -translate-x-1/2
+          items-center
+          justify-center
 
-        <div className="absolute h-32 w-32 rounded-full border border-emerald-400/30" />
+          md:bottom-auto
+          md:top-1/2
+          md:-translate-y-1/2
+        "
+      >
+        <div className="absolute h-36 w-36 rounded-full border border-cyan-400/20 md:h-44 md:w-44" />
 
-        <div className="flex h-24 w-24 items-center justify-center rounded-[2rem] bg-gradient-to-br from-cyan-500 to-emerald-500 text-white shadow-2xl shadow-emerald-500/30">
-          <BrainCircuit size={42} strokeWidth={1.8} />
+        <div className="absolute h-28 w-28 rounded-full border border-emerald-400/30 md:h-32 md:w-32" />
+
+        <div className="flex h-20 w-20 items-center justify-center rounded-[1.7rem] bg-gradient-to-br from-cyan-500 to-emerald-500 text-white shadow-2xl shadow-emerald-500/30 md:h-24 md:w-24 md:rounded-[2rem]">
+          <BrainCircuit size={38} strokeWidth={1.8} />
         </div>
       </div>
 
       {/* Bottom label */}
-      <div className="absolute bottom-10 left-1/2 -translate-x-1/2 rounded-full bg-white px-5 py-2 text-[10px] font-bold text-slate-900 shadow-xl">
+      <div
+        className="
+          absolute
+          bottom-2
+          left-1/2
+          z-30
+          hidden
+          -translate-x-1/2
+          rounded-full
+          bg-white
+          px-5
+          py-2
+          text-[10px]
+          font-bold
+          text-slate-900
+          shadow-xl
+
+          md:block
+          md:bottom-10
+        "
+      >
         Todo organizado automáticamente
       </div>
     </div>
@@ -220,11 +315,86 @@ function BrainGraphic() {
 
 function AnalyticsGraphic() {
   return (
-    <div className="relative h-full w-full overflow-hidden">
+    <div
+      className="
+        absolute
+        inset-x-0
+        bottom-0
+        h-[225px]
+        overflow-hidden
+
+        sm:h-[245px]
+
+        md:absolute
+        md:inset-0
+        md:h-full
+      "
+    >
       <div className="absolute -bottom-20 -right-20 h-80 w-80 rounded-full bg-emerald-400/20 blur-3xl" />
 
+      {/* Recommendation */}
+      <div
+        className="
+          absolute
+          left-5
+          top-[105px]
+          z-20
+          max-w-[185px]
+          rotate-[-4deg]
+          rounded-2xl
+          bg-slate-950
+          px-4
+          py-3
+          shadow-xl
+
+          sm:left-8
+          sm:top-[115px]
+
+          md:left-8
+          md:top-[120px]
+          md:max-w-[190px]
+        "
+      >
+        <div className="flex items-center gap-2">
+          <Sparkles size={14} className="text-emerald-400" />
+
+          <span className="text-[9px] font-bold text-white">
+            Recomendación de Luka
+          </span>
+        </div>
+
+        <p className="mt-2 text-[9px] leading-3 text-slate-300">
+          Tu producto más vendido está aumentando esta semana.
+        </p>
+      </div>
+
       {/* Sales card */}
-      <div className="absolute bottom-8 right-8 w-[270px] rounded-[1.8rem] bg-white p-5 shadow-2xl sm:right-14 sm:w-[320px]">
+      <div
+        className="
+          absolute
+          bottom-[-70px]
+          right-3
+          z-20
+          w-[245px]
+          rounded-[1.8rem]
+          bg-white
+          p-4
+          shadow-2xl
+
+          sm:right-8
+          sm:bottom-[-65px]
+          sm:w-[280px]
+          sm:p-5
+
+          md:bottom-[-45px]
+          md:right-8
+          md:w-[270px]
+
+          lg:right-14
+          lg:bottom-[-40px]
+          lg:w-[320px]
+        "
+      >
         <div className="flex items-start justify-between">
           <div>
             <p className="text-[9px] font-medium text-slate-400">
@@ -241,7 +411,7 @@ function AnalyticsGraphic() {
           </div>
         </div>
 
-        <div className="mt-7 flex h-28 items-end gap-2">
+        <div className="mt-5 flex h-24 items-end gap-2 sm:mt-7 sm:h-28">
           <div className="h-[35%] flex-1 rounded-t-md bg-emerald-100" />
           <div className="h-[48%] flex-1 rounded-t-md bg-emerald-200" />
           <div className="h-[42%] flex-1 rounded-t-md bg-emerald-200" />
@@ -251,7 +421,7 @@ function AnalyticsGraphic() {
           <div className="h-[92%] flex-1 rounded-t-md bg-emerald-500" />
         </div>
 
-        <div className="mt-4 flex items-center justify-between">
+        <div className="mt-3 flex items-center justify-between sm:mt-4">
           <span className="text-[8px] text-slate-400">
             Últimos 7 días
           </span>
@@ -261,21 +431,6 @@ function AnalyticsGraphic() {
             +18.4%
           </span>
         </div>
-      </div>
-
-      {/* Recommendation */}
-      <div className="absolute left-8 top-10 max-w-[190px] rotate-[-4deg] rounded-2xl bg-slate-950 px-4 py-3 shadow-xl sm:left-14">
-        <div className="flex items-center gap-2">
-          <Sparkles size={14} className="text-emerald-400" />
-
-          <span className="text-[9px] font-bold text-white">
-            Recomendación de Luka
-          </span>
-        </div>
-
-        <p className="mt-2 text-[9px] leading-3 text-slate-300">
-          Tu producto más vendido está aumentando esta semana.
-        </p>
       </div>
     </div>
   );
@@ -293,12 +448,17 @@ export function CoworkingHowItWorksSection() {
         w-full
         overflow-hidden
         bg-slate-50
-        pb-24
-        pt-0
+        px-6
+        pt-4
+        pb-6
         dark:bg-[#070B12]
+
+        md:px-12
+        md:pt-14
+        md:pb-16
       "
     >
-      <div className="mx-auto w-[calc(100%-2rem)] max-w-7xl">
+      <div className="mx-auto w-full max-w-7xl">
         {/* =========================================================
             PRIMER PISO
             ========================================================= */}
@@ -318,10 +478,13 @@ export function CoworkingHowItWorksSection() {
               px-7
               py-10
               shadow-sm
+
               sm:px-10
               sm:py-12
+
               lg:px-14
               lg:py-14
+
               dark:border
               dark:border-white/[0.06]
               dark:bg-[#101722]
@@ -341,6 +504,7 @@ export function CoworkingHowItWorksSection() {
                   text-sm
                   font-semibold
                   text-emerald-700
+
                   dark:bg-emerald-400/10
                   dark:text-emerald-300
                 "
@@ -357,6 +521,7 @@ export function CoworkingHowItWorksSection() {
                   leading-[1.02]
                   tracking-tight
                   text-slate-950
+
                   dark:text-white
                 "
               >
@@ -370,6 +535,7 @@ export function CoworkingHowItWorksSection() {
                   text-lg
                   leading-8
                   text-slate-600
+
                   dark:text-slate-400
                 "
               >
@@ -417,35 +583,36 @@ export function CoworkingHowItWorksSection() {
           <div
             className="
               relative
-              min-h-[440px]
+              min-h-[500px]
               overflow-hidden
               rounded-[2rem]
               bg-[#62D56B]
               dark:bg-[#42B95B]
+
+              md:min-h-[440px]
             "
           >
-            {/* =====================================================
-                TEXTO
-                ===================================================== */}
-
             <div
               className="
                 relative
                 z-30
                 px-8
                 pt-8
+
                 sm:px-10
                 sm:pt-10
               "
             >
               <h3
                 className="
-                  max-w-[235px]
+                  max-w-[240px]
                   text-5xl
                   font-black
                   leading-[1.02]
                   tracking-tight
                   text-slate-950
+
+                  md:max-w-[235px]
                 "
               >
                 Todo desde WhatsApp
@@ -454,17 +621,15 @@ export function CoworkingHowItWorksSection() {
               <p
                 className="
                   mt-5
-                  max-w-[235px]
+                  max-w-[225px]
                   text-base
                   leading-6
                   text-slate-950/75
                 "
               >
-                Pregunta por tus
-                ventas, gastos, inventario y mucho más.
+                Pregunta por tus ventas, gastos, inventario y mucho más.
               </p>
 
-              {/* BOTÓN WHATSAPP */}
               <a
                 href="https://wa.me/573043904488"
                 target="_blank"
@@ -492,10 +657,6 @@ export function CoworkingHowItWorksSection() {
               </a>
             </div>
 
-            {/* =====================================================
-                TELÉFONO + AUDIO
-                ===================================================== */}
-
             <WhatsAppGraphic />
           </div>
         </div>
@@ -512,7 +673,7 @@ export function CoworkingHowItWorksSection() {
           <div
             className="
               relative
-              min-h-[410px]
+              min-h-[500px]
               overflow-hidden
               rounded-[2rem]
               bg-gradient-to-br
@@ -520,10 +681,13 @@ export function CoworkingHowItWorksSection() {
               via-cyan-500
               to-emerald-400
               p-8
+
               sm:p-10
+
+              md:min-h-[410px]
             "
           >
-            <div className="relative z-10 max-w-md">
+            <div className="relative z-30 max-w-[250px]">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg">
                 <BrainCircuit size={24} />
               </div>
@@ -544,7 +708,7 @@ export function CoworkingHowItWorksSection() {
               <p
                 className="
                   mt-5
-                  max-w-sm
+                  max-w-[245px]
                   text-base
                   leading-7
                   text-slate-950/75
@@ -564,19 +728,23 @@ export function CoworkingHowItWorksSection() {
           <div
             className="
               relative
-              min-h-[410px]
+              min-h-[500px]
               overflow-hidden
               rounded-[2rem]
               border
               border-slate-200
               bg-white
               p-8
+
               sm:p-10
+
+              md:min-h-[410px]
+
               dark:border-white/[0.06]
               dark:bg-[#111A25]
             "
           >
-            <div className="relative z-10 max-w-md">
+            <div className="relative z-30 max-w-[245px]">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-500 text-white shadow-lg">
                 <BarChart3 size={24} />
               </div>
@@ -589,6 +757,7 @@ export function CoworkingHowItWorksSection() {
                   leading-[1.02]
                   tracking-tight
                   text-slate-950
+
                   dark:text-white
                 "
               >
@@ -598,10 +767,11 @@ export function CoworkingHowItWorksSection() {
               <p
                 className="
                   mt-5
-                  max-w-md
+                  max-w-[240px]
                   text-base
                   leading-7
                   text-slate-600
+
                   dark:text-slate-400
                 "
               >
@@ -625,15 +795,18 @@ export function CoworkingHowItWorksSection() {
           <div
             className="
               relative
-              min-h-[350px]
+              min-h-[440px]
               overflow-hidden
               rounded-[2rem]
               bg-[#063B32]
               p-8
+
               sm:p-10
+
+              md:min-h-[350px]
             "
           >
-            <div className="relative z-10 max-w-lg">
+            <div className="relative z-30 max-w-[300px]">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-400 text-slate-950 shadow-lg">
                 <Mic size={23} />
               </div>
@@ -654,7 +827,7 @@ export function CoworkingHowItWorksSection() {
               <p
                 className="
                   mt-5
-                  max-w-md
+                  max-w-[290px]
                   text-base
                   leading-7
                   text-emerald-50/75
@@ -665,7 +838,21 @@ export function CoworkingHowItWorksSection() {
             </div>
 
             {/* CHAT BUBBLES */}
-            <div className="absolute bottom-8 right-8 flex flex-col gap-2 sm:right-14">
+            <div
+              className="
+                absolute
+                bottom-7
+                right-5
+                z-20
+                flex
+                flex-col
+                gap-2
+
+                sm:right-10
+
+                md:right-14
+              "
+            >
               <div className="rounded-2xl rounded-br-sm bg-emerald-400 px-5 py-3 text-xs font-semibold text-slate-950 shadow-xl">
                 Hola Luka 👋
               </div>
@@ -683,15 +870,18 @@ export function CoworkingHowItWorksSection() {
           <div
             className="
               relative
-              min-h-[350px]
+              min-h-[440px]
               overflow-hidden
               rounded-[2rem]
               bg-[#DDE6E0]
               p-8
+
               sm:p-10
+
+              md:min-h-[350px]
             "
           >
-            <div className="relative z-10">
+            <div className="relative z-30 max-w-[280px]">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-950 text-white shadow-lg">
                 <TrendingUp size={23} />
               </div>
@@ -703,7 +893,7 @@ export function CoworkingHowItWorksSection() {
               <p
                 className="
                   mt-3
-                  max-w-xs
+                  max-w-[280px]
                   text-5xl
                   font-black
                   leading-[1.02]
@@ -714,14 +904,30 @@ export function CoworkingHowItWorksSection() {
                 Tu negocio, entendido en segundos.
               </p>
 
-              <p className="mt-5 max-w-sm text-base leading-6 text-slate-600">
-                Convierte la información de tu negocio
-                inteligentemente.
+              <p className="mt-5 max-w-[260px] text-base leading-6 text-slate-600">
+                Convierte la información de tu negocio inteligentemente.
               </p>
             </div>
 
-            {/* CHART */}
-            <div className="absolute bottom-[-10px] right-[-5px] flex h-40 items-end gap-2 opacity-70">
+            {/* =====================================================
+                CHART
+                Se baja deliberadamente para que no invada el texto.
+                El contenedor mantiene exactamente el mismo tamaño
+                y overflow-hidden se encarga de recortarlo.
+                ===================================================== */}
+            <div
+              className="
+                absolute
+                bottom-[-75px]
+                right-[-5px]
+                z-10
+                flex
+                h-40
+                items-end
+                gap-2
+                opacity-70
+              "
+            >
               <div className="h-16 w-7 rounded-t-lg bg-emerald-300" />
               <div className="h-24 w-7 rounded-t-lg bg-emerald-400" />
               <div className="h-20 w-7 rounded-t-lg bg-emerald-500" />

@@ -116,7 +116,7 @@ function MarqueeRow({
 
 export function CoworkingFooterSection() {
   return (
-    <footer className="relative w-full overflow-hidden bg-[#050A10] pb-3 pt-3 text-white sm:pb-4">
+    <footer className="relative -mt-7 w-full overflow-hidden bg-[#050A10] pb-3 pt-0 text-white sm:pb-4 md:-mt-15">
       <style>{`
         @keyframes footerMarquee {
           0% {
@@ -215,12 +215,17 @@ export function CoworkingFooterSection() {
 
       {/* =====================================================
           FOOTER TRADICIONAL
-          TAMBIÉN OCUPA TODO EL ANCHO
-          El contenido interno mantiene max-w-7xl.
+          MISMA ESCALA GENERAL
+          INFORMACIÓN CENTRADA Y DISTRIBUIDA
       ===================================================== */}
       <div className="relative w-full bg-[#050A10]">
         <div className="relative border-t border-white/[0.08] px-6 py-14 sm:px-10 sm:py-16 md:px-14 lg:px-16">
-          <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 md:grid-cols-4">
+          {/* =================================================
+              MAIN FOOTER COLUMNS
+              - Centrado vertical
+              - Mayor separación horizontal
+          ================================================= */}
+          <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 md:min-h-[235px] md:grid-cols-[1.35fr_1fr_1fr_1fr] md:items-center md:gap-x-20 lg:gap-x-28">
             {/* Brand */}
             <div className="md:col-span-1">
               <div className="mb-5 flex items-center gap-2 text-xl font-bold text-emerald-300">
@@ -330,12 +335,23 @@ export function CoworkingFooterSection() {
             </div>
           </div>
 
-          {/* Bottom */}
+          {/* =================================================
+              BOTTOM
+          ================================================= */}
           <div className="mx-auto mt-12 flex max-w-7xl flex-col items-center justify-between gap-5 border-t border-white/[0.08] pt-6 sm:flex-row">
-            <p className="text-center text-sm font-medium text-white/40 sm:text-left">
-              © {new Date().getFullYear()} Luka AI. Todos los derechos
-              reservados.
-            </p>
+            <div className="text-center sm:text-left">
+              <p className="text-sm font-medium text-white/40">
+                © {new Date().getFullYear()} Luka AI. Todos los derechos
+                reservados.
+              </p>
+
+              <p className="mt-3 max-w-3xl text-xs font-medium leading-relaxed text-white/30">
+                Luka AI es un producto de Zendcode S.A.S. con NIT 902099074
+                en la Cámara de Comercio de Cali. Luka AI hace uso de
+                Inteligencia Artificial. Se pueden encontrar divulgaciones
+                adicionales en la página de Política de privacidad.
+              </p>
+            </div>
 
             <div className="flex items-center gap-5 text-white/45">
               <a
