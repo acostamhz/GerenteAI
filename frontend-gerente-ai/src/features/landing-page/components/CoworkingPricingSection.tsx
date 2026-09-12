@@ -187,7 +187,6 @@ export function CoworkingPricingSection() {
       features: [
         "Todo lo del plan Gerente",
         "Multi-sede comparativa",
-        "Inventario inteligente",
         "Exportación a Excel",
         "1.500 mensajes de IA / mes",
         `Hasta ${planAdmin.maxSedes} sedes`,
@@ -215,7 +214,6 @@ export function CoworkingPricingSection() {
         "Todo lo del plan Administrador",
         `Hasta ${planSocio.maxSedes} sedes`,
         "Auditoría continua de negocio",
-        "IA avanzada predictiva",
         "3.000 mensajes de IA / mes",
         "Soporte prioritario",
       ],

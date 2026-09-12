@@ -141,7 +141,7 @@ function WhatsAppGraphic() {
       <motion.div
         className="
           absolute
-          bottom-[-55px]
+          bottom-[-82px]
           right-[-12px]
           z-10
           h-[300px]
@@ -154,10 +154,11 @@ function WhatsAppGraphic() {
           shadow-2xl
 
           sm:right-4
+          sm:bottom-[-72px]
           sm:h-[330px]
           sm:w-[175px]
 
-          md:bottom-[-42px]
+          md:bottom-[-60px]
           md:right-3
           md:h-[330px]
           md:w-[175px]
