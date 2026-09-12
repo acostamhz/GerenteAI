@@ -37,7 +37,7 @@ export function CoworkingFaqSection() {
   return (
     <section
       id="faq"
-      className="relative -mt-7 overflow-hidden px-6 pb-24 pt-0 md:-mt-19 md:px-12 md:pb-32 md:pt-0"
+      className="relative -mt-13 overflow-hidden px-6 pb-24 pt-0 md:-mt-19 md:px-12 md:pb-32 md:pt-0"
     >
       {/* =====================================================
           AMBIENT BACKGROUND

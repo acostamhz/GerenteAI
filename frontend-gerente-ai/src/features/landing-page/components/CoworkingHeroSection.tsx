@@ -1,8 +1,80 @@
+import { motion, useReducedMotion } from "motion/react";
 import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { Link } from "react-router";
 import { LukaHeroChat } from "@/features/assistant";
 
+const heroEase = [0.22, 1, 0.36, 1] as const;
+
+const fadeUp = {
+  hidden: {
+    opacity: 0,
+    y: 24,
+    filter: "blur(6px)",
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.75,
+      ease: heroEase,
+    },
+  },
+};
+
+const fadeScale = {
+  hidden: {
+    opacity: 0,
+    scale: 0.85,
+    filter: "blur(5px)",
+  },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.7,
+      ease: heroEase,
+    },
+  },
+};
+
+const chatEntrance = {
+  hidden: {
+    opacity: 0,
+    x: 55,
+    scale: 0.96,
+    filter: "blur(8px)",
+  },
+  visible: {
+    opacity: 1,
+    x: 0,
+    scale: 1,
+    filter: "blur(0px)",
+    transition: {
+      duration: 1,
+      delay: 0.25,
+      ease: heroEase,
+    },
+  },
+};
+
 export function CoworkingHeroSection() {
+  const shouldReduceMotion = useReducedMotion();
+
+  const motionProps = shouldReduceMotion
+    ? {
+        initial: false,
+        animate: {
+          opacity: 1,
+          x: 0,
+          y: 0,
+          scale: 1,
+          filter: "blur(0px)",
+        },
+      }
+    : {};
+
   return (
     <section
       className="
@@ -77,7 +149,10 @@ export function CoworkingHeroSection() {
                 WHATSAPP
                 ================================================= */}
 
-            <div
+            <motion.div
+              variants={fadeScale}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate={shouldReduceMotion ? undefined : "visible"}
               className="
                 mb-4
                 flex
@@ -87,6 +162,7 @@ export function CoworkingHeroSection() {
                 sm:mb-6
                 sm:h-16
               "
+              {...motionProps}
             >
               <div
                 className="
@@ -119,13 +195,25 @@ export function CoworkingHeroSection() {
                   />
                 </svg>
               </div>
-            </div>
+            </motion.div>
 
             {/* =================================================
                 BADGE
                 ================================================= */}
 
-            <div
+            <motion.div
+              variants={fadeUp}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate={
+                shouldReduceMotion ? undefined : "visible"
+              }
+              transition={
+                shouldReduceMotion
+                  ? undefined
+                  : {
+                      delay: 0.1,
+                    }
+              }
               className="
                 mb-4
                 inline-flex
@@ -158,13 +246,25 @@ export function CoworkingHeroSection() {
               <span className="truncate">
                 Integra Inteligencia Artificial en tu negocio
               </span>
-            </div>
+            </motion.div>
 
             {/* =================================================
                 TITLE
                 ================================================= */}
 
-            <h1
+            <motion.h1
+              variants={fadeUp}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate={
+                shouldReduceMotion ? undefined : "visible"
+              }
+              transition={
+                shouldReduceMotion
+                  ? undefined
+                  : {
+                      delay: 0.2,
+                    }
+              }
               className="
                 w-full
                 max-w-[650px]
@@ -196,13 +296,27 @@ export function CoworkingHeroSection() {
               >
                 nuevo asistente.
               </span>
-            </h1>
+            </motion.h1>
 
             {/* =================================================
                 CTA
                 ================================================= */}
 
-            <div className="mt-7 sm:mt-8">
+            <motion.div
+              variants={fadeUp}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate={
+                shouldReduceMotion ? undefined : "visible"
+              }
+              transition={
+                shouldReduceMotion
+                  ? undefined
+                  : {
+                      delay: 0.4,
+                    }
+              }
+              className="mt-7 sm:mt-8"
+            >
               <Link
                 to="/register"
                 className="
@@ -245,13 +359,26 @@ export function CoworkingHeroSection() {
                   "
                 />
               </Link>
-            </div>
+            </motion.div>
 
             {/* =================================================
                 BENEFITS
                 ================================================= */}
 
-            <div
+            <motion.div
+              variants={{
+                hidden: {},
+                visible: {
+                  transition: {
+                    delayChildren: 0.5,
+                    staggerChildren: 0.12,
+                  },
+                },
+              }}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate={
+                shouldReduceMotion ? undefined : "visible"
+              }
               className="
                 mt-6
                 flex
@@ -264,7 +391,12 @@ export function CoworkingHeroSection() {
                 sm:mt-7
               "
             >
-              <div className="flex w-full min-w-0 items-start gap-3">
+              {/* BENEFIT 1 */}
+
+              <motion.div
+                variants={fadeUp}
+                className="flex w-full min-w-0 items-start gap-3"
+              >
                 <div
                   className="
                     mt-0.5
@@ -298,9 +430,14 @@ export function CoworkingHeroSection() {
                 >
                   Controla las finanzas de tu negocio
                 </span>
-              </div>
+              </motion.div>
 
-              <div className="flex w-full min-w-0 items-start gap-3">
+              {/* BENEFIT 2 */}
+
+              <motion.div
+                variants={fadeUp}
+                className="flex w-full min-w-0 items-start gap-3"
+              >
                 <div
                   className="
                     mt-0.5
@@ -334,9 +471,14 @@ export function CoworkingHeroSection() {
                 >
                   Gestiona ventas, gastos e inventario
                 </span>
-              </div>
+              </motion.div>
 
-              <div className="flex w-full min-w-0 items-start gap-3">
+              {/* BENEFIT 3 */}
+
+              <motion.div
+                variants={fadeUp}
+                className="flex w-full min-w-0 items-start gap-3"
+              >
                 <div
                   className="
                     mt-0.5
@@ -369,17 +511,24 @@ export function CoworkingHeroSection() {
                     dark:text-slate-300
                   "
                 >
-                  Toma decisiones con ayuda de Inteligencia Artificial
+                  Toma decisiones con ayuda de Inteligencia
+                  Artificial
                 </span>
-              </div>
-            </div>
+              </motion.div>
+            </motion.div>
           </div>
 
           {/* =====================================================
               RIGHT — LUKA CHAT
               ===================================================== */}
 
-          <div
+          <motion.div
+            variants={chatEntrance}
+            initial={shouldReduceMotion ? false : "hidden"}
+            animate={
+              shouldReduceMotion ? undefined : "visible"
+            }
+            {...motionProps}
             className="
               relative
               flex
@@ -424,7 +573,7 @@ export function CoworkingHeroSection() {
                 <LukaHeroChat />
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       </div>
     </section>
