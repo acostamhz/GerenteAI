@@ -14,6 +14,10 @@ export function PagoResultadoView() {
   const [parametros] = useSearchParams();
   const navegar = useNavigate();
   const referencia = parametros.get('ref');
+  const wompiId =
+    parametros.get('id') ||
+    parametros.get('transaction_id') ||
+    undefined;
 
   const [pago, setPago] = useState<Pago | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -26,7 +30,7 @@ export function PagoResultadoView() {
 
     let vigente = true;
 
-    esperarResultado(referencia)
+    esperarResultado(referencia, { wompiId })
       .then((resultado) => {
         if (vigente) {
           setPago(resultado);
@@ -49,7 +53,7 @@ export function PagoResultadoView() {
     return () => {
       vigente = false;
     };
-  }, [referencia]);
+  }, [referencia, wompiId]);
 
   const contenido = () => {
     if (error) {

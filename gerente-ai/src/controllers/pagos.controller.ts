@@ -62,11 +62,13 @@ export class PagosController {
   porReferencia(
     @Param('referencia') referencia: string,
     @CurrentUser() user: AuthUser,
+    @Query('wompiId') wompiId?: string,
   ) {
     return this.pagosService.porReferencia(
       referencia,
       user.userId,
       user.rolGlobal,
+      wompiId,
     );
   }
 }

@@ -54,9 +54,15 @@ export function crearCheckout(
 
 export function consultarPago(
   referencia: string,
+  wompiId?: string,
 ): Promise<Pago> {
+  const params = new URLSearchParams();
+  if (wompiId) {
+    params.set('wompiId', wompiId);
+  }
+  const queryString = params.toString() ? `?${params.toString()}` : '';
   return apiClient<Pago>(
-    `/pagos/${referencia}`,
+    `/pagos/${encodeURIComponent(referencia)}${queryString}`,
   );
 }
 
@@ -146,15 +152,17 @@ export async function esperarResultado(
   opciones: {
     intentos?: number;
     esperaMs?: number;
+    wompiId?: string;
   } = {},
 ): Promise<Pago> {
   const {
     intentos = 20,
-    esperaMs = 3000,
+    esperaMs = 2500,
+    wompiId,
   } = opciones;
 
   let ultimo =
-    await consultarPago(referencia);
+    await consultarPago(referencia, wompiId);
 
   for (
     let i = 0;
@@ -170,7 +178,7 @@ export async function esperarResultado(
     );
 
     ultimo =
-      await consultarPago(referencia);
+      await consultarPago(referencia, wompiId);
   }
 
   return ultimo;
