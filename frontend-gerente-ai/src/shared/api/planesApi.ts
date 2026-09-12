@@ -119,7 +119,7 @@ export const MENSAJES_IA_POR_PLAN: Record<
   string
 > = {
   1: '100 mensajes de IA / mes',
-  2: '600 mensajes de IA / mes',
+  2: '500 mensajes de IA / mes',
   3: '1.500 mensajes de IA / mes',
   4: '3.000 mensajes de IA / mes',
   5: 'Mensajes de IA por definir',

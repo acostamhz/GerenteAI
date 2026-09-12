@@ -9,98 +9,265 @@ import {
   BookOpen,
 } from "lucide-react";
 
-const businesses = [
+type Business = {
+  title: string;
+  description: string;
+  logo: string;
+};
+
+const businesses: Business[] = [
   {
-    icon: Coffee,
     title: "Cafeterías",
     description: "Ventas, insumos y clientes frecuentes.",
+    logo: "/Starbucks.jpg",
   },
   {
-    icon: UtensilsCrossed,
     title: "Restaurantes",
     description: "Pedidos, inventario y gastos diarios.",
+    logo: "/McDonalds.jpg",
   },
   {
-    icon: Store,
     title: "Tiendas",
     description: "Control de productos y ventas.",
+    logo: "/Ara.png",
   },
   {
-    icon: ShoppingBasket,
     title: "Minimercados",
     description: "Inventario y proveedores.",
+    logo: "/Carulla.jpg",
   },
   {
-    icon: Scissors,
     title: "Peluquerías",
     description: "Citas, clientes e ingresos.",
+    logo: "/Arte.png",
   },
   {
-    icon: Wrench,
     title: "Ferreterías",
     description: "Stock y compras.",
+    logo: "/Homecenter.jpg",
   },
   {
-    icon: Truck,
     title: "Talleres",
     description: "Servicios, repuestos y clientes.",
+    logo: "/Auteco.jpg",
   },
   {
-    icon: BookOpen,
     title: "Papelerías",
     description: "Productos escolares y ventas.",
+    logo: "/Buscalibre.png",
   },
 ];
 
 export function CoworkingBusinessesSection() {
   return (
-    <section className="relative px-6 md:px-12 py-28">
-      <div className="max-w-7xl mx-auto">
+    <section
+      className="
+        relative
+        px-6
+        py-20
+        md:px-12
+        md:py-24
+      "
+    >
+      <div
+        className="
+          mx-auto
+          max-w-7xl
+          overflow-hidden
+          rounded-[2.5rem]
+          border
+          border-slate-200/90
+          bg-slate-100/90
+          px-6
+          py-16
+          shadow-[0_25px_70px_rgba(15,23,42,0.08)]
+          backdrop-blur-xl
 
-        <div className="max-w-3xl mx-auto text-center">
+          dark:border-white/[0.08]
+          dark:bg-[#111925]
+          dark:shadow-black/20
 
-          <div className="inline-flex items-center rounded-full bg-emerald-50 dark:bg-emerald-500/10 px-5 py-2 text-sm font-semibold text-teal-700 dark:text-emerald-400 border border-transparent dark:border-emerald-500/20">
+          md:px-10
+          md:py-20
+          lg:px-14
+        "
+      >
+        {/* Encabezado */}
+        <div className="mx-auto max-w-3xl text-center">
+          <div
+            className="
+              inline-flex
+              items-center
+              rounded-full
+              border
+              border-emerald-600/15
+              bg-emerald-950/[0.06]
+              px-5
+              py-2
+              text-sm
+              font-semibold
+              text-emerald-800
+
+              dark:border-emerald-400/20
+              dark:bg-emerald-400/[0.08]
+              dark:text-emerald-300
+            "
+          >
             Un solo asistente para miles de negocios
           </div>
 
-          <h2 className="mt-8 text-5xl md:text-6xl font-bold tracking-tight text-slate-900 dark:text-white">
+          <h2
+            className="
+              mt-8
+              text-5xl
+              font-bold
+              tracking-tight
+              text-slate-950
+              md:text-6xl
+
+              dark:text-white
+            "
+          >
             Luka se adapta a
-            <span className="block bg-gradient-to-r from-teal-700 via-cyan-600 to-emerald-500 dark:from-emerald-400 dark:via-cyan-400 dark:to-teal-400 bg-clip-text text-transparent">
+
+            <span
+              className="
+                block
+                bg-gradient-to-r
+                from-teal-700
+                via-cyan-600
+                to-emerald-600
+                bg-clip-text
+                text-transparent
+
+                dark:from-emerald-400
+                dark:via-cyan-400
+                dark:to-teal-400
+              "
+            >
               la forma en que ya trabajas.
             </span>
           </h2>
 
-          <p className="mt-8 text-xl leading-9 text-slate-600 dark:text-slate-400">
+          <p
+            className="
+              mt-8
+              text-xl
+              leading-9
+              text-slate-700
+
+              dark:text-slate-300
+            "
+          >
             No importa si administras una cafetería, una tienda o un taller.
             Luka entiende tu negocio y te ayuda desde el primer día.
           </p>
         </div>
 
-        <div className="mt-20 grid gap-8 md:grid-cols-2 xl:grid-cols-4">
-          {businesses.map((business) => {
-            const Icon = business.icon;
+        {/* Categorías */}
+        <div
+          className="
+            mx-auto
+            mt-16
+            grid
+            max-w-6xl
+            gap-5
+            sm:grid-cols-2
+            xl:grid-cols-4
+          "
+        >
+          {businesses.map((business) => (
+            <div
+              key={business.title}
+              className="
+                group
+                rounded-[1.75rem]
+                border
+                border-slate-200
+                bg-white
+                p-6
+                shadow-[0_10px_30px_rgba(15,23,42,0.06)]
+                transition-all
+                duration-300
+                hover:-translate-y-1.5
+                hover:border-emerald-500/30
+                hover:shadow-[0_18px_40px_rgba(15,23,42,0.10)]
 
-            return (
+                dark:border-white/[0.08]
+                dark:bg-[#17202D]
+                dark:shadow-black/10
+                dark:hover:border-emerald-400/25
+                dark:hover:bg-[#192432]
+
+                sm:p-7
+              "
+            >
+              {/* Logo circular */}
               <div
-                key={business.title}
-                className="rounded-[2rem] border border-slate-200/80 dark:border-white/10 bg-white/80 dark:bg-slate-900/70 backdrop-blur-xl p-8 shadow-xl shadow-slate-900/5 dark:shadow-black/20 transition-all duration-300 hover:-translate-y-2 hover:shadow-2xl dark:hover:border-emerald-500/20"
+                className="
+                  flex
+                  h-14
+                  w-14
+                  shrink-0
+                  items-center
+                  justify-center
+                  overflow-hidden
+                  rounded-full
+                  border
+                  border-slate-200/80
+                  bg-white
+                  shadow-sm
+                  ring-1
+                  ring-slate-200/60
+
+                  dark:border-slate-200/80
+                  dark:bg-white
+                  dark:ring-white/10
+                "
               >
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-teal-600 to-cyan-600 text-white shadow-lg shadow-teal-500/20">
-                  <Icon size={30} />
-                </div>
-
-                <h3 className="mt-8 text-3xl font-bold text-slate-900 dark:text-white">
-                  {business.title}
-                </h3>
-
-                <p className="mt-4 text-lg leading-8 text-slate-600 dark:text-slate-400">
-                  {business.description}
-                </p>
+                <img
+                  src={business.logo}
+                  alt={`Logo de ${business.title}`}
+                  className="
+                    h-full
+                    w-full
+                    rounded-full
+                    object-contain
+                  "
+                />
               </div>
-            );
-          })}
-        </div>
 
+              {/* Nombre */}
+              <h3
+                className="
+                  mt-7
+                  text-[1.25rem]
+                  font-bold
+                  tracking-tight
+                  text-slate-950
+
+                  dark:text-white
+                "
+              >
+                {business.title}
+              </h3>
+
+              {/* Descripción */}
+              <p
+                className="
+                  mt-3
+                  text-[0.95rem]
+                  leading-7
+                  text-slate-600
+
+                  dark:text-slate-400
+                "
+              >
+                {business.description}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
