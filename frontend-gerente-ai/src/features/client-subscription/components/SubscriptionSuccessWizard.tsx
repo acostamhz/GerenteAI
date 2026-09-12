@@ -78,14 +78,14 @@ export function SubscriptionSuccessWizard({
           icon: Bot,
           accentGlow: 'bg-emerald-500/20',
           iconBg: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/30',
-          title: '600 Mensajes de IA al Mes',
+          title: '500 Mensajes de IA al Mes',
           description: 'Tu asistente Luka AI listo en WhatsApp para registrar ventas, gastos y responder consultas.',
           features: [
-            { icon: Zap, text: '600 mensajes de IA mensuales' },
+            { icon: Zap, text: '500 mensajes de IA mensuales' },
             { icon: MessageSquare, text: 'Registro conversacional por WhatsApp' },
             { icon: Sparkles, text: 'Consultas de balance y caja en tiempo real' },
           ],
-          highlightPill: '⚡ 600 Mensajes de IA Activos',
+          highlightPill: '⚡ 500 Mensajes de IA Activos',
         },
         {
           id: 'gerente-sede',

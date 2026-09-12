@@ -1,6 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router";
-import { Menu, X, LogIn, User, ArrowRight } from "lucide-react";
+import {
+  Menu,
+  X,
+  LogIn,
+  ArrowRight,
+  ChevronDown,
+  CircleDollarSign,
+} from "lucide-react";
 import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
 import { useAuth } from "@/features/auth";
 
@@ -10,20 +17,28 @@ function easeInOutQuart(t: number): number {
     : 1 - Math.pow(-2 * t + 2, 4) / 2;
 }
 
-function customSmoothScroll(targetY: number, duration: number = 1000) {
+function customSmoothScroll(
+  targetY: number,
+  duration: number = 1000
+) {
   const startY = window.pageYOffset;
   const distance = targetY - startY;
   let startTime: number | null = null;
 
   function animation(currentTime: number) {
-    if (startTime === null) startTime = currentTime;
+    if (startTime === null) {
+      startTime = currentTime;
+    }
 
     const timeElapsed = currentTime - startTime;
     const progress = Math.min(timeElapsed / duration, 1);
 
     const ease = easeInOutQuart(progress);
 
-    window.scrollTo(0, startY + distance * ease);
+    window.scrollTo(
+      0,
+      startY + distance * ease
+    );
 
     if (timeElapsed < duration) {
       requestAnimationFrame(animation);
@@ -34,29 +49,79 @@ function customSmoothScroll(targetY: number, duration: number = 1000) {
 }
 
 const navLinks = [
-  { name: "Características", href: "#caracteristicas" },
-  { name: "Módulos", href: "#modulos" },
-  { name: "Planes", href: "#planes" },
-  { name: "Testimonios", href: "#testimonios" },
-  { name: "Preguntas", href: "#preguntas" },
+  {
+    name: "Características",
+    href: "#caracteristicas",
+  },
+  {
+    name: "Módulos",
+    href: "#negocios",
+  },
+  {
+    name: "Planes",
+    href: "#planes",
+  },
+  {
+    name: "Testimonios",
+    href: "#testimonios",
+  },
+  {
+    name: "Preguntas",
+    href: "#faq",
+  },
 ];
 
 export function CoworkingNavbar() {
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] =
+    useState(false);
+
+  // =========================================================
+  // ANNOUNCEMENT BAR VISIBILITY
+  // Solo controla la barra verde.
+  // La navbar NO cambia.
+  // =========================================================
+
+  const [showAnnouncement, setShowAnnouncement] =
+    useState(true);
+
   const { user, isAuthenticated } = useAuth();
+
+  useEffect(() => {
+    const handleScroll = () => {
+      // La barra permanece visible únicamente en la parte superior.
+      setShowAnnouncement(window.scrollY <= 20);
+    };
+
+    handleScroll();
+
+    window.addEventListener(
+      "scroll",
+      handleScroll,
+      { passive: true }
+    );
+
+    return () => {
+      window.removeEventListener(
+        "scroll",
+        handleScroll
+      );
+    };
+  }, []);
 
   const handleSmoothScroll = (
     e: React.MouseEvent<HTMLAnchorElement>,
     href: string
   ) => {
     e.preventDefault();
+
     setMobileMenuOpen(false);
 
     const targetId = href.replace("#", "");
-    const element = document.getElementById(targetId);
+    const element =
+      document.getElementById(targetId);
 
     if (element) {
-      const yOffset = -80;
+      const yOffset = -110;
 
       const targetY =
         element.getBoundingClientRect().top +
@@ -68,353 +133,584 @@ export function CoworkingNavbar() {
   };
 
   return (
-    <header className="fixed top-4 left-1/2 -translate-x-1/2 w-[95%] max-w-7xl z-50">
+    <>
+      {/* =====================================================
+          TOP ANNOUNCEMENT BAR
+
+          Visible arriba.
+          Desaparece al hacer scroll.
+          La navbar permanece intacta.
+          ===================================================== */}
+
       <div
-        className="
-          relative
-          bg-white/80
-          dark:bg-slate-900/80
-          backdrop-blur-md
-          border
-          border-gray-200/80
-          dark:border-white/10
-          rounded-2xl
-          px-6
-          py-3.5
-          shadow-lg
-          shadow-black/5
-          dark:shadow-slate-950/50
-          transition-colors
+        className={`
+          fixed
+          top-0
+          left-0
+          right-0
+          z-[70]
+          h-11
+          transition-all
           duration-300
+          ease-out
+          ${
+            showAnnouncement
+              ? "translate-y-0 opacity-100"
+              : "-translate-y-full opacity-0 pointer-events-none"
+          }
+        `}
+      >
+        <a
+          href="#planes"
+          onClick={(e) =>
+            handleSmoothScroll(e, "#planes")
+          }
+          className="
+            group
+            flex
+            h-full
+            w-full
+            items-center
+            justify-center
+            gap-2
+            bg-[#00B545]
+            px-4
+            text-sm
+            font-semibold
+            text-slate-950
+            transition-all
+            duration-300
+            hover:bg-[#00C44B]
+          "
+        >
+          <CircleDollarSign
+            className="
+              h-4
+              w-4
+              shrink-0
+              text-white
+              transition-transform
+              duration-300
+              group-hover:scale-110
+            "
+          />
+
+          <span className="text-white">
+            Conoce los nuevos planes de Luka
+          </span>
+
+          <ArrowRight
+            className="
+              h-4
+              w-4
+              shrink-0
+              text-white
+              transition-transform
+              duration-300
+              group-hover:translate-x-1
+            "
+          />
+        </a>
+      </div>
+
+      {/* =====================================================
+          MAIN NAVBAR
+          NO SE MODIFICA
+          ===================================================== */}
+
+      <header
+        className="
+          fixed
+          top-[3.75rem]
+          left-1/2
+          z-50
+          w-[calc(100%-2rem)]
+          max-w-7xl
+          -translate-x-1/2
         "
       >
-        <div className="flex items-center justify-between">
+        <div
+          className="
+            relative
+            flex
+            min-h-[68px]
+            items-center
+            rounded-full
+            border
+            border-slate-200/80
+            bg-transparent
+            px-5
+            py-2.5
+            shadow-[0_10px_40px_rgba(15,23,42,0.08)]
+            backdrop-blur-xl
+            transition-all
+            duration-300
 
-          {/* =========================
+            dark:border-white/10
+            dark:bg-transparent
+            dark:shadow-[0_10px_40px_rgba(0,0,0,0.35)]
+          "
+        >
+          {/* =================================================
               BRAND
-          ========================== */}
+              ================================================= */}
+
           <Link
             to="/home"
-            className="flex items-center gap-2 shrink-0 group"
+            onClick={(e) => {
+              if (
+                window.location.pathname === "/home"
+              ) {
+                e.preventDefault();
+                customSmoothScroll(0, 1000);
+              }
+            }}
+            className="
+              group
+              relative
+              z-20
+              flex
+              shrink-0
+              items-center
+              gap-2.5
+            "
             aria-label="Luka AI - Inicio"
           >
             <img
               src="/Luka.png"
               alt="Luka AI"
               className="
-                h-10
+                h-9
                 w-auto
-                max-w-[150px]
+                max-w-[145px]
                 object-contain
                 object-left
                 transition-transform
-                duration-200
+                duration-300
                 group-hover:scale-[1.03]
               "
             />
-              <span className="text-xl sm:text-2xl font-black tracking-tight bg-clip-text text-transparent bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">
-                Luka AI
-              </span>
+
+            <span
+              className="
+                hidden
+                text-xl
+                font-extrabold
+                tracking-tight
+                text-slate-950
+                sm:block
+                dark:text-white
+              "
+            >
+              Luka AI
+            </span>
           </Link>
 
-          {/* =========================
-              DESKTOP NAV
-          ========================== */}
+          {/* =================================================
+              DESKTOP NAVIGATION
+              ================================================= */}
+
           <nav
             className="
-              hidden
-              lg:flex
               absolute
               left-1/2
+              top-1/2
+              hidden
               -translate-x-1/2
+              -translate-y-1/2
               items-center
               gap-1
-              bg-slate-100/80
-              dark:bg-slate-800/50
-              p-1.5
-              rounded-xl
-              border
-              border-gray-200/50
-              dark:border-white/5
+              lg:flex
             "
           >
             {navLinks.map((link) => (
               <a
                 key={link.name}
                 href={link.href}
-                onClick={(e) => handleSmoothScroll(e, link.href)}
+                onClick={(e) =>
+                  handleSmoothScroll(
+                    e,
+                    link.href
+                  )
+                }
                 className="
-                  px-3.5
-                  py-1.5
+                  group
+                  flex
+                  items-center
+                  gap-1
+                  whitespace-nowrap
+                  rounded-full
+                  px-4
+                  py-2.5
                   text-sm
                   font-medium
-                  text-slate-600
+                  text-slate-700
+                  transition-all
+                  duration-300
+                  hover:bg-slate-100
+                  hover:text-slate-950
+
                   dark:text-slate-300
-                  hover:text-emerald-600
+                  dark:hover:bg-white/5
                   dark:hover:text-white
-                  transition-colors
-                  rounded-lg
-                  hover:bg-white
-                  dark:hover:bg-slate-700/50
-                  whitespace-nowrap
                 "
               >
-                {link.name}
+                <span>{link.name}</span>
+
+                {(link.name === "Módulos" ||
+                  link.name === "Preguntas") && (
+                  <ChevronDown
+                    className="
+                      h-3.5
+                      w-3.5
+                      opacity-70
+                      transition-transform
+                      duration-300
+                      group-hover:translate-y-0.5
+                    "
+                  />
+                )}
               </a>
             ))}
           </nav>
 
-          {/* =========================
+          {/* =================================================
               DESKTOP ACTIONS
-          ========================== */}
-          <div className="hidden sm:flex items-center gap-2 shrink-0">
+              ================================================= */}
 
-            {/* Theme Toggle — SE MANTIENE */}
+          <div
+            className="
+              relative
+              z-20
+              ml-auto
+              hidden
+              shrink-0
+              items-center
+              gap-2
+              sm:flex
+            "
+          >
             <ThemeToggle />
 
-            {isAuthenticated ? (
-              <div className="flex items-center gap-2">
-
-                <span
-                  className="
-                    hidden
-                    md:inline-flex
-                    items-center
-                    gap-1.5
-                    px-3
-                    py-1.5
-                    rounded-xl
-                    bg-slate-100
-                    dark:bg-slate-800/80
-                    border
-                    border-gray-200/80
-                    dark:border-slate-700
-                    text-xs
-                    font-bold
-                    text-slate-800
-                    dark:text-slate-200
-                  "
-                >
-                  <User className="w-3.5 h-3.5 text-emerald-500" />
-
-                  <span className="max-w-[130px] truncate">
-                    {user?.nombre || "Usuario"}
-                  </span>
-                </span>
-
+            {isAuthenticated && user ? (
+              <>
                 <Link
-                  to="/dashboard"
+                  to="/"
                   className="
                     flex
                     items-center
-                    gap-1.5
-                    text-xs
-                    font-bold
-                    text-white
-                    bg-gradient-to-r
-                    from-emerald-600
-                    to-emerald-500
-                    hover:from-emerald-500
-                    hover:to-emerald-400
-                    px-3.5
-                    py-2
-                    rounded-xl
-                    shadow-sm
-                    hover:shadow-md
+                    gap-2
+                    rounded-full
+                    px-4
+                    py-2.5
+                    text-sm
+                    font-semibold
+                    text-slate-700
                     transition-all
+                    duration-300
+                    hover:bg-slate-100
+                    hover:text-slate-950
+
+                    dark:text-slate-300
+                    dark:hover:bg-white/5
+                    dark:hover:text-white
                   "
                 >
-                  <span>Ir al Dashboard</span>
-                  <ArrowRight className="w-3.5 h-3.5" />
+                  <span className="max-w-[100px] truncate">
+                    {user.name ||
+                      user.email ||
+                      "Dashboard"}
+                  </span>
                 </Link>
-              </div>
+
+                <Link
+                  to="/"
+                  className="
+                    group
+                    flex
+                    items-center
+                    gap-2
+                    rounded-full
+                    bg-gradient-to-r
+                    from-cyan-400
+                    via-blue-500
+                    to-purple-500
+                    px-5
+                    py-2.5
+                    text-sm
+                    font-bold
+                    text-white
+                    shadow-[0_8px_25px_rgba(59,130,246,0.25)]
+                    transition-all
+                    duration-300
+                    hover:scale-[1.03]
+                    hover:shadow-[0_10px_35px_rgba(59,130,246,0.4)]
+                    active:scale-95
+                  "
+                >
+                  Ir al dashboard
+
+                  <ArrowRight
+                    className="
+                      h-4
+                      w-4
+                      transition-transform
+                      duration-300
+                      group-hover:translate-x-1
+                    "
+                  />
+                </Link>
+              </>
             ) : (
               <Link
                 to="/login"
                 className="
+                  group
+                  relative
                   flex
                   items-center
                   gap-2
+                  overflow-hidden
+                  rounded-full
+                  bg-gradient-to-r
+                  from-cyan-400
+                  via-blue-500
+                  to-purple-500
+                  px-5
+                  py-2.5
                   text-sm
-                  font-semibold
-                  text-slate-700
-                  dark:text-slate-200
-                  hover:text-slate-900
-                  dark:hover:text-white
-                  px-3.5
-                  py-2
-                  rounded-xl
-                  border
-                  border-gray-200
-                  dark:border-slate-700
-                  hover:border-slate-400
-                  dark:hover:border-slate-500
+                  font-bold
+                  text-white
+                  shadow-[0_8px_25px_rgba(59,130,246,0.25)]
                   transition-all
+                  duration-300
+                  hover:scale-[1.03]
+                  hover:shadow-[0_10px_35px_rgba(59,130,246,0.4)]
+                  active:scale-95
                 "
               >
-                <LogIn className="w-4 h-4 text-emerald-500" />
-                <span>Iniciar Sesión</span>
+                <span
+                  className="
+                    absolute
+                    inset-0
+                    -translate-x-full
+                    bg-gradient-to-r
+                    from-transparent
+                    via-white/25
+                    to-transparent
+                    transition-transform
+                    duration-1000
+                    group-hover:translate-x-full
+                  "
+                />
+
+                <span className="relative z-10">
+                  Inicia sesión
+                </span>
+
+                <ArrowRight
+                  className="
+                    relative
+                    z-10
+                    h-4
+                    w-4
+                    transition-transform
+                    duration-300
+                    group-hover:translate-x-1
+                  "
+                />
               </Link>
             )}
           </div>
 
-          {/* =========================
+          {/* =================================================
               MOBILE
-          ========================== */}
-          <div className="flex sm:hidden items-center gap-2">
+              ================================================= */}
 
-            {/* Theme Toggle — SE MANTIENE */}
+          <div
+            className="
+              relative
+              z-20
+              ml-auto
+              flex
+              items-center
+              gap-2
+              sm:hidden
+            "
+          >
             <ThemeToggle />
 
             <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="
-                p-2
-                text-slate-700
-                dark:text-slate-300
-                hover:text-slate-900
-                dark:hover:text-white
-              "
-              aria-label={
-                mobileMenuOpen ? "Cerrar menú" : "Abrir menú"
+              type="button"
+              onClick={() =>
+                setMobileMenuOpen(
+                  !mobileMenuOpen
+                )
               }
+              className="
+                flex
+                h-10
+                w-10
+                items-center
+                justify-center
+                rounded-full
+                border
+                border-slate-200
+                bg-transparent
+                text-slate-800
+                transition-all
+                duration-300
+                hover:bg-slate-100
+                active:scale-90
+
+                dark:border-white/10
+                dark:bg-transparent
+                dark:text-white
+              "
+              aria-label="Abrir menú"
             >
               {mobileMenuOpen ? (
-                <X className="w-6 h-6" />
+                <X className="h-5 w-5" />
               ) : (
-                <Menu className="w-6 h-6" />
+                <Menu className="h-5 w-5" />
               )}
             </button>
           </div>
         </div>
-      </div>
 
-      {/* =========================
-          MOBILE MENU
-      ========================== */}
-      {mobileMenuOpen && (
-        <div
-          className="
-            sm:hidden
-            mt-2
-            bg-white/95
-            dark:bg-slate-900/95
-            border
-            border-gray-200
-            dark:border-white/10
-            rounded-2xl
-            p-6
-            space-y-4
-            shadow-xl
-            backdrop-blur-xl
-            animate-in
-            fade-in
-            slide-in-from-top-2
-            duration-200
-          "
-        >
-          <div className="space-y-2">
-            {navLinks.map((link) => (
-              <a
-                key={link.name}
-                href={link.href}
-                onClick={(e) => handleSmoothScroll(e, link.href)}
-                className="
-                  block
-                  text-base
-                  font-medium
-                  text-slate-700
-                  dark:text-slate-200
-                  hover:text-emerald-600
-                  dark:hover:text-emerald-400
-                  py-1
-                "
-              >
-                {link.name}
-              </a>
-            ))}
-          </div>
+        {/* =====================================================
+            MOBILE MENU
+            ===================================================== */}
 
-          <div className="pt-4 border-t border-gray-200 dark:border-slate-800">
+        {mobileMenuOpen && (
+          <div
+            className="
+              mt-3
+              overflow-hidden
+              rounded-3xl
+              border
+              border-slate-200
+              bg-transparent
+              p-4
+              shadow-[0_20px_50px_rgba(15,23,42,0.12)]
+              backdrop-blur-xl
 
-            {isAuthenticated ? (
-              <div className="space-y-2">
-
-                <div
+              dark:border-white/10
+              dark:bg-transparent
+              dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)]
+            "
+          >
+            <div className="space-y-1">
+              {navLinks.map((link) => (
+                <a
+                  key={link.name}
+                  href={link.href}
+                  onClick={(e) =>
+                    handleSmoothScroll(
+                      e,
+                      link.href
+                    )
+                  }
                   className="
-                    flex
-                    items-center
-                    gap-2
-                    px-3
-                    py-2
-                    bg-slate-100
-                    dark:bg-slate-800
-                    rounded-xl
-                    text-xs
-                    font-bold
-                    text-slate-800
-                    dark:text-slate-200
-                  "
-                >
-                  <User className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>
-                    Hola, {user?.nombre || "Usuario"}
-                  </span>
-                </div>
-
-                <Link
-                  to="/dashboard"
-                  onClick={() => setMobileMenuOpen(false)}
-                  className="
-                    flex
-                    items-center
-                    justify-center
-                    gap-2
-                    w-full
-                    py-2.5
-                    rounded-xl
-                    bg-gradient-to-r
-                    from-emerald-600
-                    to-emerald-500
-                    text-white
-                    font-bold
+                    block
+                    rounded-2xl
+                    px-4
+                    py-3
                     text-sm
-                    shadow-sm
+                    font-medium
+                    text-slate-700
+                    transition-colors
+                    duration-200
+                    hover:bg-slate-100
+                    hover:text-slate-950
+
+                    dark:text-slate-300
+                    dark:hover:bg-white/5
+                    dark:hover:text-white
                   "
                 >
-                  <span>Ir al Dashboard</span>
-                  <ArrowRight className="w-4 h-4" />
-                </Link>
+                  {link.name}
+                </a>
+              ))}
+            </div>
 
-              </div>
-            ) : (
+            <div
+              className="
+                mt-3
+                space-y-2
+                border-t
+                border-slate-200
+                pt-3
+
+                dark:border-white/10
+              "
+            >
               <Link
                 to="/login"
-                onClick={() => setMobileMenuOpen(false)}
+                onClick={() =>
+                  setMobileMenuOpen(false)
+                }
                 className="
                   flex
+                  w-full
                   items-center
                   justify-center
                   gap-2
-                  w-full
-                  py-2.5
-                  rounded-xl
+                  rounded-full
                   border
-                  border-gray-300
-                  dark:border-slate-700
-                  text-slate-800
-                  dark:text-slate-200
+                  border-slate-200
+                  px-4
+                  py-3
+                  text-sm
                   font-semibold
+                  text-slate-800
+                  transition-all
+                  hover:bg-slate-100
+
+                  dark:border-white/10
+                  dark:text-white
+                  dark:hover:bg-white/5
                 "
               >
-                <LogIn className="w-4 h-4 text-emerald-500" />
-                Iniciar Sesión
-              </Link>
-            )}
+                <LogIn className="h-4 w-4" />
 
+                Iniciar sesión
+              </Link>
+
+              <Link
+                to="/register"
+                onClick={() =>
+                  setMobileMenuOpen(false)
+                }
+                className="
+                  flex
+                  w-full
+                  items-center
+                  justify-center
+                  gap-2
+                  rounded-full
+                  bg-gradient-to-r
+                  from-cyan-400
+                  via-blue-500
+                  to-purple-500
+                  px-4
+                  py-3
+                  text-sm
+                  font-bold
+                  text-white
+                  shadow-[0_8px_25px_rgba(59,130,246,0.25)]
+                  transition-all
+                  active:scale-95
+                "
+              >
+                Comenzar gratis
+
+                <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
           </div>
-        </div>
-      )}
-    </header>
+        )}
+      </header>
+    </>
   );
 }
