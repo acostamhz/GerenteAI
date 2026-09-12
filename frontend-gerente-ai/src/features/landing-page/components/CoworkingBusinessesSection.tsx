@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, useReducedMotion } from "motion/react";
+import type { Variants } from "motion/react";
 
 type Business = {
   title: string;
@@ -51,27 +52,48 @@ const businesses: Business[] = [
   },
 ];
 
-const containerVariants = {
+/**
+ * Easing compartido.
+ *
+ * `as const` hace que TypeScript lo interprete como
+ * una tupla de valores numéricos y no como `number[]`,
+ * que es lo que Motion espera para un cubic-bezier.
+ */
+const ease = [0.22, 1, 0.36, 1] as const;
+
+/**
+ * Animación principal del contenedor.
+ */
+const containerVariants: Variants = {
   hidden: {
     opacity: 0,
     y: 35,
     scale: 0.985,
     filter: "blur(8px)",
   },
+
   visible: {
     opacity: 1,
     y: 0,
     scale: 1,
     filter: "blur(0px)",
+
     transition: {
       duration: 0.8,
-      ease: [0.22, 1, 0.36, 1],
+      ease,
     },
   },
 };
 
-const headerContainerVariants = {
+/**
+ * Contenedor del encabezado.
+ *
+ * Se utiliza únicamente para escalonar
+ * la aparición de sus hijos.
+ */
+const headerContainerVariants: Variants = {
   hidden: {},
+
   visible: {
     transition: {
       staggerChildren: 0.1,
@@ -79,19 +101,25 @@ const headerContainerVariants = {
   },
 };
 
-const headerItemVariants = {
+/**
+ * Animación individual de los elementos
+ * del encabezado.
+ */
+const headerItemVariants: Variants = {
   hidden: {
     opacity: 0,
     y: 18,
     filter: "blur(5px)",
   },
+
   visible: {
     opacity: 1,
     y: 0,
     filter: "blur(0px)",
+
     transition: {
       duration: 0.65,
-      ease: [0.22, 1, 0.36, 1],
+      ease,
     },
   },
 };
@@ -113,10 +141,14 @@ export function CoworkingBusinessesSection() {
       <motion.div
         variants={containerVariants}
         initial={
-          shouldReduceMotion ? false : "hidden"
+          shouldReduceMotion
+            ? false
+            : "hidden"
         }
         whileInView={
-          shouldReduceMotion ? undefined : "visible"
+          shouldReduceMotion
+            ? undefined
+            : "visible"
         }
         viewport={{
           once: true,
@@ -152,10 +184,14 @@ export function CoworkingBusinessesSection() {
         <motion.div
           variants={headerContainerVariants}
           initial={
-            shouldReduceMotion ? false : "hidden"
+            shouldReduceMotion
+              ? false
+              : "hidden"
           }
           whileInView={
-            shouldReduceMotion ? undefined : "visible"
+            shouldReduceMotion
+              ? undefined
+              : "visible"
           }
           viewport={{
             once: true,
@@ -167,7 +203,9 @@ export function CoworkingBusinessesSection() {
             text-center
           "
         >
-          {/* Badge */}
+          {/* ==================================================
+              BADGE
+          ================================================== */}
 
           <motion.div
             variants={headerItemVariants}
@@ -192,7 +230,9 @@ export function CoworkingBusinessesSection() {
             Un solo asistente para miles de negocios
           </motion.div>
 
-          {/* Título */}
+          {/* ==================================================
+              TÍTULO
+          ================================================== */}
 
           <motion.h2
             variants={headerItemVariants}
@@ -228,7 +268,9 @@ export function CoworkingBusinessesSection() {
             </span>
           </motion.h2>
 
-          {/* Descripción */}
+          {/* ==================================================
+              DESCRIPCIÓN
+          ================================================== */}
 
           <motion.p
             variants={headerItemVariants}
@@ -320,7 +362,7 @@ export function CoworkingBusinessesSection() {
                 transition={{
                   duration: 0.65,
                   delay: 0.2 + index * 0.07,
-                  ease: [0.22, 1, 0.36, 1],
+                  ease,
                 }}
                 whileHover={
                   shouldReduceMotion
@@ -329,7 +371,7 @@ export function CoworkingBusinessesSection() {
                         y: -6,
                         transition: {
                           duration: 0.25,
-                          ease: [0.22, 1, 0.36, 1],
+                          ease,
                         },
                       }
                 }
@@ -383,7 +425,7 @@ export function CoworkingBusinessesSection() {
                   transition={{
                     duration: 0.5,
                     delay: 0.3 + index * 0.07,
-                    ease: [0.22, 1, 0.36, 1],
+                    ease,
                   }}
                   className="
                     flex

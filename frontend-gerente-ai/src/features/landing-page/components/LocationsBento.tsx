@@ -118,6 +118,10 @@ const features = [
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
+/* =========================================================
+   HEADER
+   ========================================================= */
+
 const headerContainer = {
   hidden: {},
   visible: {
@@ -144,6 +148,10 @@ const headerItem = {
   },
 };
 
+/* =========================================================
+   CAROUSEL
+   ========================================================= */
+
 const carouselReveal = {
   hidden: {
     opacity: 0,
@@ -163,6 +171,33 @@ const carouselReveal = {
     },
   },
 };
+
+/* =========================================================
+   CARD
+   ========================================================= */
+
+const cardReveal = {
+  hidden: {
+    opacity: 0,
+    y: 35,
+    scale: 0.94,
+    filter: "blur(7px)",
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.8,
+      ease,
+    },
+  },
+};
+
+/* =========================================================
+   CONTENT
+   ========================================================= */
 
 const cardContent = {
   hidden: {
@@ -203,9 +238,10 @@ export function LocationsBento() {
 
   const reducedMotion = useReducedMotion();
 
-  /**
-   * Desplaza exactamente una tarjeta.
-   */
+  /* =========================================================
+     MOVE CAROUSEL
+     ========================================================= */
+
   const moveCarousel = (direction: "left" | "right") => {
     if (!carouselRef.current) return;
 
@@ -258,11 +294,10 @@ export function LocationsBento() {
     }
   };
 
-  /**
-   * Si se hace click sobre la tarjeta que está
-   * completamente hacia la izquierda o derecha,
-   * desplazamos el carrusel.
-   */
+  /* =========================================================
+     CARD CLICK
+     ========================================================= */
+
   const handleCardClick = (
     event: React.MouseEvent<HTMLElement>,
     index: number
@@ -305,9 +340,10 @@ export function LocationsBento() {
     }
   };
 
-  /**
-   * Detecta el inicio del gesto.
-   */
+  /* =========================================================
+     POINTER / SWIPE
+     ========================================================= */
+
   const handlePointerDown = (
     event: React.PointerEvent<HTMLDivElement>
   ) => {
@@ -315,9 +351,6 @@ export function LocationsBento() {
     dragStartX.current = event.clientX;
   };
 
-  /**
-   * Detecta si realmente hubo desplazamiento.
-   */
   const handlePointerMove = (
     event: React.PointerEvent<HTMLDivElement>
   ) => {
@@ -330,10 +363,6 @@ export function LocationsBento() {
     }
   };
 
-  /**
-   * Evita que un swipe termine interpretándose
-   * como click.
-   */
   const handlePointerUp = () => {
     setTimeout(() => {
       isDragging.current = false;
@@ -410,6 +439,12 @@ export function LocationsBento() {
 
       {/* =========================================================
           HORIZONTAL CAROUSEL
+          
+          IMPORTANTE:
+          La animación ahora pertenece al carrusel completo.
+          Todas las tarjetas reciben su estado "visible" al mismo
+          tiempo. Esto evita que las tarjetas horizontales esperen
+          a entrar en el viewport vertical.
           ========================================================= */}
 
       <motion.div
@@ -452,9 +487,6 @@ export function LocationsBento() {
         {features.map((feature, index) => {
           const Icon = feature.icon;
 
-          const direction =
-            index % 2 === 0 ? -1 : 1;
-
           return (
             <motion.article
               key={feature.title}
@@ -462,40 +494,27 @@ export function LocationsBento() {
               onClick={(event) =>
                 handleCardClick(event, index)
               }
+              variants={
+                reducedMotion
+                  ? undefined
+                  : cardReveal
+              }
               initial={
                 reducedMotion
                   ? false
-                  : {
-                      opacity: 0,
-                      x: direction * 55,
-                      y: 35,
-                      scale: 0.94,
-                      rotate: direction * 1.5,
-                      filter: "blur(7px)",
-                    }
+                  : "hidden"
               }
-              whileInView={
+              animate={
                 reducedMotion
                   ? undefined
-                  : {
-                      opacity: 1,
-                      x: 0,
-                      y: 0,
-                      scale: 1,
-                      rotate: 0,
-                      filter: "blur(0px)",
-                    }
+                  : "visible"
               }
-              viewport={{
-                once: true,
-                amount: 0.18,
-              }}
               transition={{
                 duration: 0.8,
+                ease,
                 delay: reducedMotion
                   ? 0
-                  : 0.12 + index * 0.075,
-                ease,
+                  : index * 0.04,
               }}
               whileHover={
                 reducedMotion
@@ -542,10 +561,10 @@ export function LocationsBento() {
                   reducedMotion
                     ? false
                     : {
-                        scale: 1.12,
+                        scale: 1.08,
                       }
                 }
-                whileInView={
+                animate={
                   reducedMotion
                     ? undefined
                     : {
@@ -559,12 +578,8 @@ export function LocationsBento() {
                         scale: 1.07,
                       }
                 }
-                viewport={{
-                  once: true,
-                  amount: 0.18,
-                }}
                 transition={{
-                  duration: 1.4,
+                  duration: 1.2,
                   ease,
                 }}
                 className="
@@ -589,20 +604,15 @@ export function LocationsBento() {
                         opacity: 0.25,
                       }
                 }
-                whileInView={
+                animate={
                   reducedMotion
                     ? undefined
                     : {
                         opacity: 1,
                       }
                 }
-                viewport={{
-                  once: true,
-                  amount: 0.18,
-                }}
                 transition={{
-                  duration: 1,
-                  delay: 0.2 + index * 0.075,
+                  duration: 0.9,
                   ease,
                 }}
                 className="
@@ -635,21 +645,25 @@ export function LocationsBento() {
                   ================================================= */}
 
               <motion.div
-                variants={reducedMotion ? undefined : iconReveal}
-                initial={reducedMotion ? false : "hidden"}
-                whileInView={
+                variants={
+                  reducedMotion
+                    ? undefined
+                    : iconReveal
+                }
+                initial={
+                  reducedMotion
+                    ? false
+                    : "hidden"
+                }
+                animate={
                   reducedMotion
                     ? undefined
                     : "visible"
                 }
-                viewport={{
-                  once: true,
-                  amount: 0.25,
-                }}
                 transition={{
                   delay: reducedMotion
                     ? 0
-                    : 0.32 + index * 0.075,
+                    : 0.15,
                 }}
                 whileHover={
                   reducedMotion
@@ -698,7 +712,7 @@ export function LocationsBento() {
                         x: 15,
                       }
                 }
-                whileInView={
+                animate={
                   reducedMotion
                     ? undefined
                     : {
@@ -706,15 +720,11 @@ export function LocationsBento() {
                         x: 0,
                       }
                 }
-                viewport={{
-                  once: true,
-                  amount: 0.25,
-                }}
                 transition={{
                   duration: 0.55,
                   delay: reducedMotion
                     ? 0
-                    : 0.48 + index * 0.075,
+                    : 0.18,
                   ease,
                 }}
                 className="
@@ -736,21 +746,25 @@ export function LocationsBento() {
                   ================================================= */}
 
               <motion.div
-                variants={reducedMotion ? undefined : cardContent}
-                initial={reducedMotion ? false : "hidden"}
-                whileInView={
+                variants={
+                  reducedMotion
+                    ? undefined
+                    : cardContent
+                }
+                initial={
+                  reducedMotion
+                    ? false
+                    : "hidden"
+                }
+                animate={
                   reducedMotion
                     ? undefined
                     : "visible"
                 }
-                viewport={{
-                  once: true,
-                  amount: 0.2,
-                }}
                 transition={{
                   delay: reducedMotion
                     ? 0
-                    : 0.42 + index * 0.075,
+                    : 0.18,
                 }}
                 className="
                   absolute
@@ -770,7 +784,7 @@ export function LocationsBento() {
                           y: 16,
                         }
                   }
-                  whileInView={
+                  animate={
                     reducedMotion
                       ? undefined
                       : {
@@ -778,15 +792,11 @@ export function LocationsBento() {
                           y: 0,
                         }
                   }
-                  viewport={{
-                    once: true,
-                    amount: 0.2,
-                  }}
                   transition={{
                     duration: 0.55,
                     delay: reducedMotion
                       ? 0
-                      : 0.56 + index * 0.075,
+                      : 0.25,
                     ease,
                   }}
                   className="
@@ -812,7 +822,7 @@ export function LocationsBento() {
                           y: 14,
                         }
                   }
-                  whileInView={
+                  animate={
                     reducedMotion
                       ? undefined
                       : {
@@ -820,15 +830,11 @@ export function LocationsBento() {
                           y: 0,
                         }
                   }
-                  viewport={{
-                    once: true,
-                    amount: 0.2,
-                  }}
                   transition={{
                     duration: 0.55,
                     delay: reducedMotion
                       ? 0
-                      : 0.66 + index * 0.075,
+                      : 0.32,
                     ease,
                   }}
                   className="
@@ -856,7 +862,7 @@ export function LocationsBento() {
                         scaleX: 0.4,
                       }
                 }
-                whileInView={
+                animate={
                   reducedMotion
                     ? undefined
                     : {
@@ -864,15 +870,11 @@ export function LocationsBento() {
                         scaleX: 1,
                       }
                 }
-                viewport={{
-                  once: true,
-                  amount: 0.2,
-                }}
                 transition={{
                   duration: 0.8,
                   delay: reducedMotion
                     ? 0
-                    : 0.25 + index * 0.075,
+                    : 0.12,
                   ease,
                 }}
                 className="

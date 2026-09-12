@@ -409,7 +409,7 @@ export function CoworkingNavbar() {
                   "
                 >
                   <span className="max-w-[100px] truncate">
-                    {user.name ||
+                    {user.nombre ||
                       user.email ||
                       "Dashboard"}
                   </span>
@@ -637,7 +637,7 @@ export function CoworkingNavbar() {
               "
             >
               <Link
-                to="/register"
+                to="/login"
                 onClick={() =>
                   setMobileMenuOpen(false)
                 }

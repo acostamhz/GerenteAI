@@ -5,12 +5,15 @@ import React, {
   useEffect,
   useState,
 } from 'react';
+
 import { authApi } from '../api/authApi';
+
 import {
   AuthUser,
   LoginCredentials,
   RegisterCredentials,
 } from '../types';
+
 import { ApiError } from '@/lib/apiClient';
 
 interface AuthContextType {
@@ -21,6 +24,7 @@ interface AuthContextType {
   error: string | null;
 
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
+  googleLogin: (credential: string) => Promise<AuthUser>;
   register: (credentials: RegisterCredentials) => Promise<AuthUser>;
 
   logout: () => void;
@@ -43,6 +47,7 @@ export const SESSION_MAX_AGE_MS = 60 * 60 * 1000; // 3.600.000 ms
 function isTokenExpired(jwtToken: string): boolean {
   try {
     const payloadBase64 = jwtToken.split('.')[1];
+
     if (!payloadBase64) return true;
 
     const normalized = payloadBase64
@@ -61,8 +66,10 @@ function isTokenExpired(jwtToken: string): boolean {
     );
 
     const decoded = JSON.parse(jsonPayload);
+
     if (!decoded.exp) return false;
-    // Si expira en los próximos 10 segundos, considerarlo expirado
+
+    // Si expira en los próximos 10 segundos, considerarlo expirado.
     return decoded.exp * 1000 < Date.now() + 10000;
   } catch {
     return true;
@@ -70,15 +77,17 @@ function isTokenExpired(jwtToken: string): boolean {
 }
 
 /**
- * Verifica si la sesión de 1 hora o el JWT han expirado
+ * Verifica si la sesión de 1 hora o el JWT han expirado.
  */
 function isSessionExpired(): boolean {
   const token = localStorage.getItem(TOKEN_KEY);
+
   if (!token) return true;
 
   if (isTokenExpired(token)) return true;
 
   const expiresAt = localStorage.getItem(SESSION_EXPIRES_AT_KEY);
+
   if (expiresAt && Date.now() >= Number(expiresAt)) {
     return true;
   }
@@ -93,8 +102,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       localStorage.removeItem(USER_KEY);
       localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
       localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+
       return null;
     }
+
     return localStorage.getItem(TOKEN_KEY);
   });
 
@@ -104,6 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     const savedUser = localStorage.getItem(USER_KEY);
+
     if (!savedUser) return null;
 
     try {
@@ -120,12 +132,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setError(null);
   }, []);
 
-  const clearBusinessStorage = () => {
+  const clearBusinessStorage = useCallback(() => {
     localStorage.removeItem('active_business_id');
     localStorage.removeItem('active_business_name');
     localStorage.removeItem('active_sede_id');
     localStorage.removeItem('active_sede_name');
     localStorage.removeItem('active_business_plan');
+
     try {
       Object.keys(localStorage).forEach((key) => {
         if (key.startsWith('business_plan_')) {
@@ -133,22 +146,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       });
     } catch {
-      // Ignorar errores de acceso a storage
+      // Ignorar errores de acceso a storage.
     }
-  };
+  }, []);
 
   const logout = useCallback(() => {
     localStorage.removeItem(TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
     localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
     localStorage.removeItem(SESSION_LOGIN_TIME_KEY);
+
     clearBusinessStorage();
+
     setToken(null);
     setUser(null);
     setError(null);
-  }, []);
+  }, [clearBusinessStorage]);
 
-  // Verificación proactiva de expiración de sesión (Temporizador y foco de ventana)
+  /**
+   * Guarda una sesión autenticada en localStorage y React state.
+   *
+   * Se utiliza tanto para login tradicional como para Google.
+   */
+  const persistSession = useCallback(
+    (accessToken: string, authenticatedUser: AuthUser) => {
+      const expiresAt = Date.now() + SESSION_MAX_AGE_MS;
+
+      localStorage.setItem(TOKEN_KEY, accessToken);
+      localStorage.setItem(USER_KEY, JSON.stringify(authenticatedUser));
+      localStorage.setItem(
+        SESSION_EXPIRES_AT_KEY,
+        expiresAt.toString(),
+      );
+      localStorage.setItem(
+        SESSION_LOGIN_TIME_KEY,
+        Date.now().toString(),
+      );
+
+      setToken(accessToken);
+      setUser(authenticatedUser);
+    },
+    [],
+  );
+
+  // Verificación proactiva de expiración de sesión
+  // mediante temporizador y foco de ventana.
   useEffect(() => {
     const checkExpiration = () => {
       if (token && isSessionExpired()) {
@@ -164,15 +206,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     };
 
-    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener(
+      'visibilitychange',
+      handleVisibilityChange,
+    );
+
     window.addEventListener('focus', checkExpiration);
 
-    // Revisión periódica cada 30 segundos
+    // Revisión periódica cada 30 segundos.
     const interval = setInterval(checkExpiration, 30000);
 
     return () => {
-      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener(
+        'visibilitychange',
+        handleVisibilityChange,
+      );
+
       window.removeEventListener('focus', checkExpiration);
+
       clearInterval(interval);
     };
   }, [token, logout]);
@@ -205,31 +256,36 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     window.addEventListener('storage', handleStorageChange);
+
     return () => {
-      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener(
+        'storage',
+        handleStorageChange,
+      );
     };
   }, []);
 
   /**
    * Login normal.
-   * Almacenamos el JWT y limpiamos datos residuales de comercios de sesiones previas.
+   *
+   * Almacenamos el JWT y limpiamos datos residuales
+   * de comercios de sesiones previas.
    */
-  const login = async (credentials: LoginCredentials): Promise<AuthUser> => {
+  const login = async (
+    credentials: LoginCredentials,
+  ): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
 
     try {
       clearBusinessStorage();
+
       const response = await authApi.login(credentials);
-      const expiresAt = Date.now() + SESSION_MAX_AGE_MS;
 
-      localStorage.setItem(TOKEN_KEY, response.access_token);
-      localStorage.setItem(USER_KEY, JSON.stringify(response.user));
-      localStorage.setItem(SESSION_EXPIRES_AT_KEY, expiresAt.toString());
-      localStorage.setItem(SESSION_LOGIN_TIME_KEY, Date.now().toString());
-
-      setToken(response.access_token);
-      setUser(response.user);
+      persistSession(
+        response.access_token,
+        response.user,
+      );
 
       return response.user;
     } catch (err) {
@@ -246,15 +302,57 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   /**
-   * Registro.
-   * IMPORTANTE: No almacena token porque requiere verificación por correo previo al login.
+   * Login / registro mediante Google.
+   *
+   * Google entrega un ID Token (credential).
+   * El backend lo valida y devuelve el mismo JWT
+   * utilizado por el login tradicional.
    */
-  const register = async (credentials: RegisterCredentials): Promise<AuthUser> => {
+  const googleLogin = async (
+    credential: string,
+  ): Promise<AuthUser> => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      clearBusinessStorage();
+
+      const response = await authApi.googleLogin(credential);
+
+      persistSession(
+        response.access_token,
+        response.user,
+      );
+
+      return response.user;
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : 'Error al iniciar sesión con Google';
+
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Registro.
+   *
+   * IMPORTANTE: No almacena token porque requiere
+   * verificación por correo previo al login.
+   */
+  const register = async (
+    credentials: RegisterCredentials,
+  ): Promise<AuthUser> => {
     setIsLoading(true);
     setError(null);
 
     try {
       const newUser = await authApi.register(credentials);
+
       return newUser;
     } catch (err) {
       const message =
@@ -276,6 +374,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     isLoading,
     error,
     login,
+    googleLogin,
     register,
     logout,
     clearError,
@@ -290,8 +389,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
 export function useAuth() {
   const context = useContext(AuthContext);
+
   if (!context) {
-    throw new Error('useAuth debe ser utilizado dentro de un <AuthProvider>');
+    throw new Error(
+      'useAuth debe ser utilizado dentro de un <AuthProvider>',
+    );
   }
+
   return context;
 }

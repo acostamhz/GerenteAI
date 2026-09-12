@@ -31,12 +31,52 @@ export const authApi = {
 
     const token = raw.accessToken || raw.access_token || '';
 
-    const user = raw.usuario ||
+    const user =
+      raw.usuario ||
       raw.user || {
-      id: '',
-      nombre: '',
-      rolGlobal: 'CLIENTE',
+        id: '',
+        nombre: '',
+        rolGlobal: 'CLIENTE',
+      };
+
+    return {
+      access_token: token,
+      user,
     };
+  },
+
+  /**
+   * Iniciar sesión o registrarse mediante Google.
+   *
+   * Google entrega un ID Token (credential) al frontend.
+   *
+   * El frontend NO valida ni decodifica el token.
+   * Lo envía directamente al backend, donde Google
+   * es validado mediante google-auth-library.
+   *
+   * POST /auth/google
+   */
+  async googleLogin(credential: string): Promise<AuthResponse> {
+    if (!credential?.trim()) {
+      throw new Error('No se recibió la credencial de Google.');
+    }
+
+    const raw = await apiClient<BackendAuthResponse>('/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({
+        credential: credential.trim(),
+      }),
+    });
+
+    const token = raw.accessToken || raw.access_token || '';
+
+    const user =
+      raw.usuario ||
+      raw.user || {
+        id: '',
+        nombre: '',
+        rolGlobal: 'CLIENTE',
+      };
 
     return {
       access_token: token,
@@ -59,9 +99,22 @@ export const authApi = {
       nombre: credentials.nombre.trim(),
       email: credentials.email.trim().toLowerCase(),
       password: credentials.password,
-      ...(credentials.telefono?.trim() ? { telefono: credentials.telefono.trim() } : {}),
-      nombreNegocio: credentials.nombreNegocio?.trim() || `Negocio de ${credentials.nombre.trim()}`,
-      ...(cleanUsername ? { whatsappUsername: cleanUsername } : {}),
+
+      ...(credentials.telefono?.trim()
+        ? {
+            telefono: credentials.telefono.trim(),
+          }
+        : {}),
+
+      nombreNegocio:
+        credentials.nombreNegocio?.trim() ||
+        `Negocio de ${credentials.nombre.trim()}`,
+
+      ...(cleanUsername
+        ? {
+            whatsappUsername: cleanUsername,
+          }
+        : {}),
     };
 
     const raw = await apiClient<BackendAuthResponse | AuthUser>(
@@ -121,7 +174,9 @@ export const authApi = {
       '/auth/reenviar-verificacion',
       {
         method: 'POST',
-        body: JSON.stringify({ email: email.trim().toLowerCase() }),
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+        }),
       },
     );
   },
@@ -136,7 +191,9 @@ export const authApi = {
   ): Promise<{ mensaje: string }> {
     return apiClient<{ mensaje: string }>('/auth/forgot-password', {
       method: 'POST',
-      body: JSON.stringify({ email: data.email.trim().toLowerCase() }),
+      body: JSON.stringify({
+        email: data.email.trim().toLowerCase(),
+      }),
     });
   },
 

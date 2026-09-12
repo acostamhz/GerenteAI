@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router";
 import {
   ArrowRight,
   CheckCircle2,
@@ -9,29 +9,37 @@ import {
   User,
   Mail,
   Phone,
-  Lock,
-  MailCheck,
-  Send,
   MessageCircle,
+  Lock,
 } from "lucide-react";
-import { motion, AnimatePresence, useReducedMotion } from "motion/react";
+import {
+  motion,
+  AnimatePresence,
+  useReducedMotion,
+} from "motion/react";
+import { GoogleLogin } from "@react-oauth/google";
 
 import { Button } from "@/app/components/ui/button";
-import { authApi } from "../api/authApi";
 import { useAuth } from "../hooks/useAuth";
 import { AuthErrorAlert } from "./AuthErrorAlert";
 
 const ease = [0.22, 1, 0.36, 1] as const;
 
 export function RegisterForm() {
-  const navigate = useNavigate();
-  const { register, isLoading, error: authError, clearError } = useAuth();
+  const {
+    register,
+    googleLogin,
+    isLoading,
+    error,
+    clearError,
+  } = useAuth();
 
   const shouldReduceMotion = useReducedMotion();
 
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
+    businessName: "",
     phone: "",
     whatsappUsername: "",
     password: "",
@@ -40,13 +48,75 @@ export function RegisterForm() {
   });
 
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  const [localError, setLocalError] = useState<string | null>(null);
-  const [isSuccess, setIsSuccess] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] =
+    useState(false);
 
-  // Reenvío de verificación
-  const [isResending, setIsResending] = useState(false);
-  const [resendMessage, setResendMessage] = useState<string | null>(null);
+  const [localError, setLocalError] =
+    useState<string | null>(null);
+
+  const [isSuccess, setIsSuccess] =
+    useState(false);
+
+  const [successCountdown, setSuccessCountdown] =
+    useState(5);
+
+  const [isGoogleLoading, setIsGoogleLoading] =
+    useState(false);
+
+  /**
+   * Contenedor real del GoogleLogin.
+   *
+   * IMPORTANTE:
+   * No debe tener w-0 ni h-0 porque Google necesita
+   * poder calcular las dimensiones de su botón.
+   *
+   * Lo dejamos fuera de pantalla, pero conservando
+   * un ancho real para que Google lo renderice.
+   */
+  const googleButtonContainerRef =
+    useRef<HTMLDivElement>(null);
+
+  const [googleButtonWidth, setGoogleButtonWidth] =
+    useState(0);
+
+  /* ================================================================
+     GOOGLE BUTTON WIDTH
+  ================================================================ */
+
+  useEffect(() => {
+    const element =
+      googleButtonContainerRef.current;
+
+    if (!element) {
+      return;
+    }
+
+    const updateWidth = () => {
+      const width = Math.floor(
+        element.clientWidth,
+      );
+
+      if (width > 0) {
+        setGoogleButtonWidth(width);
+      }
+    };
+
+    updateWidth();
+
+    const observer = new ResizeObserver(() => {
+      updateWidth();
+    });
+
+    observer.observe(element);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
+  /* ================================================================
+     CLEAR ERRORS
+  ================================================================ */
 
   useEffect(() => {
     clearError();
@@ -57,228 +127,304 @@ export function RegisterForm() {
     };
   }, [clearError]);
 
-  const calculatePasswordStrength = (pass: string) => {
-    if (!pass) {
-      return {
-        score: 0,
-        label: "",
-        color: "bg-border",
-      };
+  /* ================================================================
+     SUCCESS REDIRECT COUNTDOWN
+  ================================================================ */
+
+  useEffect(() => {
+    if (!isSuccess) {
+      return;
     }
 
-    let score = 0;
+    setSuccessCountdown(5);
 
-    if (pass.length >= 8) score += 1;
-    if (/[a-z]/.test(pass) && /[A-Z]/.test(pass)) score += 1;
-    if (/[0-9]/.test(pass)) score += 1;
-    if (/[^A-Za-z0-9]/.test(pass)) score += 1;
+    const interval = window.setInterval(() => {
+      setSuccessCountdown((current) => {
+        if (current <= 1) {
+          window.clearInterval(interval);
+          return 0;
+        }
 
-    switch (score) {
-      case 1:
-        return {
-          score: 25,
-          label: "Débil",
-          color: "bg-red-500",
-        };
+        return current - 1;
+      });
+    }, 1000);
 
-      case 2:
-        return {
-          score: 50,
-          label: "Aceptable",
-          color: "bg-amber-500",
-        };
+    return () => {
+      window.clearInterval(interval);
+    };
+  }, [isSuccess]);
 
-      case 3:
-        return {
-          score: 75,
-          label: "Buena",
-          color: "bg-blue-500",
-        };
+  /* ================================================================
+     INPUT HANDLER
+  ================================================================ */
 
-      case 4:
-        return {
-          score: 100,
-          label: "Excelente",
-          color: "bg-emerald-500",
-        };
-
-      default:
-        return {
-          score: 15,
-          label: "Muy débil",
-          color: "bg-red-500",
-        };
-    }
-  };
-
-  const strength = calculatePasswordStrength(formData.password);
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>,
+  const updateField = (
+    field: keyof typeof formData,
+    value: string | boolean,
   ) => {
-    const {
-      name,
-      value,
-      type,
-      checked,
-    } = e.target;
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
+    setFormData((current) => ({
+      ...current,
+      [field]: value,
     }));
 
-    if (localError || authError) {
+    if (localError) {
       setLocalError(null);
+    }
+
+    if (error) {
       clearError();
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  /* ================================================================
+     NORMALIZE WHATSAPP
+  ================================================================ */
+
+  const normalizeWhatsappUsername = (
+    value: string,
+  ) => {
+    return value
+      .trim()
+      .replace(/^@+/, "");
+  };
+
+  /* ================================================================
+     VALIDATION
+  ================================================================ */
+
+  const validateForm = () => {
+    const fullName =
+      formData.fullName.trim();
+
+    const email =
+      formData.email.trim().toLowerCase();
+
+    const businessName =
+      formData.businessName.trim();
+
+    const phone =
+      formData.phone.trim();
+
+    const whatsappUsername =
+      normalizeWhatsappUsername(
+        formData.whatsappUsername,
+      );
+
+    if (!fullName) {
+      return "Por favor ingresa tu nombre completo.";
+    }
+
+    if (fullName.length < 3) {
+      return "El nombre completo debe tener al menos 3 caracteres.";
+    }
+
+    if (!email) {
+      return "Por favor ingresa tu correo electrónico.";
+    }
+
+    if (!businessName) {
+      return "Por favor ingresa el nombre de tu negocio.";
+    }
+
+    if (!phone) {
+      return "Por favor ingresa tu número de celular.";
+    }
+
+    if (!whatsappUsername) {
+      return "Por favor ingresa tu usuario de WhatsApp.";
+    }
+
+    if (!formData.password) {
+      return "Por favor crea una contraseña.";
+    }
+
+    if (formData.password.length < 8) {
+      return "La contraseña debe tener al menos 8 caracteres.";
+    }
+
+    if (
+      formData.password !==
+      formData.confirmPassword
+    ) {
+      return "Las contraseñas no coinciden.";
+    }
+
+    if (!formData.termsAccepted) {
+      return "Debes aceptar los Términos y la Política de Privacidad.";
+    }
+
+    return null;
+  };
+
+  /* ================================================================
+     NORMAL REGISTER
+  ================================================================ */
+
+  const handleSubmit = async (
+    event: React.FormEvent<HTMLFormElement>,
+  ) => {
+    event.preventDefault();
+
+    const validationError =
+      validateForm();
+
+    if (validationError) {
+      setLocalError(validationError);
+      return;
+    }
 
     setLocalError(null);
     clearError();
 
-    const cleanFullName = formData.fullName.trim();
-    const cleanEmail = formData.email.trim().toLowerCase();
-    const cleanPhone = formData.phone.replace(/\D/g, "");
-    const cleanWhatsappUsername = formData.whatsappUsername
-      .trim()
-      .replace(/^@+/, "");
+    const payload = {
+      nombre:
+        formData.fullName.trim(),
 
-    if (!cleanFullName) {
-      setLocalError("Por favor ingresa tu nombre completo.");
-      return;
-    }
+      email:
+        formData.email.trim().toLowerCase(),
 
-    if (!cleanEmail) {
-      setLocalError("Por favor ingresa un correo electrónico válido.");
-      return;
-    }
+      telefono:
+        formData.phone.trim(),
 
-    if (cleanPhone.length < 10) {
-      setLocalError(
-        "El número de celular debe tener al menos 10 dígitos (incluyendo indicativo).",
-      );
-      return;
-    }
+      password:
+        formData.password,
 
-    if (formData.password !== formData.confirmPassword) {
-      setLocalError("Las contraseñas no coinciden.");
-      return;
-    }
+      nombreNegocio:
+        formData.businessName.trim(),
 
-    if (formData.password.length < 8) {
-      setLocalError(
-        "La contraseña debe tener al menos 8 caracteres.",
-      );
-      return;
-    }
-
-    if (!/(?=.*[a-z])/.test(formData.password)) {
-      setLocalError(
-        "La contraseña debe contener al menos una letra minúscula.",
-      );
-      return;
-    }
-
-    if (!/(?=.*[A-Z])/.test(formData.password)) {
-      setLocalError(
-        "La contraseña debe contener al menos una letra mayúscula.",
-      );
-      return;
-    }
-
-    if (!/(?=.*\d)/.test(formData.password)) {
-      setLocalError(
-        "La contraseña debe contener al menos un número.",
-      );
-      return;
-    }
-
-    if (!/(?=.*[!@#$%^&*(),.?":{}|<>])/.test(formData.password)) {
-      setLocalError(
-        "La contraseña debe contener al menos un carácter especial (!@#$%...).",
-      );
-      return;
-    }
-
-    if (!formData.termsAccepted) {
-      setLocalError(
-        "Debes aceptar los términos y condiciones para continuar.",
-      );
-      return;
-    }
+      whatsappUsername:
+        normalizeWhatsappUsername(
+          formData.whatsappUsername,
+        ),
+    };
 
     try {
-      await register({
-        nombre: cleanFullName,
-        email: cleanEmail,
-        password: formData.password,
-        telefono: formData.phone.trim(),
-        whatsappUsername:
-          cleanWhatsappUsername || undefined,
-      });
+      await register(payload);
 
       setIsSuccess(true);
-    } catch (err: any) {
-      const errorMsg =
-        err?.message ||
-        (err instanceof Error
-          ? err.message
-          : "Error al registrar la cuenta.");
-
-      setLocalError(errorMsg);
+    } catch (err) {
+      console.error(
+        "❌ [RegisterForm] Error en registro:",
+        err,
+      );
     }
   };
 
-  const handleResendVerification = async () => {
-    const cleanEmail = formData.email.trim().toLowerCase();
+  /* ================================================================
+     GOOGLE REGISTER / LOGIN
+  ================================================================ */
 
-    if (!cleanEmail) return;
+  const handleGoogleSuccess = async (
+    credential: string,
+  ) => {
+    if (!credential) {
+      setLocalError(
+        "Google no pudo completar la autenticación. Inténtalo nuevamente.",
+      );
 
-    setIsResending(true);
-    setResendMessage(null);
+      return;
+    }
+
+    setLocalError(null);
+    clearError();
+    setIsGoogleLoading(true);
 
     try {
-      const res =
-        await authApi.reenviarVerificacion(cleanEmail);
+      /*
+       * El backend de Luka recibe el credential de Google,
+       * valida el ID Token y devuelve el JWT propio de Luka.
+       */
+      await googleLogin(credential);
 
-      setResendMessage(
-        res.mensaje ||
-          "Correo de verificación reenviado con éxito.",
-      );
-    } catch (err: any) {
-      setResendMessage(
-        err?.message ||
-          "No se pudo reenviar el correo.",
+      /*
+       * Google ya autenticó al usuario.
+       *
+       * El AuthContext se encarga de persistir la sesión.
+       */
+      window.location.href = "/";
+    } catch (err) {
+      console.error(
+        "❌ [RegisterForm] Error en Google:",
+        err,
       );
     } finally {
-      setIsResending(false);
+      setIsGoogleLoading(false);
     }
   };
 
-  const displayError = localError || authError;
+  /* ================================================================
+     GOOGLE ERROR
+  ================================================================ */
 
-  // ================================================================
-  // CONFIRMACIÓN DE REGISTRO
-  // ================================================================
+  const handleGoogleError = () => {
+    setIsGoogleLoading(false);
+
+    setLocalError(
+      "No fue posible iniciar sesión con Google. Inténtalo nuevamente.",
+    );
+
+    clearError();
+  };
+
+  /* ================================================================
+     DISPLAY ERROR
+  ================================================================ */
+
+  const displayError =
+    localError || error;
+
+  const formDisabled =
+    isLoading || isGoogleLoading;
+
+  /* ================================================================
+     SUCCESS SCREEN
+  ================================================================ */
 
   if (isSuccess) {
     return (
-      <div className="flex h-full min-h-0 w-full items-center justify-center overflow-hidden bg-background">
-        <div
+      <div
+        className="
+          flex
+          h-full
+          min-h-0
+          w-full
+          items-center
+          justify-center
+          overflow-hidden
+          bg-background
+        "
+      >
+        <motion.div
+          initial={
+            shouldReduceMotion
+              ? {
+                  opacity: 1,
+                  y: 0,
+                }
+              : {
+                  opacity: 0,
+                  y: 18,
+                }
+          }
+          animate={{
+            opacity: 1,
+            y: 0,
+          }}
+          transition={{
+            duration: shouldReduceMotion
+              ? 0
+              : 0.7,
+            ease,
+          }}
           className="
             flex
-            h-full
-            min-h-0
             w-full
             max-w-[560px]
             flex-col
+            items-center
             justify-center
-            px-7
-            py-7
+            px-6
+            text-center
             sm:px-10
             lg:px-12
           "
@@ -286,320 +432,130 @@ export function RegisterForm() {
           <motion.div
             initial={
               shouldReduceMotion
-                ? { opacity: 1 }
+                ? {
+                    opacity: 1,
+                    scale: 1,
+                  }
                 : {
                     opacity: 0,
-                    y: 18,
+                    scale: 0.85,
                   }
             }
             animate={{
               opacity: 1,
-              y: 0,
+              scale: 1,
             }}
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.7,
+              duration: shouldReduceMotion
+                ? 0
+                : 0.55,
               ease,
             }}
-            className="mx-auto w-full max-w-[430px] text-center"
+            className="
+              flex
+              h-16
+              w-16
+              items-center
+              justify-center
+              rounded-2xl
+              border
+              border-emerald-500/15
+              bg-emerald-500/[0.07]
+            "
           >
-            {/* Icon */}
-
-            <motion.div
-              initial={
-                shouldReduceMotion
-                  ? {
-                      opacity: 1,
-                      scale: 1,
-                    }
-                  : {
-                      opacity: 0,
-                      scale: 0.8,
-                      y: 8,
-                    }
-              }
-              animate={{
-                opacity: 1,
-                scale: 1,
-                y: 0,
-              }}
-              transition={{
-                duration: shouldReduceMotion ? 0 : 0.6,
-                delay: shouldReduceMotion ? 0 : 0.08,
-                ease,
-              }}
+            <CheckCircle2
               className="
-                relative
-                mx-auto
-                flex
-                h-14
-                w-14
-                items-center
-                justify-center
-                rounded-2xl
-                bg-emerald-500/10
-                ring-1
-                ring-emerald-500/15
+                h-8
+                w-8
+                text-emerald-500
               "
-            >
-              <MailCheck className="h-7 w-7 text-emerald-500" />
-
-              <span
-                className="
-                  absolute
-                  -right-1
-                  -top-1
-                  flex
-                  h-5
-                  w-5
-                  items-center
-                  justify-center
-                  rounded-full
-                  bg-emerald-500
-                  text-[10px]
-                  font-bold
-                  text-white
-                  shadow-sm
-                "
-              >
-                ✓
-              </span>
-            </motion.div>
-
-            {/* Header */}
-
-            <motion.div
-              initial={
-                shouldReduceMotion
-                  ? { opacity: 1, y: 0 }
-                  : {
-                      opacity: 0,
-                      y: 10,
-                    }
-              }
-              animate={{
-                opacity: 1,
-                y: 0,
-              }}
-              transition={{
-                duration: shouldReduceMotion ? 0 : 0.55,
-                delay: shouldReduceMotion ? 0 : 0.18,
-                ease,
-              }}
-              className="mt-5"
-            >
-              <span
-                className="
-                  text-[10px]
-                  font-semibold
-                  uppercase
-                  tracking-[0.18em]
-                  text-muted-foreground/55
-                "
-              >
-                Cuenta creada
-              </span>
-
-              <h1
-                className="
-                  mt-3
-                  text-[2.3rem]
-                  font-bold
-                  leading-[1]
-                  tracking-[-0.045em]
-                  text-foreground
-                "
-              >
-                Revisa tu correo
-                <br />
-                electrónico.
-              </h1>
-
-              <p
-                className="
-                  mx-auto
-                  mt-4
-                  max-w-[370px]
-                  text-[13px]
-                  leading-6
-                  text-muted-foreground
-                "
-              >
-                Hemos enviado un enlace de verificación a:
-              </p>
-
-              <div
-                className="
-                  mt-3
-                  inline-flex
-                  max-w-full
-                  rounded-xl
-                  bg-muted
-                  px-3
-                  py-2
-                  text-[11px]
-                  font-semibold
-                  text-foreground
-                "
-              >
-                <span className="truncate">
-                  {formData.email.trim().toLowerCase()}
-                </span>
-              </div>
-
-              <p
-                className="
-                  mx-auto
-                  mt-4
-                  max-w-[370px]
-                  text-[11px]
-                  leading-5
-                  text-muted-foreground/70
-                "
-              >
-                Haz clic en el enlace del correo para activar
-                tu cuenta antes de iniciar sesión.
-              </p>
-            </motion.div>
-
-            {/* Resend message */}
-
-            <AnimatePresence mode="wait">
-              {resendMessage && (
-                <motion.div
-                  key="resend"
-                  initial={
-                    shouldReduceMotion
-                      ? { opacity: 1 }
-                      : {
-                          opacity: 0,
-                          y: 8,
-                        }
-                  }
-                  animate={{
-                    opacity: 1,
-                    y: 0,
-                  }}
-                  exit={{
-                    opacity: 0,
-                    y: -8,
-                  }}
-                  transition={{
-                    duration: shouldReduceMotion ? 0 : 0.35,
-                    ease,
-                  }}
-                  className="
-                    mt-5
-                    rounded-xl
-                    border
-                    border-emerald-500/15
-                    bg-emerald-500/[0.06]
-                    px-4
-                    py-3
-                    text-[11px]
-                    font-medium
-                    leading-5
-                    text-emerald-700
-                    dark:text-emerald-400
-                  "
-                >
-                  {resendMessage}
-                </motion.div>
-              )}
-            </AnimatePresence>
-
-            {/* Actions */}
-
-            <motion.div
-              initial={
-                shouldReduceMotion
-                  ? { opacity: 1, y: 0 }
-                  : {
-                      opacity: 0,
-                      y: 10,
-                    }
-              }
-              animate={{
-                opacity: 1,
-                y: 0,
-              }}
-              transition={{
-                duration: shouldReduceMotion ? 0 : 0.55,
-                delay: shouldReduceMotion ? 0 : 0.3,
-                ease,
-              }}
-              className="mt-6 space-y-2"
-            >
-              <Button
-                onClick={() =>
-                  navigate("/login", {
-                    replace: true,
-                  })
-                }
-                className="
-                  group
-                  h-[52px]
-                  w-full
-                  rounded-[14px]
-                  bg-primary
-                  text-[13px]
-                  font-bold
-                  shadow-none
-                  transition-all
-                  duration-300
-                  hover:-translate-y-0.5
-                  hover:shadow-lg
-                  hover:shadow-primary/15
-                "
-              >
-                <span className="flex items-center justify-center gap-2">
-                  Ir a Iniciar Sesión
-
-                  <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
-                </span>
-              </Button>
-
-              <button
-                type="button"
-                disabled={isResending}
-                onClick={handleResendVerification}
-                className="
-                  flex
-                  h-10
-                  w-full
-                  items-center
-                  justify-center
-                  gap-1.5
-                  rounded-xl
-                  text-[11px]
-                  font-semibold
-                  text-muted-foreground
-                  transition-colors
-                  hover:text-foreground
-                  disabled:cursor-not-allowed
-                  disabled:opacity-50
-                "
-              >
-                {isResending ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Send className="h-3.5 w-3.5" />
-                )}
-
-                ¿No recibiste el correo? Reenviar enlace
-              </button>
-            </motion.div>
+            />
           </motion.div>
-        </div>
+
+          <h1
+            className="
+              mt-6
+              bg-gradient-to-r
+              from-emerald-400
+              via-cyan-400
+              to-blue-500
+              bg-clip-text
+              text-[2rem]
+              font-bold
+              leading-tight
+              tracking-[-0.04em]
+              text-transparent
+              sm:text-[2.35rem]
+            "
+          >
+            Cuenta creada.
+          </h1>
+
+          <p
+            className="
+              mt-3
+              max-w-[430px]
+              text-[13px]
+              leading-6
+              text-muted-foreground
+              sm:text-[14px]
+            "
+          >
+            Hemos enviado un correo de
+            verificación a tu dirección de
+            correo electrónico. Verifica tu
+            cuenta para comenzar a usar Luka.
+          </p>
+
+          <p
+            className="
+              mt-6
+              text-[10px]
+              font-semibold
+              uppercase
+              tracking-[0.14em]
+              text-muted-foreground/45
+            "
+          >
+            Serás enviado al inicio de sesión
+            en {successCountdown}s
+          </p>
+
+          <Link
+            to="/login"
+            className="
+              mt-5
+              text-[12px]
+              font-semibold
+              text-primary
+              transition-opacity
+              hover:opacity-70
+            "
+          >
+            Ir al inicio de sesión
+          </Link>
+        </motion.div>
       </div>
     );
   }
 
-  // ================================================================
-  // REGISTRO
-  // ================================================================
+  /* ================================================================
+     MAIN
+  ================================================================ */
 
   return (
-    <div className="flex h-full min-h-0 w-full items-center justify-center overflow-hidden bg-background">
+    <div
+      className="
+        flex
+        h-full
+        min-h-0
+        w-full
+        items-center
+        justify-center
+        overflow-hidden
+        bg-background
+      "
+    >
       <div
         className="
           flex
@@ -608,20 +564,28 @@ export function RegisterForm() {
           w-full
           max-w-[560px]
           flex-col
-          justify-center
-          px-7
-          py-7
+          px-6
+          py-5
           sm:px-10
+          sm:py-6
           lg:px-12
+          lg:py-6
         "
       >
+        {/* ==========================================================
+            MAIN CONTENT
+        ========================================================== */}
+
         <motion.div
           initial={
             shouldReduceMotion
-              ? { opacity: 1, y: 0 }
+              ? {
+                  opacity: 1,
+                  y: 0,
+                }
               : {
                   opacity: 0,
-                  y: 14,
+                  y: 16,
                 }
           }
           animate={{
@@ -629,18 +593,30 @@ export function RegisterForm() {
             y: 0,
           }}
           transition={{
-            duration: shouldReduceMotion ? 0 : 0.7,
+            duration: shouldReduceMotion
+              ? 0
+              : 0.7,
             ease,
           }}
+          className="
+            flex
+            min-h-0
+            flex-1
+            flex-col
+            justify-center
+          "
         >
           {/* ========================================================
-              HEADER
+              EYEBROW
           ======================================================== */}
 
           <motion.div
             initial={
               shouldReduceMotion
-                ? { opacity: 1, y: 0 }
+                ? {
+                    opacity: 1,
+                    y: 0,
+                  }
                 : {
                     opacity: 0,
                     y: 8,
@@ -651,35 +627,70 @@ export function RegisterForm() {
               y: 0,
             }}
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.5,
-              delay: shouldReduceMotion ? 0 : 0.08,
+              duration: shouldReduceMotion
+                ? 0
+                : 0.5,
+              delay: shouldReduceMotion
+                ? 0
+                : 0.08,
               ease,
             }}
-            className="mb-5"
+            className="mb-3 sm:mb-4"
           >
             <span
               className="
-                text-[10px]
+                text-[9px]
                 font-semibold
                 uppercase
                 tracking-[0.18em]
                 text-muted-foreground/60
+                sm:text-[10px]
               "
             >
               Crear cuenta
             </span>
+          </motion.div>
 
+          {/* ========================================================
+              TITLE
+          ======================================================== */}
+
+          <motion.div
+            initial={
+              shouldReduceMotion
+                ? {
+                    opacity: 1,
+                    y: 0,
+                  }
+                : {
+                    opacity: 0,
+                    y: 12,
+                  }
+            }
+            animate={{
+              opacity: 1,
+              y: 0,
+            }}
+            transition={{
+              duration: shouldReduceMotion
+                ? 0
+                : 0.6,
+              delay: shouldReduceMotion
+                ? 0
+                : 0.14,
+              ease,
+            }}
+          >
             <h1
               className="
-                mt-2.5
                 bg-gradient-to-r
                 from-emerald-400
                 via-cyan-400
                 to-blue-500
                 bg-clip-text
-                text-[2.15rem]
+                text-[2rem]
                 font-bold
-                leading-[1]
+                leading-[1.02]
                 tracking-[-0.045em]
                 text-transparent
                 sm:text-[2.3rem]
@@ -690,14 +701,18 @@ export function RegisterForm() {
 
             <p
               className="
-                mt-3
-                max-w-[480px]
-                text-[13px]
+                mt-2
+                max-w-[500px]
+                text-[12px]
                 leading-5
                 text-muted-foreground
+                sm:mt-3
+                sm:text-[13px]
+                sm:leading-6
               "
             >
-              Crea tu cuenta y empieza a gestionar tu negocio con
+              Crea tu cuenta y empieza a
+              gestionar tu negocio con
               Inteligencia Artificial.
             </p>
           </motion.div>
@@ -711,7 +726,9 @@ export function RegisterForm() {
               <motion.div
                 initial={
                   shouldReduceMotion
-                    ? { opacity: 1, y: 0 }
+                    ? {
+                        opacity: 1,
+                      }
                     : {
                         opacity: 0,
                         y: -6,
@@ -726,12 +743,16 @@ export function RegisterForm() {
                   y: -6,
                 }}
                 transition={{
-                  duration: shouldReduceMotion ? 0 : 0.3,
+                  duration: shouldReduceMotion
+                    ? 0
+                    : 0.3,
                   ease,
                 }}
-                className="mb-4"
+                className="mt-4"
               >
-                <AuthErrorAlert error={displayError} />
+                <AuthErrorAlert
+                  error={displayError}
+                />
               </motion.div>
             )}
           </AnimatePresence>
@@ -744,10 +765,13 @@ export function RegisterForm() {
             onSubmit={handleSubmit}
             initial={
               shouldReduceMotion
-                ? { opacity: 1, y: 0 }
+                ? {
+                    opacity: 1,
+                    y: 0,
+                  }
                 : {
                     opacity: 0,
-                    y: 10,
+                    y: 12,
                   }
             }
             animate={{
@@ -755,44 +779,41 @@ export function RegisterForm() {
               y: 0,
             }}
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.65,
-              delay: shouldReduceMotion ? 0 : 0.16,
+              duration: shouldReduceMotion
+                ? 0
+                : 0.6,
+              delay: shouldReduceMotion
+                ? 0
+                : 0.2,
               ease,
             }}
-            className="space-y-3"
+            className="
+              mt-5
+              space-y-3
+              sm:mt-6
+              sm:space-y-3.5
+            "
           >
             {/* ======================================================
                 ROW 1
             ====================================================== */}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {/* Full name */}
+            <div
+              className="
+                grid
+                grid-cols-1
+                gap-3
+                sm:grid-cols-2
+              "
+            >
+              {/* NAME */}
 
-              <motion.div
-                initial={
-                  shouldReduceMotion
-                    ? { opacity: 1, x: 0 }
-                    : {
-                        opacity: 0,
-                        x: -8,
-                      }
-                }
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.45,
-                  delay: shouldReduceMotion ? 0 : 0.22,
-                  ease,
-                }}
-                className="space-y-1.5"
-              >
+              <div className="space-y-1.5">
                 <label
-                  htmlFor="register-full-name"
+                  htmlFor="register-name"
                   className="
                     block
-                    text-[10px]
+                    text-[9px]
                     font-semibold
                     uppercase
                     tracking-[0.15em]
@@ -806,40 +827,47 @@ export function RegisterForm() {
                   <User
                     className="
                       absolute
-                      left-3
+                      left-3.5
                       top-1/2
-                      h-3.5
-                      w-3.5
+                      h-4
+                      w-4
                       -translate-y-1/2
-                      text-muted-foreground/45
+                      text-muted-foreground/35
                     "
                   />
 
                   <input
-                    id="register-full-name"
+                    id="register-name"
                     type="text"
-                    name="fullName"
                     placeholder="María Rodríguez"
                     required
-                    disabled={isLoading}
-                    value={formData.fullName}
-                    onChange={handleChange}
+                    disabled={formDisabled}
+                    autoComplete="name"
+                    value={
+                      formData.fullName
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        "fullName",
+                        event.target.value,
+                      )
+                    }
                     className="
-                      h-[48px]
+                      h-[50px]
                       w-full
-                      rounded-[13px]
+                      rounded-[14px]
                       border
                       border-border/80
                       bg-background
-                      px-9
-                      text-[12px]
+                      pl-10
+                      pr-4
+                      text-[13px]
                       font-medium
                       text-foreground
                       outline-none
                       transition-all
                       duration-300
                       placeholder:text-muted-foreground/35
-                      hover:border-border
                       focus:border-primary/50
                       focus:ring-4
                       focus:ring-primary/8
@@ -848,35 +876,16 @@ export function RegisterForm() {
                     "
                   />
                 </div>
-              </motion.div>
+              </div>
 
-              {/* Email */}
+              {/* EMAIL */}
 
-              <motion.div
-                initial={
-                  shouldReduceMotion
-                    ? { opacity: 1, x: 0 }
-                    : {
-                        opacity: 0,
-                        x: 8,
-                      }
-                }
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.45,
-                  delay: shouldReduceMotion ? 0 : 0.25,
-                  ease,
-                }}
-                className="space-y-1.5"
-              >
+              <div className="space-y-1.5">
                 <label
                   htmlFor="register-email"
                   className="
                     block
-                    text-[10px]
+                    text-[9px]
                     font-semibold
                     uppercase
                     tracking-[0.15em]
@@ -890,40 +899,47 @@ export function RegisterForm() {
                   <Mail
                     className="
                       absolute
-                      left-3
+                      left-3.5
                       top-1/2
-                      h-3.5
-                      w-3.5
+                      h-4
+                      w-4
                       -translate-y-1/2
-                      text-muted-foreground/45
+                      text-muted-foreground/35
                     "
                   />
 
                   <input
                     id="register-email"
                     type="email"
-                    name="email"
                     placeholder="tu@empresa.com"
                     required
-                    disabled={isLoading}
-                    value={formData.email}
-                    onChange={handleChange}
+                    disabled={formDisabled}
+                    autoComplete="email"
+                    value={
+                      formData.email
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        "email",
+                        event.target.value,
+                      )
+                    }
                     className="
-                      h-[48px]
+                      h-[50px]
                       w-full
-                      rounded-[13px]
+                      rounded-[14px]
                       border
                       border-border/80
                       bg-background
-                      px-9
-                      text-[12px]
+                      pl-10
+                      pr-4
+                      text-[13px]
                       font-medium
                       text-foreground
                       outline-none
                       transition-all
                       duration-300
                       placeholder:text-muted-foreground/35
-                      hover:border-border
                       focus:border-primary/50
                       focus:ring-4
                       focus:ring-primary/8
@@ -932,41 +948,29 @@ export function RegisterForm() {
                     "
                   />
                 </div>
-              </motion.div>
+              </div>
             </div>
 
             {/* ======================================================
                 ROW 2
             ====================================================== */}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {/* Phone */}
+            <div
+              className="
+                grid
+                grid-cols-1
+                gap-3
+                sm:grid-cols-2
+              "
+            >
+              {/* PHONE */}
 
-              <motion.div
-                initial={
-                  shouldReduceMotion
-                    ? { opacity: 1, y: 0 }
-                    : {
-                        opacity: 0,
-                        y: 7,
-                      }
-                }
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.45,
-                  delay: shouldReduceMotion ? 0 : 0.29,
-                  ease,
-                }}
-                className="space-y-1.5"
-              >
+              <div className="space-y-1.5">
                 <label
                   htmlFor="register-phone"
                   className="
                     block
-                    text-[10px]
+                    text-[9px]
                     font-semibold
                     uppercase
                     tracking-[0.15em]
@@ -980,41 +984,47 @@ export function RegisterForm() {
                   <Phone
                     className="
                       absolute
-                      left-3
+                      left-3.5
                       top-1/2
-                      h-3.5
-                      w-3.5
+                      h-4
+                      w-4
                       -translate-y-1/2
-                      text-muted-foreground/45
+                      text-muted-foreground/35
                     "
                   />
 
                   <input
                     id="register-phone"
                     type="tel"
-                    name="phone"
                     placeholder="+57 300 000 0000"
                     required
-                    disabled={isLoading}
-                    minLength={10}
-                    value={formData.phone}
-                    onChange={handleChange}
+                    disabled={formDisabled}
+                    autoComplete="tel"
+                    value={
+                      formData.phone
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        "phone",
+                        event.target.value,
+                      )
+                    }
                     className="
-                      h-[48px]
+                      h-[50px]
                       w-full
-                      rounded-[13px]
+                      rounded-[14px]
                       border
                       border-border/80
                       bg-background
-                      px-9
-                      text-[12px]
+                      pl-10
+                      pr-4
+                      text-[13px]
                       font-medium
                       text-foreground
                       outline-none
                       transition-all
                       duration-300
                       placeholder:text-muted-foreground/35
-                      hover:border-border
                       focus:border-primary/50
                       focus:ring-4
                       focus:ring-primary/8
@@ -1024,39 +1034,26 @@ export function RegisterForm() {
                   />
                 </div>
 
-                <p className="text-[9px] leading-4 text-muted-foreground">
-                  Incluye el código de país{" "}
-                  <span className="font-semibold">+57</span>.
+                <p
+                  className="
+                    text-[8px]
+                    leading-4
+                    text-muted-foreground/55
+                  "
+                >
+                  Incluye el código de país
+                  +57.
                 </p>
-              </motion.div>
+              </div>
 
-              {/* WhatsApp */}
+              {/* WHATSAPP */}
 
-              <motion.div
-                initial={
-                  shouldReduceMotion
-                    ? { opacity: 1, y: 0 }
-                    : {
-                        opacity: 0,
-                        y: 7,
-                      }
-                }
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.45,
-                  delay: shouldReduceMotion ? 0 : 0.34,
-                  ease,
-                }}
-                className="space-y-1.5"
-              >
+              <div className="space-y-1.5">
                 <label
                   htmlFor="register-whatsapp"
                   className="
                     block
-                    text-[10px]
+                    text-[9px]
                     font-semibold
                     uppercase
                     tracking-[0.15em]
@@ -1070,39 +1067,47 @@ export function RegisterForm() {
                   <MessageCircle
                     className="
                       absolute
-                      left-3
+                      left-3.5
                       top-1/2
-                      h-3.5
-                      w-3.5
+                      h-4
+                      w-4
                       -translate-y-1/2
-                      text-muted-foreground/45
+                      text-muted-foreground/35
                     "
                   />
 
                   <input
                     id="register-whatsapp"
                     type="text"
-                    name="whatsappUsername"
                     placeholder="@usuario"
-                    disabled={isLoading}
-                    value={formData.whatsappUsername}
-                    onChange={handleChange}
+                    required
+                    disabled={formDisabled}
+                    autoComplete="off"
+                    value={
+                      formData.whatsappUsername
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        "whatsappUsername",
+                        event.target.value,
+                      )
+                    }
                     className="
-                      h-[48px]
+                      h-[50px]
                       w-full
-                      rounded-[13px]
+                      rounded-[14px]
                       border
                       border-border/80
                       bg-background
-                      px-9
-                      text-[12px]
+                      pl-10
+                      pr-4
+                      text-[13px]
                       font-medium
                       text-foreground
                       outline-none
                       transition-all
                       duration-300
                       placeholder:text-muted-foreground/35
-                      hover:border-border
                       focus:border-primary/50
                       focus:ring-4
                       focus:ring-primary/8
@@ -1112,48 +1117,98 @@ export function RegisterForm() {
                   />
                 </div>
 
-                <p className="text-[9px] leading-4 text-muted-foreground">
-                  Sin el @. Ejemplo:{" "}
-                  <span className="font-semibold">
-                    mariarodriguez
-                  </span>
-                  .
+                <p
+                  className="
+                    text-[8px]
+                    leading-4
+                    text-muted-foreground/55
+                  "
+                >
+                  Sin el @. Ejemplo:
+                  mariarodriguez.
                 </p>
-              </motion.div>
+              </div>
             </div>
 
             {/* ======================================================
-                ROW 3
+                BUSINESS
             ====================================================== */}
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              {/* Password */}
-
-              <motion.div
-                initial={
-                  shouldReduceMotion
-                    ? { opacity: 1, y: 0 }
-                    : {
-                        opacity: 0,
-                        x: -7,
-                      }
-                }
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.45,
-                  delay: shouldReduceMotion ? 0 : 0.39,
-                  ease,
-                }}
-                className="space-y-1.5"
+            <div className="space-y-1.5">
+              <label
+                htmlFor="register-business"
+                className="
+                  block
+                  text-[9px]
+                  font-semibold
+                  uppercase
+                  tracking-[0.15em]
+                  text-foreground/60
+                "
               >
+                Nombre del negocio
+              </label>
+
+              <input
+                id="register-business"
+                type="text"
+                placeholder="Mi negocio"
+                required
+                disabled={formDisabled}
+                autoComplete="organization"
+                value={
+                  formData.businessName
+                }
+                onChange={(event) =>
+                  updateField(
+                    "businessName",
+                    event.target.value,
+                  )
+                }
+                className="
+                  h-[50px]
+                  w-full
+                  rounded-[14px]
+                  border
+                  border-border/80
+                  bg-background
+                  px-4
+                  text-[13px]
+                  font-medium
+                  text-foreground
+                  outline-none
+                  transition-all
+                  duration-300
+                  placeholder:text-muted-foreground/35
+                  focus:border-primary/50
+                  focus:ring-4
+                  focus:ring-primary/8
+                  disabled:cursor-not-allowed
+                  disabled:opacity-60
+                "
+              />
+            </div>
+
+            {/* ======================================================
+                PASSWORD ROW
+            ====================================================== */}
+
+            <div
+              className="
+                grid
+                grid-cols-1
+                gap-3
+                sm:grid-cols-2
+              "
+            >
+              {/* PASSWORD */}
+
+              <div className="space-y-1.5">
                 <label
                   htmlFor="register-password"
                   className="
                     block
-                    text-[10px]
+                    text-[9px]
                     font-semibold
                     uppercase
                     tracking-[0.15em]
@@ -1167,42 +1222,52 @@ export function RegisterForm() {
                   <Lock
                     className="
                       absolute
-                      left-3
+                      left-3.5
                       top-1/2
-                      h-3.5
-                      w-3.5
+                      h-4
+                      w-4
                       -translate-y-1/2
-                      text-muted-foreground/45
+                      text-muted-foreground/35
                     "
                   />
 
                   <input
                     id="register-password"
-                    type={showPassword ? "text" : "password"}
-                    name="password"
+                    type={
+                      showPassword
+                        ? "text"
+                        : "password"
+                    }
                     placeholder="Mín. 8 caracteres"
                     required
-                    disabled={isLoading}
-                    minLength={8}
-                    value={formData.password}
-                    onChange={handleChange}
+                    disabled={formDisabled}
+                    autoComplete="new-password"
+                    value={
+                      formData.password
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        "password",
+                        event.target.value,
+                      )
+                    }
                     className="
-                      h-[48px]
+                      h-[50px]
                       w-full
-                      rounded-[13px]
+                      rounded-[14px]
                       border
                       border-border/80
                       bg-background
-                      px-9
-                      pr-10
-                      text-[12px]
+                      pl-10
+                      pr-12
+                      text-[13px]
                       font-medium
+                      tracking-[0.04em]
                       text-foreground
                       outline-none
                       transition-all
                       duration-300
                       placeholder:text-muted-foreground/35
-                      hover:border-border
                       focus:border-primary/50
                       focus:ring-4
                       focus:ring-primary/8
@@ -1213,9 +1278,11 @@ export function RegisterForm() {
 
                   <button
                     type="button"
-                    disabled={isLoading}
+                    disabled={formDisabled}
                     onClick={() =>
-                      setShowPassword((value) => !value)
+                      setShowPassword(
+                        (value) => !value,
+                      )
                     }
                     aria-label={
                       showPassword
@@ -1232,99 +1299,30 @@ export function RegisterForm() {
                       -translate-y-1/2
                       items-center
                       justify-center
-                      rounded-[10px]
-                      text-muted-foreground/50
-                      transition-colors
+                      rounded-xl
+                      text-muted-foreground/45
+                      transition-all
                       hover:bg-muted
                       hover:text-foreground
-                      disabled:opacity-50
                     "
                   >
                     {showPassword ? (
-                      <EyeOff className="h-3.5 w-3.5" />
+                      <EyeOff className="h-4 w-4" />
                     ) : (
-                      <Eye className="h-3.5 w-3.5" />
+                      <Eye className="h-4 w-4" />
                     )}
                   </button>
                 </div>
+              </div>
 
-                <AnimatePresence initial={false}>
-                  {formData.password && (
-                    <motion.div
-                      initial={
-                        shouldReduceMotion
-                          ? { opacity: 1, height: "auto" }
-                          : {
-                              opacity: 0,
-                              height: 0,
-                            }
-                      }
-                      animate={{
-                        opacity: 1,
-                        height: "auto",
-                      }}
-                      exit={{
-                        opacity: 0,
-                        height: 0,
-                      }}
-                      transition={{
-                        duration: shouldReduceMotion ? 0 : 0.25,
-                      }}
-                      className="overflow-hidden"
-                    >
-                      <div className="flex items-center gap-2 pt-0.5">
-                        <div className="h-1 flex-1 overflow-hidden rounded-full bg-muted">
-                          <motion.div
-                            initial={{
-                              width: 0,
-                            }}
-                            animate={{
-                              width: `${strength.score}%`,
-                            }}
-                            transition={{
-                              duration: shouldReduceMotion ? 0 : 0.3,
-                              ease,
-                            }}
-                            className={`h-full rounded-full ${strength.color}`}
-                          />
-                        </div>
+              {/* CONFIRM PASSWORD */}
 
-                        <span className="shrink-0 text-[9px] font-bold text-muted-foreground">
-                          {strength.label}
-                        </span>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-
-              {/* Confirm password */}
-
-              <motion.div
-                initial={
-                  shouldReduceMotion
-                    ? { opacity: 1, y: 0 }
-                    : {
-                        opacity: 0,
-                        x: 7,
-                      }
-                }
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                }}
-                transition={{
-                  duration: shouldReduceMotion ? 0 : 0.45,
-                  delay: shouldReduceMotion ? 0 : 0.44,
-                  ease,
-                }}
-                className="space-y-1.5"
-              >
+              <div className="space-y-1.5">
                 <label
                   htmlFor="register-confirm-password"
                   className="
                     block
-                    text-[10px]
+                    text-[9px]
                     font-semibold
                     uppercase
                     tracking-[0.15em]
@@ -1338,12 +1336,12 @@ export function RegisterForm() {
                   <Lock
                     className="
                       absolute
-                      left-3
+                      left-3.5
                       top-1/2
-                      h-3.5
-                      w-3.5
+                      h-4
+                      w-4
                       -translate-y-1/2
-                      text-muted-foreground/45
+                      text-muted-foreground/35
                     "
                   />
 
@@ -1354,29 +1352,36 @@ export function RegisterForm() {
                         ? "text"
                         : "password"
                     }
-                    name="confirmPassword"
                     placeholder="Repite la contraseña"
                     required
-                    disabled={isLoading}
-                    value={formData.confirmPassword}
-                    onChange={handleChange}
+                    disabled={formDisabled}
+                    autoComplete="new-password"
+                    value={
+                      formData.confirmPassword
+                    }
+                    onChange={(event) =>
+                      updateField(
+                        "confirmPassword",
+                        event.target.value,
+                      )
+                    }
                     className="
-                      h-[48px]
+                      h-[50px]
                       w-full
-                      rounded-[13px]
+                      rounded-[14px]
                       border
                       border-border/80
                       bg-background
-                      px-9
-                      pr-10
-                      text-[12px]
+                      pl-10
+                      pr-12
+                      text-[13px]
                       font-medium
+                      tracking-[0.04em]
                       text-foreground
                       outline-none
                       transition-all
                       duration-300
                       placeholder:text-muted-foreground/35
-                      hover:border-border
                       focus:border-primary/50
                       focus:ring-4
                       focus:ring-primary/8
@@ -1387,7 +1392,7 @@ export function RegisterForm() {
 
                   <button
                     type="button"
-                    disabled={isLoading}
+                    disabled={formDisabled}
                     onClick={() =>
                       setShowConfirmPassword(
                         (value) => !value,
@@ -1395,8 +1400,8 @@ export function RegisterForm() {
                     }
                     aria-label={
                       showConfirmPassword
-                        ? "Ocultar confirmación"
-                        : "Mostrar confirmación"
+                        ? "Ocultar contraseña"
+                        : "Mostrar contraseña"
                     }
                     className="
                       absolute
@@ -1408,101 +1413,109 @@ export function RegisterForm() {
                       -translate-y-1/2
                       items-center
                       justify-center
-                      rounded-[10px]
-                      text-muted-foreground/50
-                      transition-colors
+                      rounded-xl
+                      text-muted-foreground/45
+                      transition-all
                       hover:bg-muted
                       hover:text-foreground
-                      disabled:opacity-50
                     "
                   >
                     {showConfirmPassword ? (
-                      <EyeOff className="h-3.5 w-3.5" />
+                      <EyeOff className="h-4 w-4" />
                     ) : (
-                      <Eye className="h-3.5 w-3.5" />
+                      <Eye className="h-4 w-4" />
                     )}
                   </button>
                 </div>
-              </motion.div>
+              </div>
             </div>
 
             {/* ======================================================
                 TERMS
             ====================================================== */}
 
-            <motion.div
-              initial={
-                shouldReduceMotion
-                  ? { opacity: 1, y: 0 }
-                  : {
-                      opacity: 0,
-                      y: 6,
-                    }
-              }
-              animate={{
-                opacity: 1,
-                y: 0,
-              }}
-              transition={{
-                duration: shouldReduceMotion ? 0 : 0.45,
-                delay: shouldReduceMotion ? 0 : 0.49,
-                ease,
-              }}
-              className="pt-1"
+            <label
+              className="
+                flex
+                cursor-pointer
+                items-start
+                gap-2.5
+                pt-0.5
+              "
             >
-              <label className="flex cursor-pointer items-start gap-2 select-none">
-                <input
-                  type="checkbox"
-                  name="termsAccepted"
-                  disabled={isLoading}
-                  checked={formData.termsAccepted}
-                  onChange={handleChange}
-                  className="
-                    mt-0.5
-                    h-3.5
-                    w-3.5
-                    shrink-0
-                    rounded
-                    border-border
-                    text-primary
-                    focus:ring-primary/20
-                  "
-                />
+              <input
+                type="checkbox"
+                checked={
+                  formData.termsAccepted
+                }
+                disabled={formDisabled}
+                onChange={(event) =>
+                  updateField(
+                    "termsAccepted",
+                    event.target.checked,
+                  )
+                }
+                className="
+                  mt-[2px]
+                  h-3.5
+                  w-3.5
+                  shrink-0
+                  cursor-pointer
+                  accent-primary
+                "
+              />
 
-                <span className="text-[10px] leading-4 text-muted-foreground">
-                  Acepto los{" "}
-                  <a
-                    href="#terminos"
-                    onClick={(e) =>
-                      e.preventDefault()
-                    }
-                    className="font-bold text-primary hover:underline"
-                  >
-                    Términos
-                  </a>{" "}
-                  y la{" "}
-                  <a
-                    href="#privacidad"
-                    onClick={(e) =>
-                      e.preventDefault()
-                    }
-                    className="font-bold text-primary hover:underline"
-                  >
-                    Privacidad
-                  </a>{" "}
-                  de Luka AI.
-                </span>
-              </label>
-            </motion.div>
+              <span
+                className="
+                  text-[9px]
+                  leading-4
+                  text-muted-foreground/65
+                  sm:text-[10px]
+                "
+              >
+                Acepto los{" "}
+                <Link
+                  to="/terms"
+                  className="
+                    font-semibold
+                    text-primary
+                    hover:opacity-70
+                  "
+                  onClick={(event) =>
+                    event.stopPropagation()
+                  }
+                >
+                  Términos
+                </Link>{" "}
+                y la{" "}
+                <Link
+                  to="/privacy"
+                  className="
+                    font-semibold
+                    text-primary
+                    hover:opacity-70
+                  "
+                  onClick={(event) =>
+                    event.stopPropagation()
+                  }
+                >
+                  Política de Privacidad
+                </Link>{" "}
+                de Luka AI.
+              </span>
+            </label>
 
             {/* ======================================================
-                CTA
+                GOOGLE
             ====================================================== */}
 
             <motion.div
               initial={
                 shouldReduceMotion
-                  ? { opacity: 1, y: 0 }
+                  ? {
+                      opacity: 1,
+                      y: 0,
+                    }
                   : {
                       opacity: 0,
                       y: 8,
@@ -1513,19 +1526,254 @@ export function RegisterForm() {
                 y: 0,
               }}
               transition={{
-                duration: shouldReduceMotion ? 0 : 0.5,
-                delay: shouldReduceMotion ? 0 : 0.54,
+                duration: shouldReduceMotion
+                  ? 0
+                  : 0.5,
+                delay: shouldReduceMotion
+                  ? 0
+                  : 0.27,
                 ease,
               }}
+              className="
+                space-y-3
+                sm:space-y-3.5
+              "
+            >
+              {/* DIVIDER */}
+
+              <div
+                className="
+                  relative
+                  flex
+                  items-center
+                "
+              >
+                <div className="h-px flex-1 bg-border/70" />
+
+                <span
+                  className="
+                    shrink-0
+                    px-3
+                    text-[8px]
+                    font-semibold
+                    uppercase
+                    tracking-[0.14em]
+                    text-muted-foreground/40
+                    sm:text-[9px]
+                  "
+                >
+                  o continúa con
+                </span>
+
+                <div className="h-px flex-1 bg-border/70" />
+              </div>
+
+              {/* ==================================================
+                  REAL GOOGLE BUTTON
+              ================================================== */}
+
+              <div
+                ref={
+                  googleButtonContainerRef
+                }
+                aria-hidden="true"
+                className="
+                  absolute
+                  left-[-10000px]
+                  top-0
+                  h-[54px]
+                  w-full
+                  overflow-hidden
+                  opacity-0
+                "
+              >
+                {googleButtonWidth > 0 && (
+                  <GoogleLogin
+                    onSuccess={(
+                      credentialResponse,
+                    ) => {
+                      if (
+                        credentialResponse.credential
+                      ) {
+                        void handleGoogleSuccess(
+                          credentialResponse.credential,
+                        );
+                      } else {
+                        handleGoogleError();
+                      }
+                    }}
+                    onError={
+                      handleGoogleError
+                    }
+                    useOneTap={false}
+                    theme="outline"
+                    size="large"
+                    text="continue_with"
+                    shape="pill"
+                    width={
+                      googleButtonWidth
+                    }
+                  />
+                )}
+              </div>
+
+              {/* ==================================================
+                  CUSTOM GOOGLE BUTTON
+              ================================================== */}
+
+              <motion.button
+                type="button"
+                disabled={formDisabled}
+                onClick={() => {
+                  const googleButton =
+                    googleButtonContainerRef.current?.querySelector(
+                      'div[role="button"]',
+                    ) as HTMLElement | null;
+
+                  if (!googleButton) {
+                    setLocalError(
+                      "Google todavía no está listo. Inténtalo nuevamente.",
+                    );
+
+                    return;
+                  }
+
+                  googleButton.click();
+                }}
+                whileHover={
+                  shouldReduceMotion ||
+                  formDisabled
+                    ? undefined
+                    : {
+                        y: -1,
+                      }
+                }
+                whileTap={
+                  shouldReduceMotion ||
+                  formDisabled
+                    ? undefined
+                    : {
+                        scale: 0.995,
+                      }
+                }
+                className="
+                  group
+                  relative
+                  flex
+                  h-[50px]
+                  w-full
+                  items-center
+                  justify-center
+                  overflow-hidden
+                  rounded-[14px]
+                  border
+                  border-gray-200
+                  bg-white
+                  px-5
+                  text-[13px]
+                  font-bold
+                  text-gray-800
+                  shadow-none
+                  transition-all
+                  duration-300
+                  hover:border-gray-300
+                  hover:bg-white
+                  hover:shadow-lg
+                  hover:shadow-black/5
+                  focus:outline-none
+                  focus:ring-4
+                  focus:ring-primary/8
+                  disabled:cursor-not-allowed
+                  disabled:opacity-60
+                  sm:h-[54px]
+                  sm:text-[14px]
+                "
+              >
+                <span
+                  className="
+                    relative
+                    flex
+                    items-center
+                    justify-center
+                    gap-2.5
+                  "
+                >
+                  {isGoogleLoading ? (
+                    <>
+                      <Loader2
+                        className="
+                          h-4
+                          w-4
+                          animate-spin
+                          text-gray-500
+                        "
+                      />
+
+                      <span className="text-gray-700">
+                        Conectando con Google...
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      {/* GOOGLE LOGO */}
+
+                      <svg
+                        aria-hidden="true"
+                        viewBox="0 0 24 24"
+                        className="
+                          h-[18px]
+                          w-[18px]
+                          shrink-0
+                          sm:h-[19px]
+                          sm:w-[19px]
+                        "
+                      >
+                        <path
+                          fill="#4285F4"
+                          d="M21.35 12.27c0-.72-.06-1.42-.18-2.09H12v3.96h5.24a4.48 4.48 0 0 1-1.94 2.94v2.45h3.14c1.84-1.69 2.91-4.18 2.91-7.26Z"
+                        />
+
+                        <path
+                          fill="#34A853"
+                          d="M12 21.74c2.63 0 4.84-.87 6.46-2.35l-3.14-2.45c-.87.58-1.98.92-3.32.92-2.55 0-4.71-1.72-5.49-4.04H3.27v2.53A9.75 9.75 0 0 0 12 21.74Z"
+                        />
+
+                        <path
+                          fill="#FBBC05"
+                          d="M6.51 13.82A5.86 5.86 0 0 1 6.2 12c0-.63.11-1.25.31-1.82V7.65H3.27A9.75 9.75 0 0 0 2.25 12c0 1.57.38 3.05 1.02 4.35l3.24-2.53Z"
+                        />
+
+                        <path
+                          fill="#EA4335"
+                          d="M12 6.14c1.43 0 2.71.49 3.72 1.45l2.79-2.79C16.84 3.24 14.63 2.26 12 2.26a9.75 9.75 0 0 0-8.73 5.39l3.24 2.53C7.29 7.86 9.45 6.14 12 6.14Z"
+                        />
+                      </svg>
+
+                      <span>
+                        Continuar con Google
+                      </span>
+                    </>
+                  )}
+                </span>
+              </motion.button>
+            </motion.div>
+
+            {/* ======================================================
+                CTA
+            ====================================================== */}
+
+            <motion.div
               whileHover={
-                shouldReduceMotion
+                shouldReduceMotion ||
+                formDisabled
                   ? undefined
                   : {
                       y: -1,
                     }
               }
               whileTap={
-                shouldReduceMotion
+                shouldReduceMotion ||
+                formDisabled
                   ? undefined
                   : {
                       scale: 0.995,
@@ -1535,10 +1783,11 @@ export function RegisterForm() {
             >
               <Button
                 type="submit"
-                disabled={isLoading}
+                disabled={formDisabled}
                 className="
                   group
-                  h-[52px]
+                  relative
+                  h-[50px]
                   w-full
                   overflow-hidden
                   rounded-[14px]
@@ -1554,19 +1803,45 @@ export function RegisterForm() {
                   hover:shadow-primary/15
                   disabled:cursor-not-allowed
                   disabled:opacity-60
+                  sm:h-[54px]
+                  sm:text-[14px]
                 "
               >
-                <span className="flex items-center justify-center gap-2">
+                <span
+                  className="
+                    relative
+                    flex
+                    items-center
+                    justify-center
+                    gap-2
+                  "
+                >
                   {isLoading ? (
                     <>
                       <Loader2 className="h-4 w-4 animate-spin" />
-                      Creando tu cuenta...
+
+                      Creando cuenta...
+                    </>
+                  ) : isGoogleLoading ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+
+                      Conectando con Google...
                     </>
                   ) : (
                     <>
-                      Crear cuenta y comenzar gratis
+                      Crear cuenta y comenzar
+                      gratis
 
-                      <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+                      <ArrowRight
+                        className="
+                          h-4
+                          w-4
+                          transition-transform
+                          duration-300
+                          group-hover:translate-x-1
+                        "
+                      />
                     </>
                   )}
                 </span>
@@ -1575,16 +1850,19 @@ export function RegisterForm() {
           </motion.form>
 
           {/* ========================================================
-              LOGIN LINK
+              LOGIN
           ======================================================== */}
 
           <motion.div
             initial={
               shouldReduceMotion
-                ? { opacity: 1, y: 0 }
+                ? {
+                    opacity: 1,
+                    y: 0,
+                  }
                 : {
                     opacity: 0,
-                    y: 6,
+                    y: 7,
                   }
             }
             animate={{
@@ -1592,17 +1870,33 @@ export function RegisterForm() {
               y: 0,
             }}
             transition={{
-              duration: shouldReduceMotion ? 0 : 0.45,
-              delay: shouldReduceMotion ? 0 : 0.62,
+              duration: shouldReduceMotion
+                ? 0
+                : 0.5,
+              delay: shouldReduceMotion
+                ? 0
+                : 0.45,
               ease,
             }}
-            className="mt-5 text-center"
+            className="
+              mt-4
+              text-center
+              sm:mt-5
+            "
           >
-            <p className="text-[11px] text-muted-foreground">
+            <p
+              className="
+                text-[10px]
+                text-muted-foreground
+                sm:text-[11px]
+              "
+            >
               ¿Ya tienes una cuenta?{" "}
               <Link
                 to="/login"
-                onClick={() => clearError()}
+                onClick={() =>
+                  clearError()
+                }
                 className="
                   font-semibold
                   text-primary
