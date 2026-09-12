@@ -5,6 +5,7 @@ import { PageSkeleton } from "@/shared/components/ui/PageSkeleton";
 import { useAuth } from "@/features/auth";
 import { GuestRoute } from "./GuestRoute";
 import { ProtectedRoute } from "./ProtectedRoute";
+import { LandingPageView } from "@/features/landing-page";
 
 // ============================================================
 // LAZY LOADED FEATURE MODULES
@@ -67,12 +68,6 @@ const AdminCrmView = lazy(() =>
 const AdminOpsView = lazy(() =>
   import("@/features/admin-ops").then((m) => ({
     default: m.AdminOpsView,
-  }))
-);
-
-const LandingPage = lazy(() =>
-  import("@/features/landing-page").then((m) => ({
-    default: m.LandingPageView,
   }))
 );
 
@@ -203,11 +198,7 @@ export function AppRoutes() {
 
       <Route
         path="/home"
-        element={
-          <Suspense fallback={<PageSkeleton />}>
-            <LandingPage />
-          </Suspense>
-        }
+        element={<LandingPageView />}
       />
 
       {/* Investor Dashboard público */}
