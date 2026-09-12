@@ -115,14 +115,6 @@ export function LandingNavbar() {
             Dashboard
           </Link>
           
-          {/* Iniciar Sesion */}
-          <Link
-            to="/login"
-            className="flex items-center gap-2 text-sm font-semibold text-slate-200 hover:text-white px-4 py-2 rounded-xl bg-slate-900/80 hover:bg-slate-800/90 border border-white/10 hover:border-emerald-500/40 transition-all duration-300 hover:scale-105 active:scale-95 shadow-sm"
-          >
-            <LogIn className="w-4 h-4 text-emerald-400" />
-            Iniciar Sesión
-          </Link>
 
           {/* CTA: Comenzar Gratis */}
           <Link

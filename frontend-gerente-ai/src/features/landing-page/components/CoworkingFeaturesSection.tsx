@@ -1,4 +1,4 @@
-import {
+/* import {
   DollarSign,
   Package,
   Users,
@@ -65,7 +65,6 @@ export function CoworkingFeaturesSection() {
     <section className="relative py-32">
       <div className="max-w-7xl mx-auto px-6 md:px-12">
 
-        {/* Header */}
 
         <div className="max-w-4xl mx-auto text-center">
 
@@ -83,8 +82,6 @@ export function CoworkingFeaturesSection() {
           </p>
 
         </div>
-
-        {/* Grid */}
 
         <div className="mt-24 grid gap-8 md:grid-cols-2 xl:grid-cols-4">
 
@@ -118,4 +115,4 @@ export function CoworkingFeaturesSection() {
       </div>
     </section>
   );
-}
+} */
