@@ -19,6 +19,7 @@ import { MailService } from './mail/mail.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { GoogleLoginDto } from './dto/google-login.dto';
+import { GoogleRegisterDto } from './dto/google-register.dto';
 import { AsociarNegocioDto } from './dto/asociar-negocio.dto';
 import { ReenviarVerificacionDto } from './dto/reenviar-verificacion.dto';
 import { UpdateUsuarioDto } from './dto/update-usuario.dto';
@@ -42,15 +43,22 @@ export class AuthService {
     );
   }
 
+  // ============================================================
+  // REGISTRO TRADICIONAL
+  // ============================================================
+
   async register(dto: RegisterDto) {
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const hashedPassword = await bcrypt.hash(
+      dto.password,
+      10,
+    );
 
     try {
       const usuario = await this.prisma.usuario.create({
         data: {
           nombre: dto.nombre,
           telefono: dto.telefono,
-          email: dto.email,
+          email: dto.email.trim().toLowerCase(),
           password: hashedPassword,
         },
       });
@@ -66,14 +74,8 @@ export class AuthService {
       );
 
       /**
-       * El correo se dispara sin esperarlo: la respuesta no depende de que el
-       * SMTP conteste. Antes se esperaba, y cuando el envio fallaba la peticion
-       * quedaba colgada hasta agotar el timeout y aun asi respondia 201, o sea
-       * que el usuario pagaba la espera de un fallo que ni se le informaba.
-       *
-       * Perder el correo no invalida la operacion: el registro ya se completo y
-       * el usuario puede pedir el reenvio. MailService atrapa sus propios
-       * errores y los deja en el log, asi que esto no puede quedar sin manejar.
+       * El correo se dispara sin esperarlo: la respuesta no depende
+       * de que el SMTP conteste.
        */
       void this.mailService.sendVerificationEmail(
         usuario.email,
@@ -81,9 +83,7 @@ export class AuthService {
         verificationToken,
       );
 
-      // No se devuelve accessToken a propósito: si no se puede iniciar sesión sin
-      // verificar el correo, tampoco debe entregarse una credencial válida aquí.
-      // Antes sí lo devolvía, y con ese token se podía operar sin verificar nada.
+      // No se devuelve accessToken a propósito.
       return {
         mensaje:
           'Cuenta creada. Revisa tu correo para activarla antes de iniciar sesión.',
@@ -95,7 +95,8 @@ export class AuthService {
       };
     } catch (error) {
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
         throw new ConflictException(
@@ -107,8 +108,15 @@ export class AuthService {
     }
   }
 
+  // ============================================================
+  // VERIFICACIÓN DE EMAIL
+  // ============================================================
+
   async verificarEmail(token: string) {
-    let payload: { sub: string; type: string };
+    let payload: {
+      sub: string;
+      type: string;
+    };
 
     try {
       payload = this.jwtService.verify(token);
@@ -119,27 +127,38 @@ export class AuthService {
     }
 
     if (payload.type !== 'email-verification') {
-      throw new UnauthorizedException('Token inválido para esta operación');
+      throw new UnauthorizedException(
+        'Token inválido para esta operación',
+      );
     }
 
     const usuario = await this.prisma.usuario.findUnique({
-      where: { id: payload.sub },
+      where: {
+        id: payload.sub,
+      },
     });
 
     if (!usuario) {
-      throw new NotFoundException('Usuario no encontrado');
+      throw new NotFoundException(
+        'Usuario no encontrado',
+      );
     }
 
     if (usuario.emailVerificado) {
       return {
-        mensaje: 'Este correo ya había sido verificado anteriormente',
+        mensaje:
+          'Este correo ya había sido verificado anteriormente',
         usuarioId: usuario.id,
       };
     }
 
     await this.prisma.usuario.update({
-      where: { id: usuario.id },
-      data: { emailVerificado: true },
+      where: {
+        id: usuario.id,
+      },
+      data: {
+        emailVerificado: true,
+      },
     });
 
     return {
@@ -148,14 +167,26 @@ export class AuthService {
     };
   }
 
+  // ============================================================
+  // LOGIN TRADICIONAL
+  // ============================================================
+
   async login(dto: LoginDto) {
+    const email = dto.email.trim().toLowerCase();
+
     const usuario = await this.prisma.usuario.findUnique({
-      where: { email: dto.email },
-      include: { negocios: true },
+      where: {
+        email,
+      },
+      include: {
+        negocios: true,
+      },
     });
 
     if (!usuario) {
-      throw new NotFoundException('Usuario no encontrado en el sistema');
+      throw new NotFoundException(
+        'Usuario no encontrado en el sistema',
+      );
     }
 
     const passwordValida = await bcrypt.compare(
@@ -186,26 +217,21 @@ export class AuthService {
     );
   }
 
+  // ============================================================
+  // VALIDAR CREDENCIAL DE GOOGLE
+  // ============================================================
+
   /**
-   * Autenticación mediante Google.
+   * Google entrega un ID Token.
    *
-   * Flujo:
-   *
-   * 1. Google entrega un ID token al frontend.
-   * 2. El frontend envía ese token a este método.
-   * 3. El backend valida criptográficamente el token contra Google.
-   * 4. Se obtiene el Google Subject (sub) y el email verificado.
-   * 5. Primero buscamos una cuenta ya vinculada mediante googleId.
-   * 6. Si no existe, buscamos una cuenta mediante email.
-   * 7. Si existe por email, vinculamos Google a esa cuenta.
-   * 8. Si no existe, creamos una nueva cuenta.
-   * 9. Finalmente utilizamos el mismo buildAuthResponse() del login normal.
-   *
-   * De esta manera Google no crea un segundo sistema de sesiones.
-   * Luka continúa utilizando exclusivamente su JWT de sesión.
+   * Nunca confiamos directamente en nombre/email enviados
+   * por el frontend.
    */
-  async googleLogin(dto: GoogleLoginDto) {
-    const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  private async validarGoogleCredential(
+    credential: string,
+  ) {
+    const googleClientId =
+      process.env.GOOGLE_CLIENT_ID;
 
     if (!googleClientId) {
       throw new UnauthorizedException(
@@ -213,13 +239,20 @@ export class AuthService {
       );
     }
 
+    if (!credential?.trim()) {
+      throw new BadRequestException(
+        'La credencial de Google es obligatoria',
+      );
+    }
+
     let ticket;
 
     try {
-      ticket = await this.googleClient.verifyIdToken({
-        idToken: dto.credential,
-        audience: googleClientId,
-      });
+      ticket =
+        await this.googleClient.verifyIdToken({
+          idToken: credential,
+          audience: googleClientId,
+        });
     } catch {
       throw new UnauthorizedException(
         'La credencial de Google es inválida o expiró',
@@ -235,9 +268,10 @@ export class AuthService {
     }
 
     const googleId = payload.sub;
-    const email = payload.email;
-    const emailVerified = payload.email_verified;
-    const nombre = payload.name;
+    const email = payload.email
+      ?.trim()
+      .toLowerCase();
+    const nombre = payload.name?.trim();
 
     if (!googleId) {
       throw new UnauthorizedException(
@@ -251,7 +285,7 @@ export class AuthService {
       );
     }
 
-    if (!emailVerified) {
+    if (!payload.email_verified) {
       throw new UnauthorizedException(
         'La cuenta de Google debe tener el correo verificado',
       );
@@ -263,130 +297,335 @@ export class AuthService {
       );
     }
 
-    /**
-     * Primer caso:
-     * el usuario ya inició sesión anteriormente con Google.
-     */
-    let usuario = await this.prisma.usuario.findUnique({
-      where: { googleId },
-      include: { negocios: true },
-    });
+    return {
+      googleId,
+      email,
+      nombre,
+    };
+  }
 
-    /**
-     * Segundo caso:
-     * el usuario ya tenía una cuenta tradicional en Luka con ese correo,
-     * pero todavía no había vinculado Google.
-     *
-     * En ese caso vinculamos ambas identidades a la misma cuenta.
-     */
-    if (!usuario) {
-      const usuarioPorEmail = await this.prisma.usuario.findUnique({
-        where: { email },
-        include: { negocios: true },
+  // ============================================================
+  // LOGIN CON GOOGLE
+  // ============================================================
+
+  /**
+   * Login mediante Google.
+   *
+   * Este método NO registra usuarios nuevos.
+   */
+  async googleLogin(dto: GoogleLoginDto) {
+    const google =
+      await this.validarGoogleCredential(
+        dto.credential,
+      );
+
+    // ------------------------------------------------------------
+    // 1. Buscar por Google ID
+    // ------------------------------------------------------------
+
+    const usuarioPorGoogle =
+      await this.prisma.usuario.findUnique({
+        where: {
+          googleId: google.googleId,
+        },
+        include: {
+          negocios: true,
+        },
       });
 
-      if (usuarioPorEmail) {
-        /**
-         * Si la cuenta ya tiene otro Google ID asociado, no debemos reemplazarlo.
-         * Esto evita que una identidad de Google distinta pueda apropiarse
-         * silenciosamente de una cuenta existente.
-         */
-        if (
-          usuarioPorEmail.googleId &&
-          usuarioPorEmail.googleId !== googleId
-        ) {
-          throw new ConflictException(
-            'Este correo ya está vinculado a otra cuenta de Google',
-          );
-        }
+    if (usuarioPorGoogle) {
+      const usuarioNegocio =
+        usuarioPorGoogle.negocios[0];
 
-        usuario = await this.prisma.usuario.update({
-          where: { id: usuarioPorEmail.id },
-          data: {
-            googleId,
-            emailVerificado: true,
-          },
-          include: { negocios: true },
-        });
-      }
+      return this.buildAuthResponse(
+        usuarioPorGoogle.id,
+        usuarioPorGoogle.nombre,
+        usuarioNegocio?.negocioId ?? null,
+        usuarioNegocio?.role ?? null,
+        usuarioPorGoogle.rolGlobal,
+      );
     }
 
-    /**
-     * Tercer caso:
-     * no existe ninguna cuenta Luka para este Google ID ni para este email.
-     *
-     * Como nuestro schema actual exige una contraseña, generamos una contraseña
-     * aleatoria que el usuario nunca conocerá. La autenticación de esta cuenta
-     * se realiza mediante Google.
-     *
-     * Más adelante podemos evolucionar el schema para soportar explícitamente
-     * cuentas passwordless/social-login con password nullable, pero no es
-     * necesario para introducir Google ahora y evita romper el flujo existente.
-     */
-    if (!usuario) {
-      const randomPassword = await bcrypt.hash(
-        `${googleId}-${crypto.randomUUID()}`,
+    // ------------------------------------------------------------
+    // 2. Buscar por email
+    // ------------------------------------------------------------
+
+    const usuarioPorEmail =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: google.email,
+        },
+        include: {
+          negocios: true,
+        },
+      });
+
+    if (usuarioPorEmail) {
+      throw new ConflictException(
+        'Ya existe una cuenta de Luka con este correo. Inicia sesión con tu contraseña.',
+      );
+    }
+
+    // ------------------------------------------------------------
+    // 3. No existe la cuenta
+    // ------------------------------------------------------------
+
+    throw new NotFoundException(
+      'No encontramos una cuenta de Luka con este correo de Google. Regístrate con Google para crear tu cuenta.',
+    );
+  }
+
+  // ============================================================
+  // REGISTRO CON GOOGLE
+  // ============================================================
+
+  async googleRegister(dto: GoogleRegisterDto) {
+    const google =
+      await this.validarGoogleCredential(
+        dto.credential,
+      );
+
+    // ------------------------------------------------------------
+    // Limpiar información
+    // ------------------------------------------------------------
+
+    const telefono =
+      this.normalizarTelefono(dto.telefono);
+
+    const nombreNegocio =
+      dto.nombreNegocio?.trim();
+
+    const whatsappUsername =
+      dto.whatsappUsername
+        ?.trim()
+        .replace(/^@+/, '') || null;
+
+    if (!telefono) {
+      throw new BadRequestException(
+        'El número de celular es obligatorio y debe tener formato colombiano, por ejemplo +573001234567',
+      );
+    }
+
+    if (!nombreNegocio) {
+      throw new BadRequestException(
+        'El nombre del negocio es obligatorio',
+      );
+    }
+
+    // ------------------------------------------------------------
+    // Verificar cuenta por Google ID
+    // ------------------------------------------------------------
+
+    const cuentaPorGoogle =
+      await this.prisma.usuario.findUnique({
+        where: {
+          googleId: google.googleId,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (cuentaPorGoogle) {
+      throw new ConflictException(
+        'Esta cuenta de Google ya está registrada en Luka. Inicia sesión con Google.',
+      );
+    }
+
+    // ------------------------------------------------------------
+    // Verificar cuenta por email
+    // ------------------------------------------------------------
+
+    const cuentaPorEmail =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: google.email,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+    if (cuentaPorEmail) {
+      throw new ConflictException(
+        'Ya existe una cuenta de Luka con este correo. Inicia sesión con tu cuenta existente.',
+      );
+    }
+
+    // ------------------------------------------------------------
+    // Contraseña interna
+    // ------------------------------------------------------------
+
+    const randomPassword =
+      await bcrypt.hash(
+        `${google.googleId}-${crypto.randomUUID()}`,
         10,
       );
 
-      try {
-        usuario = await this.prisma.usuario.create({
-          data: {
-            nombre,
-            email,
-            password: randomPassword,
-            emailVerificado: true,
-            googleId,
-          },
-          include: { negocios: true },
-        });
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2002'
-        ) {
-          /**
-           * Puede ocurrir una carrera si dos solicitudes intentan registrar
-           * simultáneamente la misma cuenta de Google.
-           *
-           * Volvemos a buscar por googleId y, si ya existe, continuamos con
-           * esa cuenta.
-           */
-          usuario = await this.prisma.usuario.findUnique({
-            where: { googleId },
-            include: { negocios: true },
-          });
+    // ------------------------------------------------------------
+    // CREACIÓN ATÓMICA
+    // ------------------------------------------------------------
 
-          if (!usuario) {
-            throw new ConflictException(
-              'No fue posible vincular la cuenta de Google. Intenta nuevamente.',
-            );
-          }
-        } else {
-          throw error;
+    try {
+      const resultado =
+        await this.prisma.$transaction(
+          async (tx) => {
+            // --------------------------------------------------
+            // USUARIO
+            // --------------------------------------------------
+
+            const usuario =
+              await tx.usuario.create({
+                data: {
+                  nombre: google.nombre,
+                  email: google.email,
+                  telefono,
+                  password: randomPassword,
+
+                  // Google ya verificó el correo.
+                  emailVerificado: true,
+
+                  googleId: google.googleId,
+                },
+              });
+
+            // --------------------------------------------------
+            // NEGOCIO
+            // --------------------------------------------------
+
+            const negocio =
+              await tx.negocio.create({
+                data: {
+                  nombre: nombreNegocio,
+                },
+              });
+
+            // --------------------------------------------------
+            // USUARIO → NEGOCIO
+            // --------------------------------------------------
+
+            await tx.usuarioNegocio.create({
+              data: {
+                usuarioId: usuario.id,
+                negocioId: negocio.id,
+              },
+            });
+
+            // --------------------------------------------------
+            // SEDE PRINCIPAL
+            // --------------------------------------------------
+
+            const sede =
+              await tx.sede.create({
+                data: {
+                  nombre: 'Sede principal',
+                  negocioId: negocio.id,
+                  whatsappUsername,
+                },
+              });
+
+            // --------------------------------------------------
+            // USUARIO → SEDE
+            // --------------------------------------------------
+
+            await tx.usuarioSede.create({
+              data: {
+                usuarioId: usuario.id,
+                sedeId: sede.id,
+              },
+            });
+
+            return {
+              usuario,
+              negocio,
+              sede,
+            };
+          },
+        );
+
+      // ----------------------------------------------------------
+      // RESPUESTA
+      // ----------------------------------------------------------
+
+      return this.buildAuthResponse(
+        resultado.usuario.id,
+        resultado.usuario.nombre,
+        resultado.negocio.id,
+        'ADMIN',
+        resultado.usuario.rolGlobal,
+      );
+    } catch (error) {
+      if (
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        const target =
+          Array.isArray(error.meta?.target)
+            ? (error.meta.target as string[])
+            : [];
+
+        if (
+          target.includes('email') ||
+          target.includes('googleId')
+        ) {
+          throw new ConflictException(
+            'Ya existe una cuenta de Luka con este correo de Google.',
+          );
         }
+
+        throw new ConflictException(
+          'No fue posible completar el registro. Algunos de los datos ya están registrados.',
+        );
       }
+
+      throw error;
+    }
+  }
+
+  // ============================================================
+  // NORMALIZAR TELÉFONO COLOMBIANO
+  // ============================================================
+
+  private normalizarTelefono(
+    telefono?: string,
+  ): string | null {
+    const raw = (telefono ?? '').trim();
+
+    if (!raw) {
+      return null;
     }
 
-    const usuarioNegocio = usuario.negocios[0];
+    const digits = raw.replace(/\D/g, '');
 
-    return this.buildAuthResponse(
-      usuario.id,
-      usuario.nombre,
-      usuarioNegocio?.negocioId ?? null,
-      usuarioNegocio?.role ?? null,
-      usuario.rolGlobal,
-    );
+    // 3001234567
+    if (/^3\d{9}$/.test(digits)) {
+      return `+57${digits}`;
+    }
+
+    // 573001234567
+    if (/^57(3\d{9})$/.test(digits)) {
+      return `+${digits}`;
+    }
+
+    return null;
   }
+
+  // ============================================================
+  // ASOCIAR NEGOCIO
+  // ============================================================
 
   async asociarNegocio(
     solicitanteId: string,
     rolGlobal: string,
     dto: AsociarNegocioDto,
   ) {
-    const negocio = await this.prisma.negocio.findUnique({
-      where: { id: dto.negocioId },
-    });
+    const negocio =
+      await this.prisma.negocio.findUnique({
+        where: {
+          id: dto.negocioId,
+        },
+      });
 
     if (!negocio) {
       throw new NotFoundException(
@@ -394,20 +633,23 @@ export class AuthService {
       );
     }
 
-    // Sumar socios lo decide un dueño existente (o MASTER). El dueño inicial no pasa por aquí:
-    // lo crea NegociosService.create al registrar el negocio, así que no hay bloqueo de arranque.
     await this.negociosService.verificarPropietario(
       solicitanteId,
       dto.negocioId,
       rolGlobal,
     );
 
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: dto.usuarioId },
-    });
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          id: dto.usuarioId,
+        },
+      });
 
     if (!usuario) {
-      throw new NotFoundException('El usuario indicado no existe');
+      throw new NotFoundException(
+        'El usuario indicado no existe',
+      );
     }
 
     try {
@@ -419,7 +661,8 @@ export class AuthService {
       });
     } catch (error) {
       if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error instanceof
+          Prisma.PrismaClientKnownRequestError &&
         error.code === 'P2002'
       ) {
         throw new ConflictException(
@@ -431,26 +674,43 @@ export class AuthService {
     }
   }
 
-  async removeUsuario(id: string, rolGlobal: string) {
-    // Sin esta verificación, cualquier usuario autenticado podía borrar la cuenta de otro.
+  // ============================================================
+  // ELIMINAR USUARIO
+  // ============================================================
+
+  async removeUsuario(
+    id: string,
+    rolGlobal: string,
+  ) {
     if (rolGlobal !== 'MASTER') {
       throw new ForbiddenException(
         'Solo un usuario MASTER puede eliminar cuentas',
       );
     }
 
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id },
-    });
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          id,
+        },
+      });
 
     if (!usuario) {
-      throw new NotFoundException(`Usuario con id ${id} no encontrado`);
+      throw new NotFoundException(
+        `Usuario con id ${id} no encontrado`,
+      );
     }
 
     return this.prisma.usuario.delete({
-      where: { id },
+      where: {
+        id,
+      },
     });
   }
+
+  // ============================================================
+  // CONSTRUIR RESPUESTA DE AUTENTICACIÓN
+  // ============================================================
 
   private buildAuthResponse(
     usuarioId: string,
@@ -459,8 +719,15 @@ export class AuthService {
     role: string | null,
     rolGlobal: string,
   ) {
-    // `type` distingue este token de los de verificación y reset, que se firman
-    // con el mismo secreto. JwtStrategy solo acepta los de tipo 'session'.
+    /**
+     * `type` distingue este token de los tokens de:
+     *
+     * - verificación de email
+     * - recuperación de contraseña
+     * - cambio de email
+     *
+     * JwtStrategy solo acepta tokens de tipo `session`.
+     */
     const payload = {
       sub: usuarioId,
       type: 'session',
@@ -470,8 +737,9 @@ export class AuthService {
     };
 
     return {
-      accessToken: this.jwtService.sign(payload),
-      usuario: {
+      access_token: this.jwtService.sign(payload),
+
+      user: {
         id: usuarioId,
         nombre,
         negocioId,
@@ -481,10 +749,19 @@ export class AuthService {
     };
   }
 
-  async reenviarVerificacion(dto: ReenviarVerificacionDto) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email: dto.email },
-    });
+  // ============================================================
+  // REENVIAR VERIFICACIÓN
+  // ============================================================
+
+  async reenviarVerificacion(
+    dto: ReenviarVerificacionDto,
+  ) {
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: dto.email.trim().toLowerCase(),
+        },
+      });
 
     if (!usuario) {
       throw new NotFoundException(
@@ -492,20 +769,17 @@ export class AuthService {
       );
     }
 
-    // TODO: cuando exista `emailVerificado` en el schema, validar aquí:
-    // if (usuario.emailVerificado) throw new ConflictException('Este correo ya fue verificado');
+    const verificationToken =
+      this.jwtService.sign(
+        {
+          sub: usuario.id,
+          type: 'email-verification',
+        },
+        {
+          expiresIn: '24h',
+        },
+      );
 
-    const verificationToken = this.jwtService.sign(
-      {
-        sub: usuario.id,
-        type: 'email-verification',
-      },
-      {
-        expiresIn: '24h',
-      },
-    );
-
-    // Sin esperar, por lo mismo que en register.
     void this.mailService.sendVerificationEmail(
       usuario.email,
       usuario.nombre,
@@ -518,54 +792,62 @@ export class AuthService {
     };
   }
 
-  // Perfil del usuario logueado. Incluye a qué negocios y sedes tiene acceso, que es
-  // lo que el dashboard necesita para saber qué puede mostrarle. Nunca devuelve password.
+  // ============================================================
+  // PERFIL
+  // ============================================================
+
   async getPerfil(usuarioId: string) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: usuarioId },
-      select: {
-        id: true,
-        nombre: true,
-        email: true,
-        telefono: true,
-        emailVerificado: true,
-        rolGlobal: true,
-        plan: true,
-        createdAt: true,
-        negocios: {
-          select: {
-            negocio: {
-              select: {
-                id: true,
-                nombre: true,
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          id: usuarioId,
+        },
+        select: {
+          id: true,
+          nombre: true,
+          email: true,
+          telefono: true,
+          emailVerificado: true,
+          rolGlobal: true,
+          plan: true,
+          createdAt: true,
+          negocios: {
+            select: {
+              negocio: {
+                select: {
+                  id: true,
+                  nombre: true,
+                },
+              },
+            },
+          },
+          sedes: {
+            select: {
+              sede: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  negocioId: true,
+                },
               },
             },
           },
         },
-        sedes: {
-          select: {
-            sede: {
-              select: {
-                id: true,
-                nombre: true,
-                negocioId: true,
-              },
-            },
-          },
-        },
-      },
-    });
+      });
 
     if (!usuario) {
-      throw new NotFoundException('Usuario no encontrado');
+      throw new NotFoundException(
+        'Usuario no encontrado',
+      );
     }
 
     return usuario;
   }
 
-  // Para que el dueño encuentre a quién vincular a una sede. Exige el correo exacto y
-  // devuelve solo id y nombre: así sirve para invitar, pero no para averiguar quién
-  // está registrado en la plataforma ni para leer datos de nadie.
+  // ============================================================
+  // BUSCAR USUARIO POR EMAIL
+  // ============================================================
+
   async buscarPorEmail(email?: string) {
     if (!email) {
       throw new BadRequestException(
@@ -573,13 +855,16 @@ export class AuthService {
       );
     }
 
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email },
-      select: {
-        id: true,
-        nombre: true,
-      },
-    });
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: email.trim().toLowerCase(),
+        },
+        select: {
+          id: true,
+          nombre: true,
+        },
+      });
 
     if (!usuario) {
       throw new NotFoundException(
@@ -590,9 +875,18 @@ export class AuthService {
     return usuario;
   }
 
-  async updateUsuario(usuarioId: string, dto: UpdateUsuarioDto) {
+  // ============================================================
+  // ACTUALIZAR USUARIO
+  // ============================================================
+
+  async updateUsuario(
+    usuarioId: string,
+    dto: UpdateUsuarioDto,
+  ) {
     return this.prisma.usuario.update({
-      where: { id: usuarioId },
+      where: {
+        id: usuarioId,
+      },
       data: {
         nombre: dto.nombre,
         telefono: dto.telefono,
@@ -606,10 +900,19 @@ export class AuthService {
     });
   }
 
-  async forgotPassword(dto: ForgotPasswordDto) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { email: dto.email },
-    });
+  // ============================================================
+  // RECUPERAR CONTRASEÑA
+  // ============================================================
+
+  async forgotPassword(
+    dto: ForgotPasswordDto,
+  ) {
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: dto.email.trim().toLowerCase(),
+        },
+      });
 
     if (!usuario) {
       throw new NotFoundException(
@@ -617,17 +920,17 @@ export class AuthService {
       );
     }
 
-    const resetToken = this.jwtService.sign(
-      {
-        sub: usuario.id,
-        type: 'password-reset',
-      },
-      {
-        expiresIn: '1h',
-      },
-    );
+    const resetToken =
+      this.jwtService.sign(
+        {
+          sub: usuario.id,
+          type: 'password-reset',
+        },
+        {
+          expiresIn: '1h',
+        },
+      );
 
-    // Sin esperar, por lo mismo que en register.
     void this.mailService.sendPasswordResetEmail(
       usuario.email,
       usuario.nombre,
@@ -640,62 +943,110 @@ export class AuthService {
     };
   }
 
-  async resetPassword(dto: ResetPasswordDto) {
-    let payload: { sub: string; type: string };
+  // ============================================================
+  // RESTABLECER CONTRASEÑA
+  // ============================================================
+
+  async resetPassword(
+    dto: ResetPasswordDto,
+  ) {
+    let payload: {
+      sub: string;
+      type: string;
+    };
 
     try {
-      payload = this.jwtService.verify(dto.token);
+      payload = this.jwtService.verify(
+        dto.token,
+      );
     } catch {
-      throw new UnauthorizedException('El enlace es inválido o expiró');
+      throw new UnauthorizedException(
+        'El enlace es inválido o expiró',
+      );
     }
 
     if (payload.type !== 'password-reset') {
-      throw new UnauthorizedException('Token inválido para esta operación');
+      throw new UnauthorizedException(
+        'Token inválido para esta operación',
+      );
     }
 
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: payload.sub },
-    });
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          id: payload.sub,
+        },
+      });
 
     if (!usuario) {
-      throw new NotFoundException('Usuario no encontrado');
+      throw new NotFoundException(
+        'Usuario no encontrado',
+      );
     }
 
-    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+    const hashedPassword =
+      await bcrypt.hash(
+        dto.newPassword,
+        10,
+      );
 
     await this.prisma.usuario.update({
-      where: { id: usuario.id },
+      where: {
+        id: usuario.id,
+      },
       data: {
         password: hashedPassword,
       },
     });
 
     return {
-      mensaje: 'Contraseña actualizada correctamente',
+      mensaje:
+        'Contraseña actualizada correctamente',
     };
   }
 
-  async cambiarEmail(usuarioId: string, dto: CambiarEmailDto) {
-    const usuario = await this.prisma.usuario.findUnique({
-      where: { id: usuarioId },
-    });
+  // ============================================================
+  // CAMBIAR EMAIL
+  // ============================================================
+
+  async cambiarEmail(
+    usuarioId: string,
+    dto: CambiarEmailDto,
+  ) {
+    const usuario =
+      await this.prisma.usuario.findUnique({
+        where: {
+          id: usuarioId,
+        },
+      });
 
     if (!usuario) {
-      throw new NotFoundException('Usuario no encontrado');
+      throw new NotFoundException(
+        'Usuario no encontrado',
+      );
     }
 
-    const passwordValida = await bcrypt.compare(
-      dto.password,
-      usuario.password,
-    );
+    const passwordValida =
+      await bcrypt.compare(
+        dto.password,
+        usuario.password,
+      );
 
     if (!passwordValida) {
-      throw new UnauthorizedException('Contraseña incorrecta');
+      throw new UnauthorizedException(
+        'Contraseña incorrecta',
+      );
     }
 
-    const emailExistente = await this.prisma.usuario.findUnique({
-      where: { email: dto.nuevoEmail },
-    });
+    const nuevoEmail =
+      dto.nuevoEmail.trim().toLowerCase();
+
+    const emailExistente =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: nuevoEmail,
+        },
+      });
 
     if (emailExistente) {
       throw new ConflictException(
@@ -703,30 +1054,37 @@ export class AuthService {
       );
     }
 
-    const changeToken = this.jwtService.sign(
-      {
-        sub: usuario.id,
-        nuevoEmail: dto.nuevoEmail,
-        type: 'email-change',
-      },
-      {
-        expiresIn: '1h',
-      },
-    );
+    const changeToken =
+      this.jwtService.sign(
+        {
+          sub: usuario.id,
+          nuevoEmail,
+          type: 'email-change',
+        },
+        {
+          expiresIn: '1h',
+        },
+      );
 
-    // Sin esperar, por lo mismo que en register.
     void this.mailService.sendEmailChangeConfirmation(
-      dto.nuevoEmail,
+      nuevoEmail,
       usuario.nombre,
       changeToken,
     );
 
     return {
-      mensaje: 'Enviamos un correo de confirmación a tu nueva dirección',
+      mensaje:
+        'Enviamos un correo de confirmación a tu nueva dirección',
     };
   }
 
-  async confirmarCambioEmail(dto: ConfirmarCambioEmailDto) {
+  // ============================================================
+  // CONFIRMAR CAMBIO DE EMAIL
+  // ============================================================
+
+  async confirmarCambioEmail(
+    dto: ConfirmarCambioEmailDto,
+  ) {
     let payload: {
       sub: string;
       nuevoEmail: string;
@@ -734,18 +1092,32 @@ export class AuthService {
     };
 
     try {
-      payload = this.jwtService.verify(dto.token);
+      payload = this.jwtService.verify(
+        dto.token,
+      );
     } catch {
-      throw new UnauthorizedException('El enlace es inválido o expiró');
+      throw new UnauthorizedException(
+        'El enlace es inválido o expiró',
+      );
     }
 
     if (payload.type !== 'email-change') {
-      throw new UnauthorizedException('Token inválido para esta operación');
+      throw new UnauthorizedException(
+        'Token inválido para esta operación',
+      );
     }
 
-    const emailExistente = await this.prisma.usuario.findUnique({
-      where: { email: payload.nuevoEmail },
-    });
+    const nuevoEmail =
+      payload.nuevoEmail
+        .trim()
+        .toLowerCase();
+
+    const emailExistente =
+      await this.prisma.usuario.findUnique({
+        where: {
+          email: nuevoEmail,
+        },
+      });
 
     if (emailExistente) {
       throw new ConflictException(
@@ -754,14 +1126,17 @@ export class AuthService {
     }
 
     await this.prisma.usuario.update({
-      where: { id: payload.sub },
+      where: {
+        id: payload.sub,
+      },
       data: {
-        email: payload.nuevoEmail,
+        email: nuevoEmail,
       },
     });
 
     return {
-      mensaje: 'Correo actualizado correctamente',
+      mensaje:
+        'Correo actualizado correctamente',
     };
   }
 }
