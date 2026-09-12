@@ -9,9 +9,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
+
 import { AuthService } from './auth.service';
+
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { GoogleLoginDto } from './dto/google-login.dto';
 import { AsociarNegocioDto } from './dto/asociar-negocio.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { CurrentUser } from './decorators/current-user.decorator';
@@ -22,7 +25,10 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ConfirmarCambioEmailDto } from './dto/confirmar-cambio-email.dto';
 import { CambiarEmailDto } from './dto/cambiar-email.dto';
 
-type AuthUser = { userId: string; rolGlobal: string };
+type AuthUser = {
+  userId: string;
+  rolGlobal: string;
+};
 
 @Controller('auth')
 export class AuthController {
@@ -41,6 +47,18 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  /**
+   * Inicio de sesión / registro mediante Google.
+   *
+   * Este endpoint es público.
+   * Google autentica al usuario y el backend genera posteriormente
+   * el JWT de sesión propio de Luka.
+   */
+  @Post('google')
+  googleLogin(@Body() dto: GoogleLoginDto) {
+    return this.authService.googleLogin(dto);
   }
 
   @Post('asociar-negocio')
@@ -75,6 +93,7 @@ export class AuthController {
   reenviarVerificacion(@Body() dto: ReenviarVerificacionDto) {
     return this.authService.reenviarVerificacion(dto);
   }
+
   @Patch('usuarios/me')
   @UseGuards(JwtAuthGuard)
   updateUsuario(
@@ -83,6 +102,7 @@ export class AuthController {
   ) {
     return this.authService.updateUsuario(user.userId, dto);
   }
+
   @Post('forgot-password')
   forgotPassword(@Body() dto: ForgotPasswordDto) {
     return this.authService.forgotPassword(dto);
@@ -92,6 +112,7 @@ export class AuthController {
   resetPassword(@Body() dto: ResetPasswordDto) {
     return this.authService.resetPassword(dto);
   }
+
   @Post('cambiar-email')
   @UseGuards(JwtAuthGuard)
   cambiarEmail(
