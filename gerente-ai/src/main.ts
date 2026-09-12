@@ -4,25 +4,94 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app =
+    await NestFactory.create<NestExpressApplication>(AppModule);
 
-  // Las notas de voz y las fotos de WhatsApp llegan en base64 dentro del JSON,
-  // y el limite por defecto de Express (100 kB) las rechazaba con un 413 que no
-  // explicaba nada. Una foto de Meta pesa hasta 5 MB, que en base64 son ~6,7.
-  app.useBodyParser('json', { limit: '12mb' });
+  // Las notas de voz y las fotos de WhatsApp llegan en base64
+  // dentro del JSON. Express tiene un límite por defecto de 100 kB,
+  // por lo que lo aumentamos para soportar correctamente estos
+  // archivos.
+  //
+  // Una foto de Meta puede pesar hasta aproximadamente 5 MB,
+  // que en base64 puede superar los 6 MB.
+  app.useBodyParser('json', {
+    limit: '12mb',
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({
-      whitelist: true, // elimina del body cualquier campo que no esté en el DTO
-      forbidNonWhitelisted: true, // rechaza el request si viene un campo extra no esperado
-      transform: true, // convierte automáticamente tipos (ej. strings de query params a number)
+      whitelist: true,
+      forbidNonWhitelisted: true,
+      transform: true,
     }),
   );
 
+  /*
+   * CORS
+   *
+   * En producción, CORS_ORIGINS debe contener el dominio del
+   * frontend de Luka.
+   *
+   * Ejemplo:
+   *
+   * CORS_ORIGINS=https://luka.finance,https://www.luka.finance
+   *
+   * También permitimos localhost para desarrollo.
+   */
+  const configuredOrigins = process.env.CORS_ORIGINS
+    ?.split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const allowedOrigins =
+    configuredOrigins && configuredOrigins.length > 0
+      ? configuredOrigins
+      : [
+          'http://localhost:5173',
+          'http://localhost:3000',
+        ];
+
   app.enableCors({
-    origin: process.env.CORS_ORIGINS?.split(',').map((value) =>
-      value.trim(),
-    ) ?? ['http://localhost:5173', 'http://localhost:3000'],
+    origin: (origin, callback) => {
+      // Permitir requests que no tengan Origin.
+      //
+      // Esto puede ocurrir con herramientas como Postman,
+      // algunos health checks y determinadas peticiones
+      // internas.
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      callback(
+        new Error(
+          `Origen no permitido por CORS: ${origin}`,
+        ),
+        false,
+      );
+    },
+
+    methods: [
+      'GET',
+      'HEAD',
+      'PUT',
+      'PATCH',
+      'POST',
+      'DELETE',
+      'OPTIONS',
+    ],
+
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+    ],
+
+    credentials: true,
   });
 
   const port = process.env.PORT ?? 3000;

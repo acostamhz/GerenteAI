@@ -28,7 +28,7 @@ const ease = [0.22, 1, 0.36, 1] as const;
 export function RegisterForm() {
   const {
     register,
-    googleLogin,
+    googleRegister,
     isLoading,
     error,
     clearError,
@@ -62,6 +62,13 @@ export function RegisterForm() {
 
   const [isGoogleLoading, setIsGoogleLoading] =
     useState(false);
+
+  // Se conserva únicamente en memoria mientras se completa el registro.
+  const [googleCredential, setGoogleCredential] =
+    useState<string | null>(null);
+
+  const isGoogleOnboarding =
+    Boolean(googleCredential);
 
   /**
    * Contenedor real del GoogleLogin.
@@ -230,10 +237,6 @@ export function RegisterForm() {
       return "Por favor ingresa tu número de celular.";
     }
 
-    if (!whatsappUsername) {
-      return "Por favor ingresa tu usuario de WhatsApp.";
-    }
-
     if (!formData.password) {
       return "Por favor crea una contraseña.";
     }
@@ -257,6 +260,38 @@ export function RegisterForm() {
   };
 
   /* ================================================================
+     GOOGLE REGISTER VALIDATION
+  ================================================================ */
+
+  const validateGoogleRegister = () => {
+    const businessName = formData.businessName.trim();
+    const phone = formData.phone.trim();
+    const normalizedPhone = phone.replace(/[\s-]/g, "");
+
+    if (!googleCredential) {
+      return "La autenticación con Google no está disponible. Inténtalo nuevamente.";
+    }
+
+    if (!businessName) {
+      return "Por favor ingresa el nombre de tu negocio.";
+    }
+
+    if (!phone) {
+      return "Por favor ingresa tu número de celular.";
+    }
+
+    if (!/^(?:\+?57)?3\d{9}$/.test(normalizedPhone)) {
+      return "Ingresa un número celular colombiano válido, por ejemplo +57 300 123 4567.";
+    }
+
+    if (!formData.termsAccepted) {
+      return "Debes aceptar los Términos y la Política de Privacidad.";
+    }
+
+    return null;
+  };
+
+  /* ================================================================
      NORMAL REGISTER
   ================================================================ */
 
@@ -264,6 +299,44 @@ export function RegisterForm() {
     event: React.FormEvent<HTMLFormElement>,
   ) => {
     event.preventDefault();
+
+    // Google Register funciona como segundo paso: primero autenticamos
+    // con Google y después recopilamos los datos adicionales.
+    if (googleCredential) {
+      const googleValidationError =
+        validateGoogleRegister();
+
+      if (googleValidationError) {
+        setLocalError(googleValidationError);
+        return;
+      }
+
+      setLocalError(null);
+      clearError();
+      setIsGoogleLoading(true);
+
+      try {
+        await googleRegister(
+          googleCredential,
+          formData.phone.trim(),
+          formData.businessName.trim(),
+          normalizeWhatsappUsername(
+            formData.whatsappUsername,
+          ) || undefined,
+        );
+
+        window.location.href = "/";
+      } catch (err) {
+        console.error(
+          "❌ [RegisterForm] Error en registro con Google:",
+          err,
+        );
+      } finally {
+        setIsGoogleLoading(false);
+      }
+
+      return;
+    }
 
     const validationError =
       validateForm();
@@ -321,34 +394,60 @@ export function RegisterForm() {
       setLocalError(
         "Google no pudo completar la autenticación. Inténtalo nuevamente.",
       );
-
       return;
     }
 
     setLocalError(null);
     clearError();
-    setIsGoogleLoading(true);
 
+    // No creamos la cuenta todavía. El credential queda en memoria
+    // mientras el usuario completa teléfono, negocio y WhatsApp opcional.
+    setGoogleCredential(credential);
+
+    // Rellenamos nombre y correo para la interfaz.
+    // El backend siempre vuelve a validar el credential con Google.
     try {
-      /*
-       * El backend de Luka recibe el credential de Google,
-       * valida el ID Token y devuelve el JWT propio de Luka.
-       */
-      await googleLogin(credential);
+      const payload = credential.split(".")[1];
 
-      /*
-       * Google ya autenticó al usuario.
-       *
-       * El AuthContext se encarga de persistir la sesión.
-       */
-      window.location.href = "/";
+      if (payload) {
+        const normalizedPayload = payload
+          .replace(/-/g, "+")
+          .replace(/_/g, "/");
+
+        const paddedPayload =
+          normalizedPayload +
+          "=".repeat(
+            (4 - (normalizedPayload.length % 4)) % 4,
+          );
+
+        const decoded = JSON.parse(
+          decodeURIComponent(
+            Array.from(
+              atob(paddedPayload),
+              (character) =>
+                `%${character.charCodeAt(0)
+                  .toString(16)
+                  .padStart(2, "0")}`,
+            ).join(""),
+          ),
+        ) as {
+          name?: string;
+          email?: string;
+        };
+
+        setFormData((current) => ({
+          ...current,
+          fullName:
+            decoded.name || current.fullName,
+          email:
+            decoded.email || current.email,
+        }));
+      }
     } catch (err) {
-      console.error(
-        "❌ [RegisterForm] Error en Google:",
+      console.warn(
+        "⚠️ [RegisterForm] No se pudo leer el perfil de Google para la interfaz.",
         err,
       );
-    } finally {
-      setIsGoogleLoading(false);
     }
   };
 
@@ -358,6 +457,7 @@ export function RegisterForm() {
 
   const handleGoogleError = () => {
     setIsGoogleLoading(false);
+    setGoogleCredential(null);
 
     setLocalError(
       "No fue posible iniciar sesión con Google. Inténtalo nuevamente.",
@@ -762,6 +862,7 @@ export function RegisterForm() {
           ======================================================== */}
 
           <motion.form
+            noValidate
             onSubmit={handleSubmit}
             initial={
               shouldReduceMotion
@@ -841,7 +942,7 @@ export function RegisterForm() {
                     type="text"
                     placeholder="María Rodríguez"
                     required
-                    disabled={formDisabled}
+                    disabled={formDisabled || isGoogleOnboarding}
                     autoComplete="name"
                     value={
                       formData.fullName
@@ -913,7 +1014,7 @@ export function RegisterForm() {
                     type="email"
                     placeholder="tu@empresa.com"
                     required
-                    disabled={formDisabled}
+                    disabled={formDisabled || isGoogleOnboarding}
                     autoComplete="email"
                     value={
                       formData.email
@@ -1080,7 +1181,6 @@ export function RegisterForm() {
                     id="register-whatsapp"
                     type="text"
                     placeholder="@usuario"
-                    required
                     disabled={formDisabled}
                     autoComplete="off"
                     value={
@@ -1750,7 +1850,9 @@ export function RegisterForm() {
                       </svg>
 
                       <span>
-                        Continuar con Google
+                        {isGoogleOnboarding
+                          ? "Cambiar cuenta de Google"
+                          : "Continuar con Google"}
                       </span>
                     </>
                   )}
@@ -1830,8 +1932,9 @@ export function RegisterForm() {
                     </>
                   ) : (
                     <>
-                      Crear cuenta y comenzar
-                      gratis
+                      {isGoogleOnboarding
+                        ? "Crear cuenta con Google"
+                        : "Crear cuenta y comenzar gratis"}
 
                       <ArrowRight
                         className="

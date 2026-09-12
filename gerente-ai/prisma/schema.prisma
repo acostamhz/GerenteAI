@@ -87,6 +87,7 @@ model Negocio {
   telefonoContacto   String? // Teléfono general/administrativo (no usado por el bot)
   telefonoSecundario String?
   contexto           String? @db.Text // Contexto general de IA para el negocio
+
   /// Dia en que arranca el periodo contable del negocio (1 a 28).
   ///
   /// No todos cierran el mes calendario: hay negocios cuyo periodo va del 21 al
@@ -95,7 +96,7 @@ model Negocio {
   ///
   /// Se limita a 28 para que exista en todos los meses: un periodo que empiece
   /// el 30 no tendria fecha valida en febrero.
-  diaInicioPeriodo   Int     @default(1)
+  diaInicioPeriodo Int @default(1)
 
   plan        Int       @default(1)
   planVenceEl DateTime?
@@ -302,11 +303,6 @@ model Venta {
   @@index([grupoId])
 }
 
-/// Constancia de que ya se avisó por un fiado sin cobrar.
-///
-/// Existe para no repetir el aviso: el job puede correr dos veces, o correr
-/// tarde si Render estuvo dormido, y el duenno no deberia recibir el mismo
-/// recordatorio cada dia. La unicidad sobre `ventaId` es la que lo garantiza.
 model RecordatorioFiado {
   id        String   @id @default(uuid())
   ventaId   String   @unique
@@ -390,17 +386,23 @@ model Gasto {
 model RepartoUtilidad {
   id             String              @id @default(uuid())
   beneficiario   BeneficiarioReparto
+
   /// Nombre concreto cuando se conoce ("Maria", "Don Jose").
   nombre         String?
+
   /// Porcentaje del total repartido, de 0 a 100.
   porcentaje     Decimal
+
   /// Monto que le corresponde, ya calculado.
   monto          Decimal
+
   /// Utilidad total que se repartio, para poder reconstruir el calculo.
   totalRepartido Decimal
+
   /// Une las partes de un mismo reparto.
   grupoId String
-  fecha   DateTime @default(now())
+
+  fecha DateTime @default(now())
 
   sedeId String
   sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
@@ -461,4 +463,69 @@ model NotificacionPlan {
 
   @@unique([negocioId, tipo, venceEl])
   @@index([negocioId])
+}
+
+/// Registro persistente del consumo de IA de Luka.
+///
+/// Guarda cada llamada realizada al proveedor de IA para poder:
+/// - controlar las cuotas de mensajes de cada plan;
+/// - conocer el consumo real de tokens;
+/// - conocer el costo acumulado;
+/// - saber que proveedor/modelo fue utilizado;
+/// - diagnosticar llamadas fallidas;
+/// - generar reportes historicos de consumo.
+///
+/// Las llamadas exitosas son las que cuentan para la cuota. Las fallidas
+/// tambien se almacenan para diagnostico, pero `exitosa = false`.
+model ConsumoIa {
+  id String @id @default(uuid())
+
+  /// Negocio al que pertenece el consumo.
+  negocioId String
+  negocio   Negocio @relation(fields: [negocioId], references: [id], onDelete: Cascade)
+
+  /// Sede desde la que se produjo el consumo.
+  ///
+  /// Es nullable porque algunos consumos pueden originarse a nivel de negocio
+  /// y no estar asociados a una sede concreta.
+  sedeId String?
+  sede   Sede? @relation(fields: [sedeId], references: [id], onDelete: Cascade)
+
+  /// Funcionalidad que produjo el consumo.
+  /// Ejemplos: "whatsapp", "chat", "reportes", etc.
+  feature String
+
+  /// Identificador del proveedor de IA utilizado.
+  /// Ejemplos: "openai", "anthropic", etc.
+  providerId String
+
+  /// Modelo concreto utilizado.
+  /// Ejemplos: "gpt-4o-mini", "gpt-5", etc.
+  model String
+
+  /// Tokens enviados al modelo.
+  inputTokens Int
+
+  /// Tokens generados por el modelo.
+  outputTokens Int
+
+  /// Costo estimado de la llamada en USD.
+  costoUsd Decimal
+
+  /// Latencia total de la llamada en milisegundos.
+  latenciaMs Int?
+
+  /// Indica si la llamada fue exitosa.
+  exitosa Boolean
+
+  /// Código interno del error cuando la llamada falla.
+  errorCode String?
+
+  createdAt DateTime @default(now())
+
+  @@index([negocioId, createdAt])
+  @@index([sedeId, createdAt])
+  @@index([providerId, createdAt])
+  @@index([feature, createdAt])
+  @@index([exitosa, createdAt])
 }

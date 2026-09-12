@@ -46,13 +46,20 @@ export const authApi = {
   },
 
   /**
-   * Iniciar sesión o registrarse mediante Google.
+   * Iniciar sesión mediante Google.
    *
    * Google entrega un ID Token (credential) al frontend.
    *
    * El frontend NO valida ni decodifica el token.
    * Lo envía directamente al backend, donde Google
    * es validado mediante google-auth-library.
+   *
+   * IMPORTANTE:
+   * Este método SOLO inicia sesión.
+   *
+   * Si la cuenta de Google no existe en Luka,
+   * el backend devolverá un error y el frontend
+   * deberá llevar al usuario al flujo de registro.
    *
    * POST /auth/google
    */
@@ -67,6 +74,85 @@ export const authApi = {
         credential: credential.trim(),
       }),
     });
+
+    const token = raw.accessToken || raw.access_token || '';
+
+    const user =
+      raw.usuario ||
+      raw.user || {
+        id: '',
+        nombre: '',
+        rolGlobal: 'CLIENTE',
+      };
+
+    return {
+      access_token: token,
+      user,
+    };
+  },
+
+  /**
+   * Registrar una nueva cuenta mediante Google.
+   *
+   * Google proporciona:
+   *
+   *   - Nombre
+   *   - Email
+   *   - Google ID
+   *
+   * Luka solicita adicionalmente:
+   *
+   *   - Teléfono colombiano (obligatorio)
+   *   - Nombre del negocio (obligatorio)
+   *   - Usuario de WhatsApp (opcional)
+   *
+   * El credential se envía directamente al backend.
+   * El backend valida el ID Token con Google antes
+   * de crear la cuenta.
+   *
+   * POST /auth/google/register
+   */
+  async googleRegister(
+    credential: string,
+    telefono: string,
+    nombreNegocio: string,
+    whatsappUsername?: string,
+  ): Promise<AuthResponse> {
+    if (!credential?.trim()) {
+      throw new Error('No se recibió la credencial de Google.');
+    }
+
+    if (!telefono?.trim()) {
+      throw new Error('El número de teléfono es obligatorio.');
+    }
+
+    if (!nombreNegocio?.trim()) {
+      throw new Error('El nombre del negocio es obligatorio.');
+    }
+
+    const cleanUsername = whatsappUsername
+      ? whatsappUsername.trim().replace(/^@+/, '')
+      : undefined;
+
+    const payload = {
+      credential: credential.trim(),
+      telefono: telefono.trim(),
+      nombreNegocio: nombreNegocio.trim(),
+
+      ...(cleanUsername
+        ? {
+            whatsappUsername: cleanUsername,
+          }
+        : {}),
+    };
+
+    const raw = await apiClient<BackendAuthResponse>(
+      '/auth/google/register',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
 
     const token = raw.accessToken || raw.access_token || '';
 

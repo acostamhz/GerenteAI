@@ -25,6 +25,12 @@ interface AuthContextType {
 
   login: (credentials: LoginCredentials) => Promise<AuthUser>;
   googleLogin: (credential: string) => Promise<AuthUser>;
+  googleRegister: (
+    credential: string,
+    telefono: string,
+    nombreNegocio: string,
+    whatsappUsername?: string,
+  ) => Promise<AuthUser>;
   register: (credentials: RegisterCredentials) => Promise<AuthUser>;
 
   logout: () => void;
@@ -302,7 +308,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   /**
-   * Login / registro mediante Google.
+   * Login mediante Google para usuarios que ya tienen una cuenta.
    *
    * Google entrega un ID Token (credential).
    * El backend lo valida y devuelve el mismo JWT
@@ -330,6 +336,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         err instanceof ApiError
           ? err.message
           : 'Error al iniciar sesión con Google';
+
+      setError(message);
+      throw err;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  /**
+   * Registro mediante Google.
+   *
+   * Google ya proporciona un correo electrónico verificado.
+   * Por eso el usuario solamente debe completar los datos
+   * adicionales requeridos por Luka:
+   *
+   * - Teléfono celular colombiano.
+   * - Nombre del negocio.
+   * - Usuario de WhatsApp opcional.
+   *
+   * El backend valida nuevamente el credential de Google,
+   * crea la cuenta y devuelve el JWT de sesión.
+   */
+  const googleRegister = async (
+    credential: string,
+    telefono: string,
+    nombreNegocio: string,
+    whatsappUsername?: string,
+  ): Promise<AuthUser> => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      clearBusinessStorage();
+
+      const response = await authApi.googleRegister(
+        credential,
+        telefono,
+        nombreNegocio,
+        whatsappUsername,
+      );
+
+      persistSession(
+        response.access_token,
+        response.user,
+      );
+
+      return response.user;
+    } catch (err) {
+      const message =
+        err instanceof ApiError
+          ? err.message
+          : 'Error al crear la cuenta con Google';
 
       setError(message);
       throw err;
@@ -375,6 +433,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     error,
     login,
     googleLogin,
+    googleRegister,
     register,
     logout,
     clearError,
