@@ -41,28 +41,7 @@ function WhatsAppGraphic() {
   return (
     <motion.div
       className="pointer-events-none absolute inset-x-0 bottom-0 h-[245px] overflow-hidden sm:h-[270px] md:h-full"
-      initial={
-        shouldReduceMotion
-          ? false
-          : {
-              opacity: 0,
-            }
-      }
-      whileInView={
-        shouldReduceMotion
-          ? undefined
-          : {
-              opacity: 1,
-            }
-      }
-      viewport={{
-        once: true,
-        amount: 0.25,
-      }}
-      transition={{
-        duration: 0.7,
-        ease: "easeOut",
-      }}
+      initial={false}
     >
       {/* Glow */}
       <motion.div
@@ -97,7 +76,7 @@ function WhatsAppGraphic() {
                 scale: 0,
               }
         }
-        whileInView={
+        animate={
           shouldReduceMotion
             ? undefined
             : {
@@ -105,9 +84,6 @@ function WhatsAppGraphic() {
                 scale: 1,
               }
         }
-        viewport={{
-          once: true,
-        }}
         transition={{
           duration: 0.45,
           delay: 0.25,
@@ -174,7 +150,7 @@ function WhatsAppGraphic() {
                 scale: 0.82,
               }
         }
-        whileInView={
+        animate={
           shouldReduceMotion
             ? undefined
             : {
@@ -193,10 +169,6 @@ function WhatsAppGraphic() {
                 rotate: 4,
               }
         }
-        viewport={{
-          once: true,
-          amount: 0.3,
-        }}
         transition={{
           duration: 1.05,
           delay: 0.18,
@@ -214,7 +186,7 @@ function WhatsAppGraphic() {
                   scaleX: 0.5,
                 }
           }
-          whileInView={
+          animate={
             shouldReduceMotion
               ? undefined
               : {
@@ -222,9 +194,6 @@ function WhatsAppGraphic() {
                   scaleX: 1,
                 }
           }
-          viewport={{
-            once: true,
-          }}
           transition={{
             duration: 0.35,
             delay: 0.65,
@@ -243,7 +212,7 @@ function WhatsAppGraphic() {
                     y: -10,
                   }
             }
-            whileInView={
+            animate={
               shouldReduceMotion
                 ? undefined
                 : {
@@ -251,9 +220,6 @@ function WhatsAppGraphic() {
                     y: 0,
                   }
             }
-            viewport={{
-              once: true,
-            }}
             transition={{
               duration: 0.45,
               delay: 0.75,
@@ -269,7 +235,7 @@ function WhatsAppGraphic() {
                       rotate: -45,
                     }
               }
-              whileInView={
+              animate={
                 shouldReduceMotion
                   ? undefined
                   : {
@@ -277,9 +243,6 @@ function WhatsAppGraphic() {
                       rotate: 0,
                     }
               }
-              viewport={{
-                once: true,
-              }}
               transition={{
                 duration: 0.45,
                 delay: 0.82,
@@ -290,13 +253,8 @@ function WhatsAppGraphic() {
             </motion.div>
 
             <div>
-              <div className="text-[9px] font-bold text-slate-900">
-                Luka AI
-              </div>
-
-              <div className="text-[7px] text-slate-400">
-                En línea
-              </div>
+              <div className="text-[9px] font-bold text-slate-900">Luka AI</div>
+              <div className="text-[7px] text-slate-400">En línea</div>
             </div>
           </motion.div>
 
@@ -313,7 +271,7 @@ function WhatsAppGraphic() {
                       scale: 0.92,
                     }
               }
-              whileInView={
+              animate={
                 shouldReduceMotion
                   ? undefined
                   : {
@@ -322,12 +280,9 @@ function WhatsAppGraphic() {
                       scale: 1,
                     }
               }
-              viewport={{
-                once: true,
-              }}
               transition={{
                 duration: 0.45,
-                delay: 1.0,
+                delay: 1,
                 ease: [0.22, 1, 0.36, 1],
               }}
             >
@@ -345,7 +300,7 @@ function WhatsAppGraphic() {
                       scale: 0.92,
                     }
               }
-              whileInView={
+              animate={
                 shouldReduceMotion
                   ? undefined
                   : {
@@ -354,9 +309,6 @@ function WhatsAppGraphic() {
                       scale: 1,
                     }
               }
-              viewport={{
-                once: true,
-              }}
               transition={{
                 duration: 0.45,
                 delay: 1.22,
@@ -379,7 +331,7 @@ function WhatsAppGraphic() {
                       scale: 0.92,
                     }
               }
-              whileInView={
+              animate={
                 shouldReduceMotion
                   ? undefined
                   : {
@@ -388,9 +340,6 @@ function WhatsAppGraphic() {
                       scale: 1,
                     }
               }
-              viewport={{
-                once: true,
-              }}
               transition={{
                 duration: 0.45,
                 delay: 1.44,
@@ -436,7 +385,7 @@ function WhatsAppGraphic() {
                 scale: 0.9,
               }
         }
-        whileInView={
+        animate={
           shouldReduceMotion
             ? undefined
             : {
@@ -446,10 +395,6 @@ function WhatsAppGraphic() {
                 scale: 1,
               }
         }
-        viewport={{
-          once: true,
-          amount: 0.3,
-        }}
         transition={{
           duration: 0.75,
           delay: 0.55,

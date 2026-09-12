@@ -94,7 +94,7 @@ export function LukaFloatingChat() {
                 items-center
                 gap-3
                 rounded-full
-                bg-[#06963B]
+                bg-[#075E54]
                 px-4
                 py-3.5
                 text-white
