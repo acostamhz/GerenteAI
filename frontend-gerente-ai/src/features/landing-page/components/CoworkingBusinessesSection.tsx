@@ -64,9 +64,10 @@ export function CoworkingBusinessesSection() {
       className="
         relative
         px-6
-        py-20
-        md:px-12
-        md:py-24
+        pt-4
+        pb-6
+        md:pt-14
+        md:pb-16
       "
     >
       <div

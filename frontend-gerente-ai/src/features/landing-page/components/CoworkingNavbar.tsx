@@ -35,10 +35,7 @@ function customSmoothScroll(
 
     const ease = easeInOutQuart(progress);
 
-    window.scrollTo(
-      0,
-      startY + distance * ease
-    );
+    window.scrollTo(0, startY + distance * ease);
 
     if (timeElapsed < duration) {
       requestAnimationFrame(animation);
@@ -75,36 +72,39 @@ export function CoworkingNavbar() {
   const [mobileMenuOpen, setMobileMenuOpen] =
     useState(false);
 
-  // =========================================================
-  // ANNOUNCEMENT BAR VISIBILITY
-  // Solo controla la barra verde.
-  // La navbar NO cambia.
-  // =========================================================
-
   const [showAnnouncement, setShowAnnouncement] =
     useState(true);
 
   const { user, isAuthenticated } = useAuth();
 
   useEffect(() => {
+    let ticking = false;
+
     const handleScroll = () => {
-      // La barra permanece visible únicamente en la parte superior.
-      setShowAnnouncement(window.scrollY <= 20);
+      if (ticking) return;
+
+      ticking = true;
+
+      window.requestAnimationFrame(() => {
+        const shouldShow = window.scrollY <= 20;
+
+        setShowAnnouncement((current) => {
+          if (current === shouldShow) return current;
+          return shouldShow;
+        });
+
+        ticking = false;
+      });
     };
 
     handleScroll();
 
-    window.addEventListener(
-      "scroll",
-      handleScroll,
-      { passive: true }
-    );
+    window.addEventListener("scroll", handleScroll, {
+      passive: true,
+    });
 
     return () => {
-      window.removeEventListener(
-        "scroll",
-        handleScroll
-      );
+      window.removeEventListener("scroll", handleScroll);
     };
   }, []);
 
@@ -117,8 +117,7 @@ export function CoworkingNavbar() {
     setMobileMenuOpen(false);
 
     const targetId = href.replace("#", "");
-    const element =
-      document.getElementById(targetId);
+    const element = document.getElementById(targetId);
 
     if (element) {
       const yOffset = -110;
@@ -136,18 +135,14 @@ export function CoworkingNavbar() {
     <>
       {/* =====================================================
           TOP ANNOUNCEMENT BAR
-
-          Visible arriba.
-          Desaparece al hacer scroll.
-          La navbar permanece intacta.
           ===================================================== */}
 
       <div
         className={`
           fixed
-          top-0
           left-0
           right-0
+          top-0
           z-[70]
           h-11
           transition-all
@@ -156,7 +151,7 @@ export function CoworkingNavbar() {
           ${
             showAnnouncement
               ? "translate-y-0 opacity-100"
-              : "-translate-y-full opacity-0 pointer-events-none"
+              : "-translate-y-full pointer-events-none opacity-0"
           }
         `}
       >
@@ -175,6 +170,7 @@ export function CoworkingNavbar() {
             gap-2
             bg-[#00B545]
             px-4
+            text-center
             text-sm
             font-semibold
             text-slate-950
@@ -215,19 +211,25 @@ export function CoworkingNavbar() {
 
       {/* =====================================================
           MAIN NAVBAR
-          NO SE MODIFICA
           ===================================================== */}
 
       <header
-        className="
+        className={`
           fixed
-          top-[3.75rem]
           left-1/2
           z-50
           w-[calc(100%-2rem)]
           max-w-7xl
           -translate-x-1/2
-        "
+          transition-[top]
+          duration-300
+          ease-out
+          ${
+            showAnnouncement
+              ? "top-[3.75rem]"
+              : "top-3 sm:top-4"
+          }
+        `}
       >
         <div
           className="
@@ -239,12 +241,14 @@ export function CoworkingNavbar() {
             border
             border-slate-200/80
             bg-transparent
-            px-5
+            px-4
             py-2.5
             shadow-[0_10px_40px_rgba(15,23,42,0.08)]
             backdrop-blur-xl
             transition-all
             duration-300
+
+            sm:px-5
 
             dark:border-white/10
             dark:bg-transparent
@@ -590,13 +594,13 @@ export function CoworkingNavbar() {
               rounded-3xl
               border
               border-slate-200
-              bg-transparent
+              bg-slate-50/95
               p-4
               shadow-[0_20px_50px_rgba(15,23,42,0.12)]
               backdrop-blur-xl
 
               dark:border-white/10
-              dark:bg-transparent
+              dark:bg-[#070B12]/95
               dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)]
             "
           >
@@ -673,7 +677,6 @@ export function CoworkingNavbar() {
                 "
               >
                 <LogIn className="h-4 w-4" />
-
                 Iniciar sesión
               </Link>
 

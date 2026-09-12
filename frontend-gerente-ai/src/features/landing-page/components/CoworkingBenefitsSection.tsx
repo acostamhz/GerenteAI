@@ -48,7 +48,7 @@ const benefits = [
 
 export function CoworkingBenefitsSection() {
   return (
-    <section className="relative py-24">
+    <section className="relative -mt-32 pb-24 pt-0 md:pb-18 md:pt-0">
       <div className="max-w-7xl mx-auto px-6 md:px-12">
 
         {/* Header */}

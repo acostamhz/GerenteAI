@@ -146,8 +146,7 @@ export function LocationsBento() {
     if (!visibleCards.length) return;
 
     if (direction === "right") {
-      const rightMostCard =
-        visibleCards[visibleCards.length - 1];
+      const rightMostCard = visibleCards[visibleCards.length - 1];
 
       const currentIndex = cards.indexOf(rightMostCard);
       const nextCard = cards[currentIndex + 1];
@@ -265,7 +264,8 @@ export function LocationsBento() {
         w-full
         overflow-hidden
         bg-slate-50
-        py-24
+        pt-16
+        pb-8
         dark:bg-[#070B12]
       "
     >
@@ -277,10 +277,11 @@ export function LocationsBento() {
         className="
           mx-auto
           mb-12
-          w-[calc(100%-2rem)]
+          w-full
           max-w-7xl
-          px-1
-          sm:px-2
+          px-6
+          sm:px-8
+          md:px-12
         "
       >
         <div className="max-w-2xl">
@@ -539,12 +540,14 @@ export function LocationsBento() {
         className="
           mx-auto
           mt-1
-          w-[calc(100%-2rem)]
+          w-full
           max-w-7xl
-          px-1
+          px-6
           text-sm
           text-slate-400
+          sm:px-8
           md:hidden
+          md:px-12
         "
       >
         Desliza para descubrir más
