@@ -166,7 +166,7 @@ export function CoworkingNavbar() {
             items-center
             justify-center
             gap-2
-            bg-[#00B545]
+            bg-[#075E54]
             px-4
             text-center
             text-sm
@@ -174,7 +174,7 @@ export function CoworkingNavbar() {
             text-slate-950
             transition-all
             duration-300
-            hover:bg-[#00C44B]
+            hover:bg-[#087366]
           "
         >
           <CircleDollarSign
