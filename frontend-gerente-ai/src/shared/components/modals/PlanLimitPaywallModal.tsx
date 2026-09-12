@@ -10,7 +10,8 @@ import {
 import { motion } from 'motion/react';
 import { Link } from 'react-router';
 import { PlanBackend, PLANES_FALLBACK, MENSAJES_IA_POR_PLAN } from '@/shared/api/planesApi';
-import { salesWhatsappUrl } from '@/lib/whatsapp';
+import { WompiCheckoutModal } from '@/features/client-subscription/components/WompiCheckoutModal';
+import { lukaWhatsappUrl } from '@/lib/whatsapp';
 
 interface PlanLimitPaywallModalProps {
   isOpen: boolean;
@@ -35,13 +36,23 @@ export function PlanLimitPaywallModal({
   negocioNombre = 'Tu Negocio',
   onUpgradeSuccess,
 }: PlanLimitPaywallModalProps) {
+  const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
+
   if (!isOpen) return null;
 
   const planRecomendado = catalogo.find((p) => p.id === planRecomendadoId) || catalogo[1] || PLANES_FALLBACK[1];
 
+  const handleOpenWompi = () => {
+    if (planRecomendado.id === 5) {
+      handleOpenWhatsappSales();
+      return;
+    }
+    setIsCheckoutOpen(true);
+  };
+
   const handleOpenWhatsappSales = () => {
-    const msg = `Hola 👋, quiero activar el Plan ${planRecomendado.nombre} ($${PRECIO_FORMATTER.format(planRecomendado.precioMensual)} COP/mes) para mi negocio "${negocioNombre}". ¿Me pueden compartir los datos de transferencia o pago guiado?`;
-    window.open(salesWhatsappUrl(msg), '_blank', 'noopener,noreferrer');
+    const msg = `Hola Luka 👋, me gustaría recibir asesoría para ampliar el número de sedes o negocios en mi cuenta (${negocioNombre}).`;
+    window.open(lukaWhatsappUrl(msg), '_blank', 'noopener,noreferrer');
   };
 
   return (
@@ -142,12 +153,14 @@ export function PlanLimitPaywallModal({
           <div className="space-y-3">
             <button
               type="button"
-              onClick={handleOpenWhatsappSales}
+              onClick={handleOpenWompi}
               className="w-full py-3.5 bg-gradient-to-r from-emerald-600 to-emerald-500 hover:from-emerald-500 hover:to-emerald-400 text-white font-black text-sm rounded-2xl shadow-lg shadow-emerald-500/25 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
-              <MessageSquare className="w-4 h-4" />
+              <Sparkles className="w-4 h-4" />
               <span>
-                Solicitar Plan {planRecomendado.nombre} por WhatsApp ➔
+                {planRecomendado.id === 5
+                  ? "Contactar a Asesor Comercial"
+                  : `Desbloquear Plan ${planRecomendado.nombre} ($${PRECIO_FORMATTER.format(planRecomendado.precioMensual)} COP)`}
               </span>
             </button>
 
@@ -157,7 +170,7 @@ export function PlanLimitPaywallModal({
               className="w-full py-2.5 px-4 rounded-xl border border-border bg-background hover:bg-muted text-xs font-bold text-muted-foreground hover:text-foreground transition-colors flex items-center justify-center gap-2 cursor-pointer"
             >
               <MessageSquare className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Hablar con Asesor de Ventas (+57 3008880018)</span>
+              <span>Hablar con Asesor Comercial (+57 3043904488)</span>
             </button>
 
             <Link
@@ -169,10 +182,10 @@ export function PlanLimitPaywallModal({
             </Link>
           </div>
 
-          {/* Seguridad y Medios de Pago */}
+          {/* Seguridad Wompi */}
           <div className="mt-4 pt-4 border-t border-border flex items-center justify-center gap-2 text-[11px] font-medium text-muted-foreground">
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-500" />
-            <span>Activación guiada • Nequi, Daviplata, Bancolombia y PSE</span>
+            <span>Pasarela Wompi Bancolombia • Cancelación en cualquier momento</span>
           </div>
         </motion.div>
       </div>

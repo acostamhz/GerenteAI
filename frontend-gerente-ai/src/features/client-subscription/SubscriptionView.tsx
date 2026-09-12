@@ -26,7 +26,7 @@ import {
   DESCRIPCIONES_POR_PLAN,
 } from "@/shared/api/planesApi";
 
-import { lukaWhatsappUrl, salesWhatsappUrl } from "@/lib/whatsapp";
+import { lukaWhatsappUrl } from "@/lib/whatsapp";
 import { WompiCheckoutModal } from "./components/WompiCheckoutModal";
 
 const PRECIO_FORMATTER =
@@ -477,15 +477,11 @@ export function SubscriptionView() {
     }
 
     /* ========================================================
-       PLANES DE PAGO VIA WHATSAPP ASESOR
+       PLANES DE PAGO CON WOMPI
     ======================================================== */
 
-    const precioTexto = `$${PRECIO_FORMATTER.format(
-      ciclo === 'anual' && plan.precioAnual ? plan.precioAnual : plan.precioMensual
-    )} COP/${ciclo === 'anual' ? 'año' : 'mes'}`;
-
-    const msg = `Hola 👋, quiero activar el Plan ${plan.nombre} (${precioTexto}) para mi negocio "${negocioNombre || 'Mi Negocio'}". ¿Me pueden compartir los datos de transferencia o pago guiado?`;
-    window.open(salesWhatsappUrl(msg), '_blank', 'noopener,noreferrer');
+    setSelectedPlanForCheckout(plan);
+    setIsCheckoutOpen(true);
   };
 
   /* ==========================================================
@@ -507,7 +503,7 @@ export function SubscriptionView() {
 
             <Sparkles className="w-3.5 h-3.5" />
 
-            Atención y activación directa vía WhatsApp
+            Pasarela Oficial Wompi Bancolombia
 
           </div>
 
@@ -976,7 +972,7 @@ export function SubscriptionView() {
                         </>
                       ) : (
                         <>
-                          <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+                          <Sparkles className="w-3.5 h-3.5 shrink-0" />
                           <span className="truncate">
                             {esPlanGerente && ciclo === "anual"
                               ? "Elegir Plan Mensual"
@@ -1012,11 +1008,11 @@ export function SubscriptionView() {
           <div>
 
             <h4 className="text-sm font-bold text-foreground">
-              Activación guiada y directa vía WhatsApp
+              Pagos protegidos por Wompi Bancolombia
             </h4>
 
             <p className="text-xs text-muted-foreground">
-              Asesoría personalizada con nuestro equipo comercial (+57 3008880018). Transferencias Nequi, Daviplata, Bancolombia y PSE.
+              Cambia de plan en cualquier momento sin contratos de permanencia ni cobros ocultos.
             </p>
 
           </div>
