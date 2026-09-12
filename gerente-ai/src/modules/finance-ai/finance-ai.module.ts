@@ -9,6 +9,7 @@ import {
   type FinanceDataPort,
 } from './ports/finance-data.port';
 import { AssistantService } from './services/assistant.service';
+import { ConversationStateService } from './services/conversation-state.service';
 import { InsightsService } from './services/insights.service';
 import { WhatsAppMessageService } from './services/whatsapp-message.service';
 
@@ -55,6 +56,7 @@ import { WhatsAppMessageService } from './services/whatsapp-message.service';
         return prismaAdapter;
       },
     },
+    ConversationStateService,
     WhatsAppMessageService,
     InsightsService,
     AssistantService,

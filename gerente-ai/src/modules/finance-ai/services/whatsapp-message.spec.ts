@@ -1,6 +1,11 @@
 import type { LlmResponse } from '../../../ai/core/llm.types';
 import type { LlmService } from '../../../ai/services/llm.service';
-import type { PeriodSummary, Transaction } from '../domain/finance.types';
+import { ConversationStateService } from './conversation-state.service';
+import type {
+  PeriodSummary,
+  Receivable,
+  Transaction,
+} from '../domain/finance.types';
 import type {
   FinanceDataPort,
   ProfitDistribution,
@@ -15,6 +20,7 @@ import {
   periodRange,
   renderMovementList,
   renderSummary,
+  repartirDescuento,
 } from './whatsapp-message.service';
 
 /**
@@ -106,6 +112,8 @@ interface FakeFinanceData extends FinanceDataPort {
   payments: PaymentRequest[];
   /** Lo que devolvera `registerPayment`. Cada prueba lo ajusta a su caso. */
   paymentResult: PaymentResult;
+  /** La cartera que ve la consulta "quien me debe". */
+  receivables: Receivable[];
 }
 
 function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
@@ -134,7 +142,8 @@ function fakeFinanceData(rows: Transaction[] = SEED): FakeFinanceData {
       payments.push(payment);
       return Promise.resolve(fake.paymentResult);
     },
-    listReceivables: () => Promise.resolve([]),
+    receivables: [],
+    listReceivables: () => Promise.resolve(fake.receivables),
     getSnapshot: () => Promise.reject(new Error('no usado en estas pruebas')),
     listTransactions: () => Promise.resolve(rows),
     saveTransactions: (transactions: Transaction[]) => {
@@ -178,8 +187,50 @@ function buildService(
   rows: Transaction[] = SEED,
 ) {
   const financeData = fakeFinanceData(rows);
-  const service = new WhatsAppMessageService(fakeLlm(intent), financeData);
-  return { service, financeData };
+  const state = new ConversationStateService();
+  const service = new WhatsAppMessageService(
+    fakeLlm(intent),
+    financeData,
+    state,
+  );
+  return { service, financeData, state };
+}
+
+function espiarLlm(intent: Partial<WhatsAppIntentOutput>) {
+  const visto: { system?: string; messages?: unknown[] } = {};
+
+  const llm = {
+    completeJson: (req: { system?: string; messages?: unknown[] }) => {
+      visto.system = req.system;
+      visto.messages = req.messages;
+      return Promise.resolve({
+        data: {
+          type: 'unclear',
+          movements: [],
+          declaredTotal: null,
+          profitShares: [],
+          concept: null,
+          queryKind: null,
+          queryPeriod: null,
+          responseText: 'ok',
+          confidence: 0.9,
+          ...intent,
+        },
+        response: {
+          text: '',
+          toolCalls: [],
+          finishReason: 'stop',
+          usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          providerId: 'fake',
+          model: 'fake-1',
+          latencyMs: 1,
+          costUsd: 0,
+        },
+      });
+    },
+  } as unknown as LlmService;
+
+  return { llm, visto };
 }
 
 const BASE_REQUEST = {
@@ -437,48 +488,16 @@ describe('renderSummary', () => {
 
 describe('WhatsAppMessageService · contexto de la conversación', () => {
   /** Captura lo que se le manda al modelo, para verificar prompt e historial. */
-  function espiarLlm(intent: Partial<WhatsAppIntentOutput>) {
-    const visto: { system?: string; messages?: unknown[] } = {};
-
-    const llm = {
-      completeJson: (req: { system?: string; messages?: unknown[] }) => {
-        visto.system = req.system;
-        visto.messages = req.messages;
-        return Promise.resolve({
-          data: {
-            type: 'unclear',
-            movements: [],
-            declaredTotal: null,
-            profitShares: [],
-            concept: null,
-            queryKind: null,
-            queryPeriod: null,
-            responseText: 'ok',
-            confidence: 0.9,
-            ...intent,
-          },
-          response: {
-            text: '',
-            toolCalls: [],
-            finishReason: 'stop',
-            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
-            providerId: 'fake',
-            model: 'fake-1',
-            latencyMs: 1,
-            costUsd: 0,
-          },
-        });
-      },
-    } as unknown as LlmService;
-
-    return { llm, visto };
-  }
 
   it('le pasa al modelo los turnos anteriores', async () => {
     // Sin esto, Luka preguntaba el monto, el usuario lo respondía suelto y
     // volvía a preguntar lo mismo: cada mensaje llegaba sin pasado.
     const { llm, visto } = espiarLlm({ type: 'unclear' });
-    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
 
     await service.handleMessage({
       ...BASE_REQUEST,
@@ -498,7 +517,11 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
 
   it('le dice al modelo qué plan tiene el negocio', async () => {
     const { llm, visto } = espiarLlm({ type: 'unclear' });
-    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
 
     await service.handleMessage({
       ...BASE_REQUEST,
@@ -516,7 +539,11 @@ describe('WhatsAppMessageService · contexto de la conversación', () => {
       concept: 'reporte por producto',
       responseText: 'Eso está en los planes pagos.',
     });
-    const service = new WhatsAppMessageService(llm, fakeFinanceData());
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
 
     const result = await service.handleMessage(BASE_REQUEST);
 
@@ -1477,7 +1504,8 @@ describe('WhatsAppMessageService - correcciones', () => {
     });
   });
 
-  it('borra un movimiento cuando lo piden', async () => {
+  it('pide confirmación antes de borrar, mostrando qué se va a ir', async () => {
+    // Borrar no se deshace: nunca ocurre en el mismo turno en que se pide.
     const { service, financeData } = buildService(
       {
         type: 'correction',
@@ -1492,8 +1520,10 @@ describe('WhatsAppMessageService - correcciones', () => {
       persist: true,
     });
 
-    expect(financeData.deleted).toEqual(['almuerzo']);
-    expect(result.replyText).toContain('Eliminé');
+    expect(financeData.deleted).toEqual([]);
+    expect(result.replyText).toContain('Almuerzo');
+    expect(result.replyText).toContain('$30.000');
+    expect(result.replyText).toContain('¿Lo confirmas?');
   });
 });
 
@@ -2044,5 +2074,1577 @@ describe('WhatsAppMessageService · un fiado necesita saber de quién es', () =>
     expect(financeData.saved[0].customerName).toBe('Doña Rosa');
     expect(financeData.saved[0].isCredit).toBe(true);
     expect(result.intent.type).toBe('income');
+  });
+});
+
+// ===========================================================================
+// DESAMBIGUAR UNA CORRECCIÓN
+//
+// Reproduce la conversación real que corrompió un dato: Luka mostró tres
+// ventas parecidas, preguntó cuál corregir, y ninguna de las respuestas del
+// usuario ("3 de septiembre", "la primera", "1.530.000") sirvió. Al final
+// terminó cambiándole el monto a una compra que no estaba en la lista.
+// ===========================================================================
+
+/** Los tres movimientos de la captura, más el que salió dañado. */
+const CONVERSACION: Transaction[] = [
+  {
+    id: 'galeria',
+    businessId: 'b1',
+    date: '2026-09-03',
+    description: 'Mercancía · Galería',
+    category: 'mercancia',
+    amount: 1_840_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-03T20:00:00.000Z',
+  },
+  {
+    id: 'venta-3',
+    businessId: 'b1',
+    date: '2026-09-03',
+    description: 'Venta',
+    category: 'ventas',
+    amount: 1_530_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-03T15:00:00.000Z',
+  },
+  {
+    id: 'venta-2',
+    businessId: 'b1',
+    date: '2026-09-02',
+    description: 'Ventas',
+    category: 'ventas',
+    amount: 1_860_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-02T15:00:00.000Z',
+  },
+  {
+    id: 'venta-1',
+    businessId: 'b1',
+    date: '2026-09-01',
+    description: 'Venta',
+    category: 'ventas',
+    amount: 1_486_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-01T15:00:00.000Z',
+  },
+];
+
+/**
+ * Un servicio cuyo modelo responde distinto en cada turno, para poder simular
+ * una conversación de varios mensajes contra el mismo estado.
+ */
+function buildConversacion(rows: Transaction[] = CONVERSACION) {
+  let siguiente: Partial<WhatsAppIntentOutput> = { type: 'unclear' };
+
+  const llm = {
+    completeJson: () =>
+      Promise.resolve({
+        data: {
+          type: 'unclear',
+          movements: [],
+          declaredTotal: null,
+          profitShares: [],
+          concept: null,
+          queryKind: null,
+          queryPeriod: null,
+          responseText: 'ok',
+          ...siguiente,
+        },
+        response: {
+          text: '',
+          toolCalls: [],
+          finishReason: 'stop',
+          usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+          providerId: 'fake',
+          model: 'fake-1',
+          latencyMs: 1,
+          costUsd: 0,
+        },
+      }),
+  } as unknown as LlmService;
+
+  const financeData = fakeFinanceData(rows);
+  const state = new ConversationStateService();
+  const service = new WhatsAppMessageService(llm, financeData, state);
+
+  const decir = (
+    intent: Partial<WhatsAppIntentOutput>,
+    extra: Partial<Parameters<typeof service.handleMessage>[0]> = {},
+  ) => {
+    siguiente = intent;
+    return service.handleMessage({ ...BASE_REQUEST, persist: true, ...extra });
+  };
+
+  return { decir, financeData, state };
+}
+
+describe('WhatsAppMessageService · desambiguar una corrección', () => {
+  it('resuelve por fecha la venta que el usuario eligió', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(pregunta.replyText).toContain('1)');
+
+    // "3 de septiembre": antes respondía "no encontré ningún movimiento que
+    // mencione 3 de septiembre", porque solo sabía buscar en la descripción.
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        referenceDate: '2026-09-03',
+        newAmount: 1_554_000,
+      }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'venta-3', changes: { amount: 1_554_000 } },
+    ]);
+  });
+
+  it('resuelve por posición: "la primera opción"', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ referenceIndex: 1, newAmount: 1_554_000 }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'venta-3', changes: { amount: 1_554_000 } },
+    ]);
+  });
+
+  it('resuelve por monto sin sobrescribir con ese monto', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    // "Es la de 1.530.000": ese número dice CUÁL, no cuánto debe quedar.
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        referenceAmount: 1_530_000,
+        newAmount: 1_554_000,
+      }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'venta-3', changes: { amount: 1_554_000 } },
+    ]);
+  });
+
+  it('con una pregunta abierta, no decir cuál NO significa "el último"', async () => {
+    // Esta es la regresión del daño real. El modelo devolvió la corrección sin
+    // ningún identificador y con el monto que el usuario había dado solo para
+    // nombrar el movimiento. El código lo tomó como "el último registrado" y le
+    // cambió el monto a una compra de mercancía que no estaba en la lista.
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({ newAmount: 1_530_000 }),
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(respuesta.replyText).toContain('Cuál');
+    // Sobre todo: la compra de Galería quedó intacta.
+    expect(financeData.updated.some((cambio) => cambio.id === 'galeria')).toBe(
+      false,
+    );
+  });
+
+  it('un identificador que no está en la lista abre una búsqueda nueva', async () => {
+    // El usuario abandonó la duda y está hablando de otra cosa: no se le puede
+    // dejar atrapado en la pregunta anterior.
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'Galería', newAmount: 1_900_000 }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'galeria', changes: { amount: 1_900_000 } },
+    ]);
+  });
+
+  it('cambiar de tema cierra la pregunta abierta', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ reference: 'venta', newAmount: 1_554_000 }),
+    });
+
+    // Registra un gasto: la conversación se fue por otro lado.
+    await decir({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 12_000, category: 'transporte', concept: 'Taxi' }),
+      ],
+    });
+
+    // Ahora "corrige el último a 20.000" debe volver a significar el último.
+    await decir({
+      type: 'correction',
+      correction: correccion({ newAmount: 20_000 }),
+    });
+
+    expect(financeData.updated).toEqual([
+      { id: 'galeria', changes: { amount: 20_000 } },
+    ]);
+  });
+
+  it('sin valor nuevo pregunta cuál es, mostrando el monto actual', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({ referenceAmount: 1_530_000 }),
+    });
+
+    expect(financeData.updated).toHaveLength(0);
+    expect(respuesta.replyText).toContain('$1.530.000');
+  });
+
+  it('dice por qué no encontró, con la palabra del usuario', async () => {
+    const { decir } = buildConversacion();
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({
+        referenceDate: '2026-08-15',
+        newAmount: 90_000,
+      }),
+    });
+
+    expect(respuesta.replyText).toContain('2026-08-15');
+  });
+});
+
+describe('WhatsAppMessageService · la hora del mensaje no se tira', () => {
+  it('sin fecha dicha guarda el instante real del mensaje', async () => {
+    const { service, financeData } = buildService({
+      type: 'expense',
+      movements: [
+        movimiento({
+          amount: 120_000,
+          category: 'mercancia',
+          concept: 'Licuadora',
+        }),
+      ],
+    });
+
+    const antes = Date.now();
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    const guardado = financeData.saved[0];
+    const instante = new Date(guardado.occurredAt!).getTime();
+
+    // Es la hora de verdad, no un marcador. Antes todo quedaba a las 7:00 a. m.
+    expect(guardado.occurredAt).not.toBeNull();
+    expect(instante).toBeGreaterThanOrEqual(antes);
+    expect(instante).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('con fecha dicha no inventa una hora', async () => {
+    // "El 23 de agosto vendí una cama": no hay hora que registrar.
+    const { service, financeData } = buildService({
+      type: 'income',
+      movements: [
+        movimiento({
+          type: 'income',
+          amount: 800_000,
+          category: 'ventas',
+          concept: 'Cama',
+          date: '2026-08-23',
+        }),
+      ],
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.saved[0].date).toBe('2026-08-23');
+    expect(financeData.saved[0].occurredAt).toBeNull();
+  });
+
+  it('un abono sin fecha dicha también lleva la hora del mensaje', async () => {
+    const { service, financeData } = buildService({
+      type: 'payment',
+      movements: [],
+      payment: {
+        customerName: 'Doña Rosa',
+        amount: 20_000,
+        settlesDebt: false,
+        date: null,
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.payments[0].occurredAt).not.toBeNull();
+  });
+
+  it('un abono con fecha dicha no la lleva', async () => {
+    const { service, financeData } = buildService({
+      type: 'payment',
+      movements: [],
+      payment: {
+        customerName: 'Doña Rosa',
+        amount: 20_000,
+        settlesDebt: false,
+        date: '2026-08-23',
+      },
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.payments[0].date).toBe('2026-08-23');
+    expect(financeData.payments[0].occurredAt).toBeNull();
+  });
+});
+
+// ===========================================================================
+// "¿QUIÉN ME DEBE?" — la cartera y su corte por plan
+// ===========================================================================
+
+const CARTERA: Receivable[] = [
+  {
+    customerId: 'c1',
+    customerName: 'Doña Rosa',
+    pending: 200_000,
+    paid: 100_000,
+    total: 300_000,
+    oldestSince: '2026-07-18',
+    daysOutstanding: 47,
+    lastPaymentDate: '2026-08-22',
+    daysSinceLastPayment: 12,
+    openSales: 1,
+  },
+  {
+    customerId: 'c2',
+    customerName: 'Juan',
+    pending: 50_000,
+    paid: 0,
+    total: 50_000,
+    oldestSince: '2026-08-20',
+    daysOutstanding: 14,
+    lastPaymentDate: null,
+    daysSinceLastPayment: null,
+    openSales: 1,
+  },
+];
+
+describe('WhatsAppMessageService · ¿quién me debe?', () => {
+  const PREGUNTA: Partial<WhatsAppIntentOutput> = {
+    type: 'query',
+    queryKind: 'receivables',
+    responseText: 'Déjame revisar.',
+  };
+
+  it('responde quién, cuánto debe, cuánto abonó y desde cuándo', async () => {
+    const { service, financeData } = buildService(PREGUNTA);
+    financeData.receivables = CARTERA;
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: false,
+    });
+
+    expect(result.replyText).toContain('Doña Rosa');
+    expect(result.replyText).toContain('$200.000');
+    expect(result.replyText).toContain('$100.000');
+    expect(result.replyText).toContain('47 días');
+    expect(result.replyText).toContain('12 días');
+
+    expect(result.replyText).toContain('Juan');
+    expect(result.replyText).toContain('no ha abonado nada');
+
+    // El total, para no tener que sumarlo a mano.
+    expect(result.replyText).toContain('$250.000');
+  });
+
+  it('en el plan gratuito es una función de pago', async () => {
+    // El corte lo hace el backend, no el modelo: de esto depende que una
+    // función de pago no se regale por una clasificación floja.
+    const { service, financeData } = buildService(PREGUNTA);
+    financeData.receivables = CARTERA;
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: true,
+    });
+
+    expect(result.intent.type).toBe('premium');
+    expect(result.replyText).not.toContain('Doña Rosa');
+  });
+
+  it('buscar los fiados de una persona SÍ es gratis', async () => {
+    // La diferencia del punto 1: preguntar por una persona es consultar lo
+    // propio; la lista completa de deudores es el reporte.
+    const fiadoDeMary: Transaction[] = [
+      {
+        id: 'f1',
+        businessId: 'b1',
+        date: '2026-08-30',
+        description: 'Fiado a doña Mary',
+        category: 'ventas',
+        amount: 45_000,
+        type: 'income',
+        currency: 'COP',
+        source: 'whatsapp',
+        createdAt: '2026-08-30T15:00:00.000Z',
+        isCredit: true,
+        pendingAmount: 45_000,
+        customerName: 'Doña Mary',
+      },
+    ];
+
+    const { service } = buildService(
+      {
+        type: 'query',
+        queryKind: 'search',
+        concept: 'Mary',
+        responseText: 'Déjame buscar.',
+      },
+      fiadoDeMary,
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: true,
+    });
+
+    expect(result.intent.type).toBe('query');
+    expect(result.replyText).toContain('Mary');
+    expect(result.replyText).toContain('$45.000');
+  });
+
+  it('lo dice bonito cuando no le deben nada', async () => {
+    const { service, financeData } = buildService(PREGUNTA);
+    financeData.receivables = [];
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: false,
+    });
+
+    expect(result.replyText).toContain('Nadie te debe nada');
+  });
+});
+
+// ===========================================================================
+// BORRAR SIEMPRE PREGUNTA ANTES
+//
+// Borrar no se deshace. El que se equivoca de movimiento pierde el dato, así
+// que nunca se ejecuta en el mismo turno en que se pide.
+// ===========================================================================
+
+describe('WhatsAppMessageService · borrar con confirmación', () => {
+  it('el "sí" ejecuta el borrado que quedó pendiente', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Galería' }),
+    });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(pregunta.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['galeria']);
+  });
+
+  it('el "no" deja todo como estaba', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Galería' }),
+    });
+
+    const respuesta = await decir({ type: 'confirmation', confirmed: false });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(respuesta.replyText).toContain('no borré nada');
+  });
+
+  it('un "sí" sin nada pendiente no borra nada', async () => {
+    // Sin pregunta abierta no hay forma de saber qué estaría confirmando.
+    const { decir, financeData } = buildConversacion();
+
+    const respuesta = await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(respuesta.intent.type).toBe('unclear');
+  });
+
+  it('cambiar de tema cancela el borrado pendiente', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Galería' }),
+    });
+
+    // Registra un gasto en vez de contestar.
+    await decir({
+      type: 'expense',
+      movements: [
+        movimiento({ amount: 9_000, category: 'transporte', concept: 'Bus' }),
+      ],
+    });
+
+    // Y ahora un "sí" ya no puede resucitar el borrado.
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('"borra todo lo de hoy" enumera qué se va a ir antes de preguntar', async () => {
+    // Un "¿seguro?" a ciegas sobre catorce movimientos no es una confirmación.
+    const { decir, financeData } = buildConversacion();
+
+    const pregunta = await decir({
+      type: 'correction',
+      queryPeriod: 'day',
+      correction: correccion({ action: 'delete', deleteAll: true }),
+    });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(pregunta.replyText).toContain('TODOS');
+    expect(pregunta.replyText).toContain('Mercancía · Galería');
+    expect(pregunta.replyText).toContain('no se puede deshacer');
+
+    // Un 'si' pelado ya no basta cuando son varios.
+    await decir({ type: 'confirmation', confirmed: true });
+    expect(financeData.deleted).toEqual([]);
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 4,
+    });
+
+    // Los cuatro del fixture.
+    expect(financeData.deleted).toHaveLength(4);
+  });
+
+  it('no hay nada que borrar y lo dice', async () => {
+    const { decir, financeData } = buildConversacion([]);
+
+    const respuesta = await decir({
+      type: 'correction',
+      queryPeriod: 'day',
+      correction: correccion({ action: 'delete', deleteAll: true }),
+    });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(respuesta.replyText).toContain('No tienes movimientos');
+  });
+});
+
+// ===========================================================================
+// NOTAS DE VOZ Y FOTOS
+//
+// De un audio no le queda al usuario nada que releer, así que nada se guarda
+// sin que vea antes lo que Luka entendió.
+// ===========================================================================
+
+const NOTA_DE_VOZ = {
+  kind: 'audio' as const,
+  mimeType: 'audio/ogg',
+  dataBase64: 'T2dnUwACAAAAAAAAAAA=',
+};
+
+describe('WhatsAppMessageService · audio e imagen', () => {
+  const UN_GASTO: Partial<WhatsAppIntentOutput> = {
+    type: 'expense',
+    movements: [
+      movimiento({
+        amount: 85_000,
+        category: 'mercancia',
+        concept: 'Mercancía',
+      }),
+    ],
+    responseText: 'Registré el gasto.',
+  };
+
+  it('en el plan gratuito ni siquiera llama al modelo', async () => {
+    // Interpretar un audio cuesta: gastarlo para después decir que no está
+    // incluido es tirar la plata.
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+      planIsFree: true,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(visto.system).toBeUndefined();
+    expect(result.intent.type).toBe('premium');
+    expect(result.replyText).toContain('notas de voz');
+  });
+
+  it('en un plan de pago muestra lo entendido y NO guarda todavía', async () => {
+    const { service, financeData } = buildService(UN_GASTO);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+      planIsFree: false,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(result.replyText).toContain('Esto entendí de tu nota de voz');
+    expect(result.replyText).toContain('$85.000');
+    expect(result.replyText).toContain('¿Lo registro así?');
+  });
+
+  it('le manda al modelo el archivo junto al texto', async () => {
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    await service.handleMessage({
+      ...BASE_REQUEST,
+      message: '(nota de voz)',
+      planIsFree: false,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(visto.messages?.at(-1)).toEqual({
+      role: 'user',
+      content: [
+        { type: 'text', text: '(nota de voz)' },
+        {
+          type: 'audio',
+          mimeType: 'audio/ogg',
+          dataBase64: NOTA_DE_VOZ.dataBase64,
+        },
+      ],
+    });
+  });
+
+  it('le quita al MIME los parámetros que manda Meta', async () => {
+    // Meta manda "audio/ogg; codecs=opus"; los proveedores esperan el tipo
+    // pelado.
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    await service.handleMessage({
+      ...BASE_REQUEST,
+      planIsFree: false,
+      media: { ...NOTA_DE_VOZ, mimeType: 'audio/ogg; codecs=opus' },
+    });
+
+    const partes = (
+      visto.messages?.at(-1) as { content: { mimeType?: string }[] }
+    ).content;
+
+    expect(partes[1].mimeType).toBe('audio/ogg');
+  });
+
+  it('un mensaje escrito normal sigue yendo como texto plano', async () => {
+    const { llm, visto } = espiarLlm(UN_GASTO);
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(),
+      new ConversationStateService(),
+    );
+
+    await service.handleMessage({ ...BASE_REQUEST, message: 'Gasté 85.000' });
+
+    expect(visto.messages?.at(-1)).toEqual({
+      role: 'user',
+      content: 'Gasté 85.000',
+    });
+  });
+
+  it('el "sí" guarda lo que había entendido del audio', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir(
+      {
+        type: 'expense',
+        movements: [
+          movimiento({
+            amount: 85_000,
+            category: 'mercancia',
+            concept: 'Mercancía',
+          }),
+        ],
+      },
+      { planIsFree: false, media: NOTA_DE_VOZ },
+    );
+
+    expect(financeData.saved).toHaveLength(0);
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.saved).toHaveLength(1);
+    expect(financeData.saved[0].amount).toBe(85_000);
+  });
+
+  it('el "no" descarta lo entendido y pide que se lo cuenten de nuevo', async () => {
+    const { decir, financeData } = buildConversacion();
+
+    await decir(
+      {
+        type: 'expense',
+        movements: [movimiento({ amount: 85_000, category: 'mercancia' })],
+      },
+      { planIsFree: false, media: NOTA_DE_VOZ },
+    );
+
+    const respuesta = await decir({ type: 'confirmation', confirmed: false });
+
+    expect(financeData.saved).toHaveLength(0);
+    expect(respuesta.replyText).toContain('no registré nada');
+  });
+
+  it('si no entendió nada del audio, lo dice en vez de inventar', async () => {
+    const { service } = buildService({ type: 'unclear', movements: [] });
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+      planIsFree: false,
+      media: NOTA_DE_VOZ,
+    });
+
+    expect(result.intent.type).toBe('unclear');
+  });
+});
+
+// ===========================================================================
+// DESCUENTOS
+//
+// Una factura trae subtotal, descuento y total a pagar. Sin entender el
+// descuento, las líneas sumaban el subtotal, el usuario decía el total, y Luka
+// lo tomaba por un error de dedo: "las partes no cuadran" y no registraba nada.
+// ===========================================================================
+
+/** La factura real que rompió esto: 4 productos, subtotal 1.920.000. */
+const FACTURA: Partial<WhatsAppIntentOutput> = {
+  type: 'expense',
+  movements: [
+    movimiento({
+      amount: 768_000,
+      category: 'mercancia',
+      concept: 'Postobón Manzana (350ml)',
+      quantity: 480,
+    }),
+    movimiento({
+      amount: 576_000,
+      category: 'mercancia',
+      concept: 'Postobón Naranja (350ml)',
+      quantity: 360,
+    }),
+    movimiento({
+      amount: 384_000,
+      category: 'mercancia',
+      concept: 'Postobón Uva (350ml)',
+      quantity: 240,
+    }),
+    movimiento({
+      amount: 192_000,
+      category: 'mercancia',
+      concept: 'Postobón Limonada (350ml)',
+      quantity: 120,
+    }),
+  ],
+  declaredTotal: 1_000_000,
+  discount: 920_000,
+  responseText: 'Leí tu factura.',
+};
+
+describe('WhatsAppMessageService · descuentos', () => {
+  it('el descuento explica la diferencia y ya no reclama descuadre', async () => {
+    const { service, financeData } = buildService(FACTURA);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.intent.type).toBe('expense');
+    expect(result.replyText).not.toContain('no cuadra');
+    expect(financeData.saved).toHaveLength(4);
+  });
+
+  it('guarda lo que de verdad salió de la caja, no el subtotal', async () => {
+    // Guardar 1.920.000 inflaría los gastos del mes por plata que nunca se
+    // movió: es el mismo error que se corrigió con los fiados.
+    const { service, financeData } = buildService(FACTURA);
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    const total = financeData.saved.reduce((suma, row) => suma + row.amount, 0);
+    expect(total).toBe(1_000_000);
+  });
+
+  it('reparte el descuento en proporción a cada línea', () => {
+    // 768.000 pesa el 40% del subtotal, así que se queda con el 40% del total.
+    const netos = repartirDescuento(
+      [{ amount: 768_000 }, { amount: 1_152_000 }],
+      920_000,
+    );
+
+    expect(netos[0]).toBeCloseTo(400_000, 0);
+    expect(netos[1]).toBeCloseTo(600_000, 0);
+    expect(netos[0] + netos[1]).toBe(1_000_000);
+  });
+
+  it('el redondeo nunca deja la suma corrida', () => {
+    // Tres partes iguales de un total impar: si cada una se redondeara por su
+    // cuenta, el total quedaría a un peso del que dijo el usuario.
+    const netos = repartirDescuento(
+      [{ amount: 10_000 }, { amount: 10_000 }, { amount: 10_000 }],
+      1_000,
+    );
+
+    expect(netos.reduce((a, b) => a + b, 0)).toBe(29_000);
+  });
+
+  it('un descuento mayor que la compra se ignora', () => {
+    // Es un error de lectura, y dejar los montos en cero sería peor.
+    const netos = repartirDescuento([{ amount: 5_000 }], 90_000);
+    expect(netos).toEqual([5_000]);
+  });
+
+  it('conserva las unidades en la descripción', async () => {
+    const { service, financeData } = buildService(FACTURA);
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(financeData.saved[0].description).toContain('480 u.');
+  });
+
+  it('le muestra al usuario las tres cifras de la factura', async () => {
+    // Tiene la factura delante: quiere reconocer el subtotal que ahí dice.
+    const { service } = buildService(FACTURA);
+
+    const result = await service.handleMessage({
+      ...BASE_REQUEST,
+      persist: true,
+    });
+
+    expect(result.replyText).toContain('$1.920.000');
+    expect(result.replyText).toContain('$920.000');
+    expect(result.replyText).toContain('$1.000.000');
+  });
+
+  it('sin descuento, las cuentas siguen igual que antes', async () => {
+    const { service, financeData } = buildService({
+      ...FACTURA,
+      declaredTotal: 1_920_000,
+      discount: null,
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    const total = financeData.saved.reduce((suma, row) => suma + row.amount, 0);
+    expect(total).toBe(1_920_000);
+  });
+});
+
+describe('WhatsAppMessageService · un descuadre no pierde lo leído', () => {
+  it('guarda lo entendido para el siguiente turno', async () => {
+    // La foto no viaja al siguiente mensaje. Sin esto, el usuario explicaba la
+    // diferencia y Luka le pedía otra vez la lista que acababa de leer.
+    const { decir, state } = buildConversacion();
+
+    const respuesta = await decir({ ...FACTURA, discount: null });
+
+    expect(respuesta.replyText).toContain('las partes suman');
+
+    const pendiente = state.registroPendiente('b1');
+    expect(pendiente?.reason).toBe('descuadre');
+    expect(pendiente?.transactions).toHaveLength(4);
+    expect(pendiente?.declaredTotal).toBe(1_000_000);
+  });
+
+  it('un "sí" no puede confirmar un descuadre', async () => {
+    // Lo que se pidió ahí fue la cifra buena, no un visto bueno: confirmarlo
+    // guardaría justo los montos que no cuadraban.
+    const { decir, financeData } = buildConversacion();
+
+    await decir({ ...FACTURA, discount: null });
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.saved).toHaveLength(0);
+  });
+});
+
+// ===========================================================================
+// BORRAR UN GRUPO: "elimina estos dos"
+//
+// Referirse a varios movimientos a la vez caía en el camino de "buscar uno" y
+// Luka respondía que no encontraba nada, aunque el usuario los tuviera a la
+// vista en el mensaje que estaba citando.
+// ===========================================================================
+
+const DOS_DEL_MISMO_DIA: Transaction[] = [
+  {
+    id: 'silla',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'Venta de silla gamer - abono Alexandra',
+    category: 'ventas',
+    amount: 250_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:18:00.000Z',
+  },
+  {
+    id: 'mesa',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'Venta de mesa',
+    category: 'ventas',
+    amount: 180_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:18:30.000Z',
+  },
+  {
+    id: 'viejo',
+    businessId: 'b1',
+    date: '2026-09-02',
+    description: 'Venta cama nube',
+    category: 'ventas',
+    amount: 2_000_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-02T15:00:00.000Z',
+  },
+];
+
+describe('WhatsAppMessageService · "elimina estos dos"', () => {
+  it('los enseña todos y los borra tras el sí', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    // No pregunta "¿cuál de los dos?": el usuario ya dijo que son los dos.
+    expect(pregunta.replyText).toContain('silla gamer');
+    expect(pregunta.replyText).toContain('Venta de mesa');
+    expect(pregunta.replyText).toContain('¿Seguro que son los 2?');
+    expect(financeData.deleted).toEqual([]);
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
+
+    expect(financeData.deleted.sort()).toEqual(['mesa', 'silla']);
+  });
+
+  it('no toca los movimientos de otro día', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
+
+    expect(financeData.deleted).not.toContain('viejo');
+  });
+
+  it('sin matchAll sigue preguntando cuál de los dos', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+      }),
+    });
+
+    expect(respuesta.replyText).toContain('Cuál');
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('explica TODO lo que buscó cuando no encuentra nada', async () => {
+    // Antes solo nombraba el primer criterio, así que un "no encontré ningún
+    // movimiento del 2026-09-04" escondía que también estaba filtrando por
+    // texto.
+    const { decir } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-08-01',
+        reference: 'jabones',
+        matchAll: true,
+      }),
+    });
+
+    expect(respuesta.replyText).toContain('2026-08-01');
+    expect(respuesta.replyText).toContain('jabones');
+  });
+
+  it('"todos esos" sobre una lista ya mostrada los toma todos', async () => {
+    const { decir, financeData } = buildConversacion(DOS_DEL_MISMO_DIA);
+
+    // Primero una desambiguación: dos ventas parecidas.
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'Venta' }),
+    });
+
+    // Y ahora "todos esos", sin decir cuál.
+    const respuesta = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', matchAll: true }),
+    });
+
+    expect(respuesta.replyText).toContain('¿Seguro que son los 3?');
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 3,
+    });
+
+    expect(financeData.deleted.length).toBeGreaterThan(1);
+  });
+});
+
+// ===========================================================================
+// BORRAR CITANDO UN MENSAJE
+//
+// Dos casos reales, los dos con pérdida de datos o a un paso de tenerla:
+//
+//   1. Citando "Registré el fiado de $2.000 a Kevin", Luka ofreció borrar un
+//      pago de gas de $60.000: la cita no identificaba nada y caía en la regla
+//      "sin referencia = el último movimiento".
+//
+//   2. Citando un mensaje con cuatro compras, listó cinco —todos los del día,
+//      porque acotaba por fecha—. El usuario contestó "Si" sin revisar y perdió
+//      la jornada entera.
+// ===========================================================================
+
+const DEL_MENSAJE: Transaction[] = [
+  {
+    id: 'manzana',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'POSTOBON MANZANA (350ml) · 480 u.',
+    category: 'mercancia',
+    amount: 400_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:00:00.000Z',
+  },
+  {
+    id: 'naranja',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'POSTOBON NARANJA (350ml) · 360 u.',
+    category: 'mercancia',
+    amount: 300_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T20:00:01.000Z',
+  },
+  {
+    id: 'moto',
+    businessId: 'b1',
+    date: '2026-09-04',
+    description: 'Venta fiada de moto',
+    category: 'ventas',
+    amount: 2_000_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-04T21:00:00.000Z',
+    isCredit: true,
+    customerName: 'Kevin',
+  },
+];
+
+/** Como si el usuario citara el mensaje donde Luka reportó esos movimientos. */
+function citando(ids: string[]) {
+  return {
+    ...BASE_REQUEST,
+    persist: true,
+    quotedMessage: {
+      fromLuka: true,
+      date: '2026-09-04',
+      content: '✅ Registré 2 movimientos: ...',
+      transactionIds: ids,
+    },
+  };
+}
+
+describe('WhatsAppMessageService · borrar lo que se está citando', () => {
+  it('borra exactamente los del mensaje citado, ni uno más', async () => {
+    // El caso 2: acotar por fecha traía los tres del día en vez de los dos que
+    // el usuario tenía a la vista.
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete' }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(
+      citando(['manzana', 'naranja']),
+    );
+
+    expect(pregunta.replyText).toContain('MANZANA');
+    expect(pregunta.replyText).toContain('NARANJA');
+    expect(pregunta.replyText).not.toContain('moto');
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('sin identificadores no cae en "el último movimiento"', async () => {
+    // El caso 1: citando el fiado de Kevin, ofrecía borrar un pago de gas que
+    // no tenía nada que ver, solo por ser el más reciente.
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete' }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citando(['moto']));
+
+    expect(pregunta.replyText).toContain('moto');
+    expect(pregunta.replyText).not.toContain('MANZANA');
+  });
+
+  it('dentro de la cita se puede escoger uno solo', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete', referenceIndex: 2 }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(
+      citando(['manzana', 'naranja']),
+    );
+
+    expect(pregunta.replyText).toContain('NARANJA');
+    expect(pregunta.replyText).not.toContain('MANZANA');
+  });
+
+  it('lo dice claro si esos movimientos ya no existen', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({ action: 'delete' }),
+      },
+      DEL_MENSAJE,
+    );
+
+    const respuesta = await service.handleMessage(citando(['ya-borrado']));
+
+    expect(respuesta.replyText).toContain('ya no están');
+  });
+});
+
+describe('WhatsAppMessageService · un "sí" distraído no borra varios', () => {
+  it('exige repetir cuántos son', async () => {
+    // Esto es lo que le costó a un usuario los movimientos de todo el día.
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    expect(pregunta.replyText).toContain('¿Seguro que son los 3?');
+
+    const insiste = await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual([]);
+    expect(insiste.replyText).toContain('Espera, son 3 movimientos');
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 3,
+    });
+
+    expect(financeData.deleted).toHaveLength(3);
+  });
+
+  it('un número que no coincide tampoco borra', async () => {
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
+
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('con uno solo sigue bastando un "sí"', async () => {
+    // La fricción es para lo que no se puede deshacer en masa, no para todo.
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    const pregunta = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', reference: 'moto' }),
+    });
+
+    expect(pregunta.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['moto']);
+  });
+
+  it('en vez de confirmar, se puede escoger uno de la lista', async () => {
+    // "Si solo era uno, dime cuál": reduce el borrado en vez de cancelarlo.
+    const { decir, financeData } = buildConversacion(DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-04',
+        matchAll: true,
+      }),
+    });
+
+    const acotado = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', referenceIndex: 2 }),
+    });
+
+    expect(acotado.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toHaveLength(1);
+  });
+});
+
+// ===========================================================================
+// ESCOGER VARIOS DE UNA LISTA
+//
+// Dos fallos reales, misma causa: `referenceIndex` era un solo número, así que
+// una selección de dos no cabía. El modelo tenía que elegir entre marcar
+// "todos" —y Luka ofrecía borrar los tres— o quedarse con uno.
+//
+//   1. "borra el segundo y tercero, el primero sí déjalo"  ->  listó los 3
+//   2. "no, solo el 2 y el 3"                              ->  tomó 1
+// ===========================================================================
+
+const TRES_DEL_MENSAJE: Transaction[] = [
+  {
+    id: 'venta',
+    businessId: 'b1',
+    date: '2026-09-05',
+    description: 'Venta',
+    category: 'ventas',
+    amount: 20_000,
+    type: 'income',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-05T16:00:00.000Z',
+  },
+  {
+    id: 'desayuno',
+    businessId: 'b1',
+    date: '2026-09-05',
+    description: 'Desayuno para empleados',
+    category: 'otros_gastos',
+    amount: 1_000_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-05T16:00:01.000Z',
+  },
+  {
+    id: 'insumos',
+    businessId: 'b1',
+    date: '2026-09-05',
+    description: 'Insumos y herramientas',
+    category: 'insumos',
+    amount: 2_000_000,
+    type: 'expense',
+    currency: 'COP',
+    source: 'whatsapp',
+    createdAt: '2026-09-05T16:00:02.000Z',
+  },
+];
+
+function citandoLosTres() {
+  return {
+    ...BASE_REQUEST,
+    persist: true,
+    quotedMessage: {
+      fromLuka: true,
+      date: '2026-09-05',
+      content: '✅ Registré 3 movimientos: ...',
+      transactionIds: ['venta', 'desayuno', 'insumos'],
+    },
+  };
+}
+
+describe('WhatsAppMessageService · escoger varios de una lista', () => {
+  it('"el segundo y tercero, el primero déjalo" respeta el primero', async () => {
+    // El modelo marca matchAll porque "el segundo y tercero" suena a varios.
+    // La selección tiene que mandar sobre eso: si no, Luka ofrece borrar
+    // también el que el usuario acaba de pedir que conserve.
+    const { service, financeData } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          action: 'delete',
+          referenceIndexes: [2, 3],
+          matchAll: true,
+        }),
+      },
+      TRES_DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citandoLosTres());
+
+    expect(pregunta.replyText).toContain('Desayuno para empleados');
+    expect(pregunta.replyText).toContain('Insumos y herramientas');
+    expect(pregunta.replyText).toContain('estos 2 movimientos');
+    expect(pregunta.replyText).not.toContain('+$20.000');
+    expect(financeData.deleted).toEqual([]);
+  });
+
+  it('acota un borrado ya ofrecido a "solo el 2 y el 3"', async () => {
+    const { decir, financeData } = buildConversacion(TRES_DEL_MENSAJE);
+
+    const primera = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-05',
+        matchAll: true,
+      }),
+    });
+
+    expect(primera.replyText).toContain('estos 3 movimientos');
+
+    // Aquí antes se quedaba con uno solo.
+    const acotado = await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceIndexes: [2, 3],
+      }),
+    });
+
+    expect(acotado.replyText).toContain('estos 2 movimientos');
+    expect(acotado.replyText).toContain('Desayuno');
+    expect(acotado.replyText).toContain('Insumos');
+
+    await decir({
+      type: 'confirmation',
+      confirmed: true,
+      confirmedCount: 2,
+    });
+
+    expect(financeData.deleted.sort()).toEqual(['desayuno', 'insumos']);
+  });
+
+  it('una sola posición sigue funcionando igual', async () => {
+    const { decir, financeData } = buildConversacion(TRES_DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-05',
+        matchAll: true,
+      }),
+    });
+
+    const acotado = await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', referenceIndexes: [2] }),
+    });
+
+    expect(acotado.replyText).toContain('¿Lo confirmas?');
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['desayuno']);
+  });
+
+  it('acepta un número suelto por si el modelo no manda la lista', async () => {
+    // Robustez: perder esa respuesta significaría borrar de más o preguntar
+    // otra vez.
+    const { decir, financeData } = buildConversacion(TRES_DEL_MENSAJE);
+
+    await decir({
+      type: 'correction',
+      correction: correccion({
+        action: 'delete',
+        referenceDate: '2026-09-05',
+        matchAll: true,
+      }),
+    });
+
+    await decir({
+      type: 'correction',
+      correction: correccion({ action: 'delete', referenceIndex: 3 }),
+    });
+
+    await decir({ type: 'confirmation', confirmed: true });
+
+    expect(financeData.deleted).toEqual(['insumos']);
+  });
+
+  it('ignora las posiciones que no existen en la lista', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          action: 'delete',
+          referenceIndexes: [2, 9],
+        }),
+      },
+      TRES_DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citandoLosTres());
+
+    expect(pregunta.replyText).toContain('Voy a borrar este movimiento');
+    expect(pregunta.replyText).toContain('Desayuno');
+  });
+
+  it('los enseña en el orden en que los vio el usuario', async () => {
+    const { service } = buildService(
+      {
+        type: 'correction',
+        correction: correccion({
+          action: 'delete',
+          // Los nombra al revés; la lista debe salir 2 y luego 3.
+          referenceIndexes: [3, 2],
+        }),
+      },
+      TRES_DEL_MENSAJE,
+    );
+
+    const pregunta = await service.handleMessage(citandoLosTres());
+    const posDesayuno = pregunta.replyText.indexOf('Desayuno');
+    const posInsumos = pregunta.replyText.indexOf('Insumos');
+
+    expect(posDesayuno).toBeLessThan(posInsumos);
+  });
+
+  it('el modelo recibe la lista numerada del borrado pendiente', async () => {
+    // Sin la lista delante, "solo el 2 y el 3" no se puede convertir en
+    // posiciones y termina borrando otra cosa.
+    const { llm, visto } = espiarLlm({ type: 'unclear' });
+    const state = new ConversationStateService();
+    const service = new WhatsAppMessageService(
+      llm,
+      fakeFinanceData(TRES_DEL_MENSAJE),
+      state,
+    );
+
+    state.recordarBorrado('b1', {
+      targets: TRES_DEL_MENSAJE,
+      period: null,
+    });
+
+    await service.handleMessage({ ...BASE_REQUEST, persist: true });
+
+    expect(visto.system).toContain('1) 2026-09-05 · Venta');
+    expect(visto.system).toContain('referenceIndexes');
+    expect(visto.system).toContain('solo el 2 y el 3');
   });
 });

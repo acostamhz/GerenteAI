@@ -32,7 +32,15 @@ export type MessageIntentType =
    * aparte, con lo cual el dinero se contaba dos veces y la deuda del cliente
    * nunca bajaba.
    */
-  | 'payment';
+  | 'payment'
+  /**
+   * Contesto que si o que no a algo que Luka le pregunto.
+   *
+   * Solo tiene sentido cuando hay una pregunta abierta. Sirve para que borrar
+   * nunca ocurra en el mismo turno en que se pide: primero se le enseña que se
+   * va a ir, y solo despues se ejecuta.
+   */
+  | 'confirmation';
 
 /** Solo estas tres intenciones producen un movimiento contable. */
 export type TransactionType = 'income' | 'expense' | 'investment';
@@ -176,6 +184,14 @@ export interface MovementDraft {
   /** A quien se le fio, cuando se menciona. */
   customerName: string | null;
   /**
+   * Cuantas unidades, cuando el mensaje o la factura lo dicen.
+   *
+   * No cambia el monto (ese ya viene total), pero se conserva en la
+   * descripcion: "480 cajas de gaseosa" y "480" a secas no dicen lo mismo
+   * cuando uno relee sus gastos tres meses despues.
+   */
+  quantity: number | null;
+  /**
    * Fecha del movimiento en YYYY-MM-DD, si el usuario la dijo.
    *
    * null = no la menciono, y entonces vale hoy. Sin esto, quien registra el
@@ -213,12 +229,53 @@ export interface PaymentDraft {
 export interface CorrectionRequest {
   action: 'update' | 'delete';
   /**
-   * Como ubicar el movimiento: el texto que lo identifica ("el de transporte").
-   * null significa "el ultimo que registre", que es el caso mas comun.
+   * Texto que identifica el movimiento ("el de transporte").
+   *
+   * null y sin ningun otro identificador significa "el ultimo que registre".
+   * Ojo: null NO puede tomarse como "el ultimo" cuando se esta resolviendo una
+   * ambiguedad; ahi hay una lista concreta contra la cual decidir.
    */
   reference: string | null;
+  /**
+   * Monto que IDENTIFICA cual movimiento es ("es la de 1.530.000").
+   *
+   * Existe porque sin el no habia forma de usar la respuesta del usuario: Luka
+   * preguntaba "dime la fecha o el monto" y despues solo sabia buscar dentro
+   * de la descripcion, donde no hay ni fechas ni montos. Peor todavia, el
+   * monto dictado se colaba en `newAmount` y terminaba SOBRESCRIBIENDO un
+   * movimiento con la cifra que solo servia para nombrarlo.
+   */
+  referenceAmount: number | null;
+  /** Fecha que IDENTIFICA cual movimiento es, en YYYY-MM-DD. */
+  referenceDate: string | null;
+  /**
+   * Posiciones de la lista que Luka acaba de mostrar, empezando en 1.
+   *
+   * Es una LISTA porque la gente escoge varios de una: "borra el segundo y el
+   * tercero, el primero dejalo". Con un solo numero eso no se podia expresar:
+   * el modelo o marcaba "todos" —y Luka ofrecia borrar los tres— o se quedaba
+   * con uno solo. Los dos casos se vieron en produccion.
+   *
+   * Vacia cuando el usuario no señalo ninguna posicion.
+   */
+  referenceIndexes: number[];
+  /** Monto corregido. Solo el valor NUEVO, nunca el que identifica. */
   newAmount: number | null;
   newConcept: string | null;
+  /**
+   * true cuando pidio borrar TODO un periodo ("borra todo lo de hoy"), no un
+   * movimiento suelto. El periodo viaja en `queryPeriod`.
+   */
+  deleteAll: boolean;
+  /**
+   * true cuando habla de un GRUPO de movimientos, no de uno: "elimina estos
+   * dos", "borra esos", "ambos".
+   *
+   * Sin esto, referirse a varios caia en el camino de "buscar uno" y Luka
+   * respondia que no encontraba nada o preguntaba cual, cuando el usuario ya
+   * habia dicho que eran todos los que estaba senalando.
+   */
+  matchAll: boolean;
 }
 
 /** Que clase de consulta hizo el usuario. */
@@ -228,7 +285,15 @@ export type QueryKind =
   /** "¿Cuales son esos 8 movimientos?" → el detalle, uno por uno. */
   | 'list'
   /** "¿Que dia compre jabones?" → busqueda por concepto. */
-  | 'search';
+  | 'search'
+  /**
+   * "¿Quien me debe?" → la cartera completa, con nombres y saldos.
+   *
+   * Es distinto de buscar los fiados de UNA persona: eso es consultar lo
+   * propio y va por "search". Esto es la vista consolidada y ordenada por
+   * antiguedad, que es lo que se cobra en los planes pagos.
+   */
+  | 'receivables';
 
 /**
  * Lo que el modelo entiende de un mensaje. Es exactamente el JSON del
@@ -247,12 +312,39 @@ export interface MessageIntent {
    * cuadran. null = no dijo un total, solo las partes.
    */
   declaredTotal: number | null;
+  /**
+   * Descuento aplicado al conjunto del mensaje.
+   *
+   * Una factura trae subtotal, descuento y total a pagar. Sin este campo, las
+   * lineas sumaban el subtotal, el usuario decia el total, y el backend lo
+   * tomaba por un error de dedo: respondia "las partes no cuadran" y no
+   * registraba nada. El descuento explica la diferencia.
+   *
+   * Se reparte entre los movimientos, porque lo que salio de la caja es el
+   * total pagado y no el subtotal: guardar el subtotal inflaria los gastos del
+   * mes por plata que nunca se movio.
+   */
+  discount: number | null;
   /** Reparto de utilidades, cuando el mensaje lo menciona. */
   profitShares: ProfitShare[];
   /** Que corregir, cuando el mensaje pide arreglar algo ya registrado. */
   correction: CorrectionRequest | null;
   /** El abono, cuando el mensaje avisa que le pagaron un fiado. */
   payment: PaymentDraft | null;
+  /**
+   * Respuesta a una pregunta de si o no. null cuando el mensaje no contesta
+   * ninguna, o cuando contesto algo que no es ni si ni no.
+   */
+  confirmed: boolean | null;
+  /**
+   * Cuantos movimientos dijo el usuario al confirmar ("borrar los 4").
+   *
+   * Un borrado de varios no se acepta con un "si" a secas. Paso de verdad: Luka
+   * ofrecio borrar cinco movimientos, el usuario contesto "Si" sin leer la
+   * lista y perdio todo el dia. Obligar a repetir el numero convierte el visto
+   * bueno en un acto consciente.
+   */
+  confirmedCount: number | null;
   /**
    * Suma de los movimientos. Se conserva por compatibilidad: los consumidores
    * que solo manejan un movimiento (n8n, el panel) siguen leyendo aqui.
@@ -311,6 +403,20 @@ export interface Transaction {
   customerName?: string | null;
   /** Une el total con sus desgloses por metodo de pago. */
   groupId?: string | null;
+  /**
+   * Instante exacto en que ocurrio, cuando se conoce. ISO 8601.
+   *
+   * Solo se llena cuando el usuario NO dijo una fecha: entonces el momento del
+   * mensaje es la hora real del hecho y hay que conservarla. Si dijo "el 23 de
+   * agosto", no hay hora que guardar y este campo va null.
+   *
+   * Existe porque antes todo se guardaba al mediodia UTC, o sea las 7:00 a. m.
+   * en Colombia: un gasto de las 5:55 p. m. se mostraba a las 7 de la manana, y
+   * todos los movimientos del mismo dia compartian el mismo instante, asi que
+   * la lista de "ultimos movimientos" los ordenaba al azar. En un fiado y su
+   * abono del mismo dia no habia forma de saber cual fue primero.
+   */
+  occurredAt?: string | null;
 }
 
 export interface MonthlyTotals {

@@ -193,6 +193,158 @@ export class MailService {
     }
   }
 
+  private construirPlantilla({
+    titulo,
+    nombre,
+    mensajePrincipal,
+    textoBoton,
+    urlBoton,
+    duracionValidez,
+    notaSeguridad,
+    badgeIcon,
+    badgeBg = '#f0fdfa',
+    badgeColor = '#0d9488',
+    colorBoton = '#0d9488',
+  }: {
+    titulo: string;
+    nombre: string;
+    mensajePrincipal: string;
+    textoBoton: string;
+    urlBoton: string;
+    duracionValidez?: string;
+    notaSeguridad?: string;
+    badgeIcon: string;
+    badgeBg?: string;
+    badgeColor?: string;
+    colorBoton?: string;
+  }): string {
+    return `<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${titulo}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f4f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; color: #18181b;">
+  <div style="display: none; max-height: 0px; overflow: hidden; mso-hide: all;">
+    ${titulo} - Luka AI
+  </div>
+
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f4f4f5; padding: 40px 15px;">
+    <tr>
+      <td align="center">
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 16px; overflow: hidden; border: 1px solid #e4e4e7; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);">
+          
+          <!-- Encabezado con Paleta Luka AI -->
+          <tr>
+            <td style="background: linear-gradient(135deg, #090d16 0%, #0f172a 60%, #112a26 100%); padding: 34px 30px; text-align: center;">
+              <table width="100%" border="0" cellspacing="0" cellpadding="0">
+                <tr>
+                  <td align="center">
+                    <span style="font-size: 27px; font-weight: 900; color: #ffffff; letter-spacing: -0.5px;">
+                      Luka<span style="color: #2dd4bf;"> AI</span>
+                    </span>
+                    <div style="color: #94a3b8; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; margin-top: 4px;">
+                      Control Financiero & Gestión con IA
+                    </div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Contenido Central -->
+          <tr>
+            <td style="padding: 36px 36px 30px 36px;">
+              <!-- Icono Badge -->
+              <div style="text-align: center; margin-bottom: 20px;">
+                <span style="display: inline-block; background-color: ${badgeBg}; color: ${badgeColor}; width: 56px; height: 56px; line-height: 56px; border-radius: 50%; font-size: 26px; text-align: center; border: 1px solid rgba(20, 184, 166, 0.2);">
+                  ${badgeIcon}
+                </span>
+              </div>
+
+              <!-- Título -->
+              <h1 style="margin: 0 0 16px 0; font-size: 22px; font-weight: 700; color: #09090b; text-align: center; line-height: 1.3;">
+                ${titulo}
+              </h1>
+
+              <!-- Saludo -->
+              <p style="margin: 0 0 14px 0; font-size: 15px; color: #18181b; line-height: 1.6;">
+                Hola <strong style="color: #09090b;">${nombre}</strong>,
+              </p>
+
+              <!-- Mensaje Principal -->
+              <div style="margin: 0 0 24px 0; font-size: 15px; color: #3f3f46; line-height: 1.6;">
+                ${mensajePrincipal}
+              </div>
+
+              <!-- Botón CTA con el Teal/Esmeralda de Luka -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="margin: 28px 0;">
+                <tr>
+                  <td align="center">
+                    <a href="${urlBoton}" target="_blank" style="display: inline-block; background-color: ${colorBoton}; color: #ffffff; font-size: 15px; font-weight: 600; text-decoration: none; padding: 14px 34px; border-radius: 10px; box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35); text-align: center;">
+                      ${textoBoton}
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+              ${
+                duracionValidez
+                  ? `
+              <!-- Validez de tiempo con estética Luka -->
+              <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f0fdfa; border: 1px solid #ccfbf1; border-radius: 10px; margin-bottom: 24px;">
+                <tr>
+                  <td style="padding: 12px 18px; font-size: 13px; color: #0f766e; text-align: center;">
+                    ⏱️ <strong style="color: #134e4a;">Tiempo límite:</strong> Este enlace estará disponible por <strong>${duracionValidez}</strong>.
+                  </td>
+                </tr>
+              </table>
+              `
+                  : ''
+              }
+
+              <!-- Enlace alternativo si no abre el botón -->
+              <div style="padding-top: 20px; border-top: 1px solid #f4f4f5; font-size: 12px; color: #71717a; line-height: 1.6;">
+                <p style="margin: 0 0 6px 0;">Si el botón no funciona en tu dispositivo, copia y abre este enlace directamente en tu navegador:</p>
+                <p style="margin: 0; word-break: break-all;">
+                  <a href="${urlBoton}" style="color: #0d9488; text-decoration: underline;">${urlBoton}</a>
+                </p>
+              </div>
+
+              ${
+                notaSeguridad
+                  ? `
+              <!-- Nota de Seguridad -->
+              <p style="margin: 22px 0 0 0; font-size: 12px; color: #71717a; line-height: 1.5; text-align: center;">
+                🔒 ${notaSeguridad}
+              </p>
+              `
+                  : ''
+              }
+            </td>
+          </tr>
+
+          <!-- Pie de página Luka AI -->
+          <tr>
+            <td style="background-color: #fafafa; border-top: 1px solid #f4f4f5; padding: 22px 30px; text-align: center; font-size: 12px; color: #71717a; line-height: 1.5;">
+              <p style="margin: 0 0 4px 0; font-weight: 500; color: #3f3f46;">
+                Luka AI · Control & Finanzas Inteligentes
+              </p>
+              <p style="margin: 0;">
+                Este es un mensaje automático de seguridad. Por favor no respondas a este correo.
+              </p>
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+  }
+
   async sendVerificationEmail(
     destinatario: string,
     nombre: string,
@@ -203,12 +355,22 @@ export class MailService {
     await this.enviar({
       destinatario,
       descripcion: 'el correo de verificación',
-      asunto: 'Verifica tu cuenta en GerenteAI',
-      html: `
-          <p>Hola ${nombre},</p>
-          <p>Gracias por registrarte. Verifica tu correo haciendo clic en el siguiente enlace (válido por 24 horas):</p>
-          <p><a href="${verificationUrl}">${verificationUrl}</a></p>
-        `,
+      asunto: 'Verifica tu cuenta en Luka AI',
+      html: this.construirPlantilla({
+        titulo: '¡Bienvenido a Luka AI!',
+        nombre,
+        badgeIcon: '✉️',
+        badgeBg: '#f0fdfa',
+        badgeColor: '#0d9488',
+        colorBoton: '#0d9488',
+        mensajePrincipal:
+          '<p style="margin: 0 0 12px 0;">Gracias por registrarte. Estás a un solo paso de empezar a controlar tus ventas, gastos e inventario con inteligencia artificial.</p><p style="margin: 0;">Para activar tu cuenta y asegurar tu acceso, confirma tu correo electrónico haciendo clic en el siguiente botón:</p>',
+        textoBoton: 'Verificar mi cuenta',
+        urlBoton: verificationUrl,
+        duracionValidez: '24 horas',
+        notaSeguridad:
+          'Si tú no creaste una cuenta en Luka AI, puedes ignorar este mensaje con total seguridad.',
+      }),
     });
   }
 
@@ -306,13 +468,22 @@ export class MailService {
     await this.enviar({
       destinatario,
       descripcion: 'el correo de restablecimiento',
-      asunto: 'Restablece tu contraseña en GerenteAI',
-      html: `
-          <p>Hola ${nombre},</p>
-          <p>Recibimos una solicitud para restablecer tu contraseña. Este enlace es válido por 1 hora:</p>
-          <p><a href="${resetUrl}">${resetUrl}</a></p>
-          <p>Si no solicitaste esto, ignora este correo — tu contraseña actual sigue siendo válida.</p>
-        `,
+      asunto: 'Restablece tu contraseña en Luka AI',
+      html: this.construirPlantilla({
+        titulo: 'Restablece tu contraseña',
+        nombre,
+        badgeIcon: '🔐',
+        badgeBg: '#fefce8',
+        badgeColor: '#d97706',
+        colorBoton: '#0d9488',
+        mensajePrincipal:
+          '<p style="margin: 0 0 12px 0;">Recibimos una solicitud para restablecer la contraseña de acceso a tu cuenta en <strong>Luka AI</strong>.</p><p style="margin: 0;">Para crear una nueva contraseña y recuperar tu acceso, haz clic en el botón a continuación:</p>',
+        textoBoton: 'Restablecer mi contraseña',
+        urlBoton: resetUrl,
+        duracionValidez: '1 hora',
+        notaSeguridad:
+          'Si no solicitaste este cambio, no te preocupes: tu contraseña actual sigue siendo válida y segura. No se realizará ninguna acción sin este enlace.',
+      }),
     });
   }
 
@@ -326,13 +497,22 @@ export class MailService {
     await this.enviar({
       destinatario: destinatarioNuevo,
       descripcion: 'la confirmación de cambio de correo',
-      asunto: 'Confirma tu nuevo correo en GerenteAI',
-      html: `
-          <p>Hola ${nombre},</p>
-          <p>Recibimos una solicitud para asociar este correo a tu cuenta. Confirma haciendo clic (válido por 1 hora):</p>
-          <p><a href="${confirmUrl}">${confirmUrl}</a></p>
-          <p>Si no solicitaste esto, ignora este correo.</p>
-        `,
+      asunto: 'Confirma tu nuevo correo en Luka AI',
+      html: this.construirPlantilla({
+        titulo: 'Confirma tu nuevo correo',
+        nombre,
+        badgeIcon: '🔄',
+        badgeBg: '#f0fdfa',
+        badgeColor: '#0d9488',
+        colorBoton: '#0d9488',
+        mensajePrincipal:
+          '<p style="margin: 0 0 12px 0;">Recibimos una solicitud para asociar esta dirección de correo a tu cuenta en <strong>Luka AI</strong>.</p><p style="margin: 0;">Para confirmar y completar el cambio, haz clic en el siguiente botón:</p>',
+        textoBoton: 'Confirmar este correo',
+        urlBoton: confirmUrl,
+        duracionValidez: '1 hora',
+        notaSeguridad:
+          'Si no solicitaste asociar este correo a tu cuenta, ignora este mensaje y tu correo actual se mantendrá sin cambios.',
+      }),
     });
   }
 }

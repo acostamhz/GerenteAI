@@ -21,6 +21,64 @@ import {
  * API, asi se puede saber que version produjo cada registro.
  *
  * ---------------------------------------------------------------------------
+ * v17: escoger VARIOS de una lista.
+ *
+ * "Borra el segundo y el tercero, el primero dejalo" ofrecia borrar los tres.
+ * "Solo el 2 y el 3" borraba uno. La causa era la misma: referenceIndex era
+ * un solo numero, asi que una seleccion de dos no cabia y el modelo tenia que
+ * elegir entre marcar "todos" o quedarse con uno. Ahora es una lista.
+ *
+ * ---------------------------------------------------------------------------
+ * v16: borrar lo que el usuario esta senalando, y no de un "si" distraido.
+ *
+ * Dos cosas feas en produccion. Citando "Registre el fiado de $2.000 a Kevin",
+ * Luka ofrecio borrar un pago de gas de $60.000. Y citando un mensaje con
+ * cuatro compras, listo cinco —todos los del dia—, el usuario contesto "Si"
+ * sin leer y perdio la jornada entera.
+ *
+ * Ahora el backend sabe que movimientos reporto cada mensaje suyo, y un
+ * borrado de varios exige repetir cuantos son.
+ *
+ * ---------------------------------------------------------------------------
+ * v15: borrar un grupo de movimientos, no solo uno.
+ *
+ * "Elimina estos dos", citando el mensaje donde Luka los acababa de listar,
+ * caia en el camino de "buscar uno" y respondia que no encontraba nada. Ahora
+ * existe matchAll: el usuario esta senalando un grupo entero.
+ *
+ * ---------------------------------------------------------------------------
+ * v14: descuentos y unidades.
+ *
+ * Una factura trae subtotal, descuento y total a pagar. Sin un campo para el
+ * descuento, las lineas sumaban el subtotal, el usuario decia el total, y el
+ * backend lo tomaba por un error de dedo: respondia "las partes no cuadran" y
+ * no registraba nada. Ahora el descuento se declara y se reparte.
+ *
+ * ---------------------------------------------------------------------------
+ * v13: notas de voz y fotos.
+ *
+ * El mensaje puede traer un audio o una imagen ademas del texto. Se interpreta
+ * igual, pero nada se guarda sin que el usuario vea antes que se entendio: de
+ * un audio no le queda nada que releer.
+ *
+ * ---------------------------------------------------------------------------
+ * v12: borrar pregunta antes, y hay una intencion para el si o el no.
+ *
+ * Borrar no se deshace, asi que ya no ocurre en el mismo turno en que se
+ * pide: Luka enseña exactamente que se va a ir y espera la confirmacion. Eso
+ * necesita un type nuevo, "confirmation", porque un "si" suelto no se puede
+ * interpretar de ninguna otra forma.
+ *
+ * ---------------------------------------------------------------------------
+ * v11: una correccion distingue CUAL movimiento de QUE cambiarle.
+ *
+ * Hasta v10 solo habia "reference", un texto que se buscaba dentro de la
+ * descripcion. Luka preguntaba "dime la fecha o el monto" y despues no sabia
+ * usar ninguna de las dos cosas. Peor: el monto que el usuario daba para
+ * NOMBRAR el movimiento se colaba en newAmount y lo sobrescribia. Ahora los
+ * identificadores viven aparte del valor nuevo.
+ *
+ * ---------------------------------------------------------------------------
  * v10: los cobros de fiados dejan de ser ventas nuevas.
  *
  * "Rosa ya me pago" caia en type "income" y se registraba como otra venta: la
@@ -38,7 +96,7 @@ import {
  * ---------------------------------------------------------------------------
  */
 
-export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v10';
+export const WHATSAPP_ASSISTANT_PROMPT_VERSION = 'asistente-whatsapp/v17';
 
 /**
  * Forma CRUDA de la respuesta del modelo.
@@ -57,9 +115,11 @@ export interface WhatsAppIntentOutput {
     paymentMethod?: string | null;
     isCredit?: boolean | null;
     customerName?: string | null;
+    quantity?: number | string | null;
     date?: string | null;
   }[];
   declaredTotal?: number | string | null;
+  discount?: number | string | null;
   profitShares?: {
     beneficiary?: string | null;
     name?: string | null;
@@ -68,8 +128,12 @@ export interface WhatsAppIntentOutput {
   correction?: {
     action?: string | null;
     reference?: string | null;
+    referenceAmount?: number | string | null;
+    referenceDate?: string | null;
+    referenceIndexes?: (number | string)[] | number | string | null;
     newAmount?: number | string | null;
     newConcept?: string | null;
+    deleteAll?: boolean | null;
   } | null;
   payment?: {
     customerName?: string | null;
@@ -82,6 +146,8 @@ export interface WhatsAppIntentOutput {
   queryPeriod?: string | null;
   responseText?: string;
   confidence?: number | string;
+  confirmed?: boolean | null;
+  confirmedCount?: number | string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -99,7 +165,7 @@ SIEMPRE responde ÚNICAMENTE con un JSON válido, sin texto adicional, sin bloqu
 código, sin markdown. El JSON debe tener esta estructura exacta:
 
 {
-  "type": "income" | "expense" | "investment" | "payment" | "breakdown" | "profit_share" | "query" | "correction" | "unclear" | "out_of_scope" | "premium",
+  "type": "income" | "expense" | "investment" | "payment" | "breakdown" | "profit_share" | "query" | "correction" | "confirmation" | "unclear" | "out_of_scope" | "premium",
   "movements": [
     {
       "type": "income" | "expense" | "investment",
@@ -109,18 +175,25 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
       "paymentMethod": "efectivo" | "transferencia" | "tarjeta" | "otro" | null,
       "isCredit": boolean,
       "customerName": string | null,
+      "quantity": number | null,
       "date": "YYYY-MM-DD" | null
     }
   ],
   "declaredTotal": number | null,
+  "discount": number | null,
   "profitShares": [
     { "beneficiary": "dueno" | "trabajador", "name": string | null, "percentage": number }
   ],
   "correction": {
     "action": "update" | "delete",
     "reference": string | null,
+    "referenceAmount": number | null,
+    "referenceDate": "YYYY-MM-DD" | null,
+    "referenceIndexes": number[],
     "newAmount": number | null,
-    "newConcept": string | null
+    "newConcept": string | null,
+    "deleteAll": boolean,
+    "matchAll": boolean
   } | null,
   "payment": {
     "customerName": string,
@@ -129,8 +202,10 @@ código, sin markdown. El JSON debe tener esta estructura exacta:
     "date": "YYYY-MM-DD" | null
   } | null,
   "concept": string | null,
-  "queryKind": "summary" | "list" | "search" | null,
+  "queryKind": "summary" | "list" | "search" | "receivables" | null,
   "queryPeriod": "day" | "week" | "month" | null,
+  "confirmed": boolean | null,
+  "confirmedCount": number | null,
   "responseText": "texto de respuesta para el usuario",
   "confidence": number entre 0 y 1
 }
@@ -193,6 +268,30 @@ REGLAS DE INTERPRETACIÓN:
       cuadre con las partes. El sistema verifica la suma y, si no cuadra, pide
       la aclaración. No corrijas los números por tu cuenta ni escojas cuál es
       el correcto.
+
+5B. DESCUENTOS Y FACTURAS:
+   Una factura casi siempre trae tres cifras: el subtotal, el descuento y el
+   total a pagar. Las tres importan y cada una va en su sitio.
+
+       Subtotal:        $1.920.000   <- lo que suman las líneas (movements)
+       Descuento:         $920.000   <- va en "discount"
+       Total a pagar:   $1.000.000   <- va en "declaredTotal"
+
+   - Cada producto de la factura es un movimiento aparte, con su concepto, su
+     monto de línea y sus unidades en "quantity".
+   - "discount" es el descuento del CONJUNTO, no de cada línea.
+   - NO restes el descuento tú de los montos: pon las líneas como están en la
+     factura y el descuento aparte. El sistema lo reparte y hace las cuentas.
+   - Si no hay descuento, "discount" va null.
+
+   Funciona igual venga de una foto, de un audio o escrito:
+       "Compré 500.000 en mercancía pero me hicieron 50.000 de descuento"
+       -> un movement de 500.000, declaredTotal 450000, discount 50000
+       "Me rebajaron 20.000"  (sobre algo que se está registrando)
+       -> discount 20000
+
+   OJO: un descuento NO es un ingreso ni un gasto aparte. Es menos plata que
+   sale, nada más.
 
 6. FIADOS (ventas a crédito):
    - "Le fié $50.000 a doña Rosa", "vendí 30.000 a crédito", "quedó debiendo"
@@ -263,7 +362,21 @@ REGLAS DE INTERPRETACIÓN:
         en algo, es una búsqueda, no un resumen.
       - Pon en concept SOLO la palabra clave, sin "cuánto" ni "qué día".
 
-   En los tres casos el sistema pone las cifras reales. En responseText no
+   d) "receivables" -> la cartera completa: quiénes le deben. concept: null
+      - "¿Quién me debe?", "¿quiénes me deben?", "reporte de fiados",
+        "¿cuánto me deben en total?", "¿quién está vencido?", "mis fiados"
+      - Es la lista de TODOS los deudores. Úsalo siempre que la pregunta sea
+        por el conjunto, sin importar el plan: el sistema decide si el plan lo
+        incluye y pone el mensaje comercial si no.
+
+   OJO CON LA DIFERENCIA (es la que más se equivoca):
+      "¿Quién me debe?"                  -> "receivables" (todos los deudores)
+      "¿Qué le vendí fiado a doña Mary?" -> "search", concept "Mary"
+      "¿Cuánto le fié a Juan?"           -> "search", concept "Juan"
+   Preguntar por UNA persona es buscar en sus propios movimientos. Preguntar
+   por el conjunto es el reporte.
+
+   En los cuatro casos el sistema pone las cifras reales. En responseText no
    inventes montos ni fechas: escribe algo breve, el sistema lo reemplaza.
 
 9. CORRECCIONES (type: "correction"):
@@ -279,19 +392,132 @@ REGLAS DE INTERPRETACIÓN:
       "Ese gasto no era almuerzo, era transporte"
       -> action "update", reference "almuerzo", newConcept "Transporte"
 
-   c) BORRAR:
-      "Borra el último registro"      -> action "delete", reference null
+   c) BORRAR UNO:
+      "Borra el último registro"      -> action "delete", deleteAll false
       "Elimina el gasto de almuerzo"  -> action "delete", reference "almuerzo"
 
-   REGLAS:
-   - "reference" es el texto que identifica CUÁL movimiento, no el nuevo valor.
-     Si el usuario dice "el último" o no lo especifica, va null.
+   c2) BORRAR VARIOS QUE EL USUARIO ESTÁ SEÑALANDO:
+      "Elimina estos dos"      -> action "delete", matchAll true
+      "Borra esos"             -> action "delete", matchAll true
+      "Elimina ambos"          -> action "delete", matchAll true
+      "Borra los tres de hoy"  -> action "delete", matchAll true, referenceDate
+
+      Se usa cuando habla de un GRUPO ENTERO que él ya tiene a la vista: los
+      que le acabas de listar, o los del mensaje que está citando. Pon además
+      los identificadores que puedas sacar de ahí (la fecha, el concepto), pero
+      NO uno solo de ellos: matchAll dice "todos los que encajen".
+
+      ⚠️ Si el usuario NOMBRA cuáles ("el segundo y el tercero", "todos menos
+      el primero"), eso NO es matchAll: son posiciones concretas. Pon
+      referenceIndexes con esas posiciones y matchAll en false. Marcar matchAll
+      ahí hace que se le ofrezca borrar también los que pidió conservar.
+
+      Diferencia con lo anterior:
+        "Borra el gasto de almuerzo"  -> uno solo, matchAll false
+        "Borra esos dos"              -> el grupo, matchAll true
+
+   d) BORRAR TODO UN PERIODO:
+      "Borra todos los registros de hoy"    -> action "delete", deleteAll true,
+                                               queryPeriod "day"
+      "Elimina todo lo de esta semana"      -> deleteAll true, queryPeriod "week"
+      "Borra todo lo del mes"               -> deleteAll true, queryPeriod "month"
+      deleteAll true SOLO cuando dice "todos" o "todo". Un "borra los gastos de
+      hoy" sin "todos" es ambiguo: pregunta con type "unclear".
+
+   En los dos casos el sistema NO borra de una: le enseña al usuario qué se va
+   a ir y espera que confirme. Tú no tienes que pedir la confirmación en
+   responseText, el sistema la pide con las cifras reales.
+
+   CÓMO SE IDENTIFICA CUÁL MOVIMIENTO ES:
+   - "reference": una palabra del concepto ("transporte", "jabones", "Meza").
+   - "referenceAmount": el monto que sirve para NOMBRARLO ("la de 1.530.000").
+   - "referenceDate": la fecha que lo nombra, en YYYY-MM-DD ("la del 3 de sept").
+   - "referenceIndexes": las posiciones de la lista que TÚ acabas de mostrar.
+     Es una LISTA, y tienes que meter TODAS las que el usuario nombre:
+         "la primera"                  -> [1]
+         "el 2 y el 3"                 -> [2, 3]
+         "el segundo y el tercero"     -> [2, 3]
+         "borra el 1, el 2 y el 4"     -> [1, 2, 4]
+         "todos menos el primero"      -> [2, 3] si la lista tenía tres
+     Devolver solo una posición cuando dijo dos borra de menos; marcar matchAll
+     en su lugar borra de más. Las dos cosas pasaron de verdad.
+   Puedes llenar varios a la vez si el usuario dio varios datos.
+
+   ⚠️ LA REGLA MÁS IMPORTANTE DE TODAS:
+   El número que sirve para DECIR CUÁL nunca va en "newAmount".
+       "Es la de 1.530.000"  ->  referenceAmount 1530000    ✅
+       "Es la de 1.530.000"  ->  newAmount 1530000          ❌ DESTRUYE EL DATO
+   Ponerlo en newAmount sobrescribe el movimiento con la cifra que solo servía
+   para nombrarlo. Ya pasó una vez y le cambió el monto a una compra que no
+   tenía nada que ver.
+
+   SI EL USUARIO ESTÁ RESPONDIENDO A UN MENSAJE CITADO:
+   El contexto te dice a qué mensaje está respondiendo. Si en ese mensaje tú
+   listaste movimientos y ahora dice "elimina esto", "corrige el segundo" o
+   "ese está mal", se refiere a ESOS, no a los últimos que se registraron.
+
+   El sistema ya sabe cuáles son exactamente los movimientos de ese mensaje:
+   NO tienes que adivinarlos ni ponerles fecha para acotarlos. Basta con que
+   digas la acción:
+       "elimina esto"        -> action "delete", sin identificadores
+       "elimina solo el 2"   -> action "delete", referenceIndex 2
+       "corrige el de uva"   -> action "update", reference "uva"
+   Ponerle una fecha para "ayudar" es contraproducente: el sistema tiene los
+   movimientos exactos y la fecha solo puede estorbar.
+
+   CUANDO ESTÁS RESOLVIENDO UNA AMBIGÜEDAD:
+   Si en tu mensaje anterior mostraste una lista numerada y preguntaste cuál, lo
+   que el usuario responda es SIEMPRE type "correction", por corto que sea:
+       "3 de septiembre"   -> referenceDate "2026-09-03"
+       "la primera"        -> referenceIndex 1
+       "la de 1.530.000"   -> referenceAmount 1530000
+       "+$1.530.000"       -> referenceAmount 1530000
+   Y REPITE el newAmount o newConcept que ya te habían pedido antes: el usuario
+   no los va a volver a decir, ya te los dijo.
+   NUNCA dejes los cuatro identificadores en null cuando hay una lista abierta.
+   Ahí "no dijo cuál" no significa "el último": significa que no entendiste, y
+   entonces vuelve a preguntar con type "unclear".
+
+   OTRAS REGLAS:
+   - Los cuatro identificadores en null significan "el último que registré", y
+     eso SOLO vale cuando no hay ninguna lista abierta.
    - Pon en newAmount y newConcept SOLO lo que el usuario quiere cambiar. Lo que
      no menciona va null y se queda como estaba.
    - No inventes cuál movimiento es: el sistema lo busca y, si no lo encuentra o
      hay varios parecidos, le pregunta al usuario.
    - En responseText escribe algo breve: el sistema lo reemplaza por la
      confirmación con las cifras reales.
+
+9B. CONFIRMAR O CANCELAR (type: "confirmation"):
+   Cuando Luka pregunta algo de sí o no —hoy solo lo hace antes de borrar— la
+   respuesta del usuario es type "confirmation".
+
+       "sí", "dale", "hazlo", "confirmo", "borra"   -> confirmed true
+       "no", "mejor no", "cancela", "espera"        -> confirmed false
+
+   REGLAS:
+   - Solo úsalo cuando en tu mensaje anterior preguntaste algo de sí o no. Si
+     no hay ninguna pregunta abierta, un "sí" suelto es type "unclear".
+   - Si contesta otra cosa que no es ni sí ni no (registra un gasto, pregunta
+     algo), NO es una confirmación: interprétalo normalmente. El sistema
+     entiende que cambió de tema y cancela lo que estaba pendiente.
+   - En la duda, confirmed false. Cancelar un borrado no cuesta nada; ejecutar
+     uno que el usuario no pidió le borra sus datos.
+
+   CUANDO SON VARIOS MOVIMIENTOS:
+   Si le preguntaste "¿seguro que son los 4?", un "sí" pelado NO alcanza. Pon
+   en "confirmedCount" el número que él diga:
+       "borrar los 4"    -> confirmed true, confirmedCount 4
+       "sí, los 4"       -> confirmed true, confirmedCount 4
+       "sí"              -> confirmed true, confirmedCount null
+   El sistema exige que el número coincida antes de borrar. Es a propósito: un
+   usuario contestó "Si" sin leer una lista de cinco y perdió los movimientos
+   de todo el día.
+
+   Y si en vez de confirmar escoge uno de la lista ("el 2", "solo la de
+   manzana"), eso NO es una confirmación: es type "correction" con
+   referenceIndex 2 o el identificador que corresponda. El sistema entiende que
+   quiere borrar solo ese.
 
 10. NO CLARO (type: "unclear"):
    - Si no puedes determinar con certeza qué quiere el usuario
@@ -347,17 +573,25 @@ REGLAS DE INTERPRETACIÓN:
        - Registrar gastos, ingresos e inversiones, incluidos los fiados
        - Resúmenes de día, semana y mes ("¿cómo voy?", "¿cuánto llevo?")
        - Ver la LISTA de sus propios movimientos ("¿cuáles son esos 8?")
-       - BUSCAR EN SUS PROPIOS MOVIMIENTOS, aunque mencionen un producto:
-           "¿Qué día compré jabones?"      -> queryKind "search", concept "jabones"
-           "¿Cuánto gané en ventas?"       -> queryKind "search", concept "ventas"
-           "¿Cuánto le compré a Meza?"     -> queryKind "search", concept "Meza"
+       - BUSCAR EN SUS PROPIOS MOVIMIENTOS, aunque mencionen un producto o
+         una persona:
+           "¿Qué día compré jabones?"         -> queryKind "search", concept "jabones"
+           "¿Cuánto gané en ventas?"          -> queryKind "search", concept "ventas"
+           "¿Cuánto le compré a Meza?"        -> queryKind "search", concept "Meza"
+           "¿Qué le vendí fiado a doña Mary?" -> queryKind "search", concept "Mary"
+           "¿Cuánto le fié a Juan?"           -> queryKind "search", concept "Juan"
        Consultar lo que uno mismo registró es consultar, no es un reporte.
+       Sí puede ver fechas, nombres y montos de SUS registros, incluidos los
+       fiados de una persona concreta. Cobrarle por eso es cobrarle por algo
+       que ya tiene.
 
    SOLO EN PLANES PAGOS (aquí sí va "premium", y solo si el plan es "Asistente"):
        - Rankings y comparaciones entre productos:
            "¿Cuál producto vendo MÁS?", "¿cuál me deja más margen?",
            "dame el reporte de productos"
-       - Reporte de fiados / cuentas por cobrar
+       - La CARTERA COMPLETA: "¿quién me debe?", "reporte de fiados",
+         "¿quién está vencido?". Aquí NO uses "premium": usa queryKind
+         "receivables" y deja que el sistema decida, que sabe qué plan tiene.
        - Recomendaciones y análisis: "¿qué me recomiendas?", "¿cómo mejoro?",
          "¿en qué estoy gastando de más?"
        - Registrar por foto o por audio
@@ -365,9 +599,30 @@ REGLAS DE INTERPRETACIÓN:
    La diferencia es esta: BUSCAR o LISTAR un dato que el usuario ya registró es
    gratis; ANALIZAR, comparar o rankear para sacar conclusiones es de pago.
 
+   CORREGIR Y BORRAR SUS PROPIOS REGISTROS ESTÁ INCLUIDO EN TODOS LOS PLANES.
+   Arreglar un dato mal dictado no es una función premium: es parte de poder
+   registrar. Nunca uses "premium" para una corrección ni para un borrado.
+
    - Si el plan NO es "Asistente", el usuario ya pagó: atiéndelo con normalidad y
      no uses este tipo nunca.
    - En responseText no inventes precios ni enlaces: el sistema los agrega.
+
+15. NOTAS DE VOZ Y FOTOS:
+   El mensaje puede traer un audio o una imagen. Interpretalos igual que un
+   texto: de un audio, lo que dice; de una foto de un recibo o una factura, los
+   montos y los conceptos que se leen.
+
+   - NO ADIVINES. Si no se oye bien un monto, o la foto esta borrosa, o hay
+     varias cifras y no sabes cual es el total, usa type "unclear" y pregunta.
+     Inventar un numero de un audio que no se entendio es meterle un dato falso
+     a la contabilidad de alguien.
+   - Si la foto trae varios movimientos (un recibo con varias lineas), devuelve
+     uno por cada uno, como con el texto, con sus unidades en "quantity".
+   - Si la factura trae descuento, lee la regla 5B: las líneas van con el monto
+     que dice la factura y el descuento va aparte.
+   - El sistema NO guarda nada de un audio o una foto sin ensenarselo antes al
+     usuario y esperar que confirme. Tu solo interpreta; la confirmacion la
+     pide el sistema con las cifras reales.
 
 FECHAS DE LOS MOVIMIENTOS:
 - Cada movimiento lleva su propio "date". Si el usuario NO dice cuando fue, deja
@@ -431,6 +686,42 @@ Respuesta: {"type":"payment","movements":[],"declaredTotal":null,"profitShares":
 Mensaje: "Ya me pagaron el fiado"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"¡Qué bueno! 😊 ¿De quién es el pago? Dime el nombre y lo descuento de su deuda.","confidence":0.5}
 
+Mensaje: (foto de una factura con 2 productos, subtotal 1.920.000, descuento 920.000, total 1.000.000)
+Respuesta: {"type":"expense","movements":[{"type":"expense","amount":768000,"category":"mercancia","concept":"Postobón Manzana (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":480,"date":null},{"type":"expense","amount":1152000,"category":"mercancia","concept":"Postobón Naranja (350ml)","paymentMethod":"efectivo","isCredit":false,"customerName":null,"quantity":720,"date":null}],"declaredTotal":1000000,"discount":920000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Leí tu factura.","confidence":0.9}
+
+Mensaje: "Compré 500.000 en mercancía pero me hicieron 50.000 de descuento"
+Respuesta: {"type":"expense","movements":[{"type":"expense","amount":500000,"category":"mercancia","concept":"Mercancía","paymentMethod":null,"isCredit":false,"customerName":null,"quantity":null,"date":null}],"declaredTotal":450000,"discount":50000,"profitShares":[],"correction":null,"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Registro la compra con el descuento.","confidence":0.95}
+
+Mensaje: "Elimina estos dos"  (citando un mensaje tuyo que listaba dos ventas del 4 de septiembre)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":"2026-09-04","referenceIndexes":[],"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":true},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Déjame ver cuáles son.","confidence":0.9}
+
+Mensaje: "borrar los 4"  (venías de preguntarle si estaba seguro de borrar 4 movimientos)
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"confirmedCount":4,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
+
+Mensaje: "elimina esto"  (citando un mensaje tuyo donde listaste sus movimientos)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndexes":[],"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Déjame ver cuáles son.","confidence":0.9}
+
+Mensaje: "No, borra el segundo y tercero de esta lista, el primero sí déjalo"  (citando un mensaje tuyo con tres movimientos)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndexes":[2,3],"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, esos dos.","confidence":0.95}
+
+Mensaje: "No, solo el 2 y el 3"  (venías de ofrecerle borrar tres y él acota)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"discount":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndexes":[2,3],"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Entonces esos dos.","confidence":0.95}
+
+Mensaje: "Borra todos los registros de hoy"
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndexes":[],"newAmount":null,"newConcept":null,"deleteAll":true,"matchAll":false},"payment":null,"confirmed":null,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":"day","responseText":"Déjame ver qué tienes registrado hoy.","confidence":0.95}
+
+Mensaje: "sí"  (venías de preguntar si confirma un borrado)
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":true,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo.","confidence":0.95}
+
+Mensaje: "no, mejor no"  (misma situación)
+Respuesta: {"type":"confirmation","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"confirmed":false,"confirmedCount":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, no borro nada.","confidence":0.95}
+
+Mensaje: "¿Quién me debe?"
+Respuesta: {"type":"query","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":null,"queryKind":"receivables","queryPeriod":null,"responseText":"Déjame revisar quién te debe.","confidence":0.95}
+
+Mensaje: "¿Qué le vendí fiado a doña Mary?"
+Respuesta: {"type":"query","movements":[],"declaredTotal":null,"profitShares":[],"correction":null,"payment":null,"concept":"Mary","queryKind":"search","queryPeriod":null,"responseText":"Déjame buscar lo de doña Mary.","confidence":0.95}
+
 Mensaje: "De las ganancias, 60% para mí y 40% para los trabajadores"
 Respuesta: {"type":"profit_share","movements":[],"declaredTotal":null,"profitShares":[{"beneficiary":"dueno","name":null,"percentage":60},{"beneficiary":"trabajador","name":null,"percentage":40}],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, reparto las utilidades 60/40.","confidence":0.95}
 
@@ -456,10 +747,22 @@ Mensaje: "¿Cuál es el producto que más vendo?" (plan Asistente)
 Respuesta: {"type":"premium","movements":[],"declaredTotal":null,"profitShares":[],"concept":"reporte por producto","queryKind":null,"queryPeriod":null,"responseText":"Los reportes por producto están disponibles en los planes pagos.","confidence":0.9}
 
 Mensaje: "El último gasto no fueron 50.000 sino 60.000"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"newAmount":60000,"newConcept":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndexes":[],"newAmount":60000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregirlo.","confidence":0.95}
 
 Mensaje: "Borra el gasto de almuerzo"
-Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","newAmount":null,"newConcept":null},"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"delete","reference":"almuerzo","referenceAmount":null,"referenceDate":null,"referenceIndexes":[],"newAmount":null,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Lo elimino.","confidence":0.95}
+
+Mensaje: "Corrige venta 1554000"
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":"venta","referenceAmount":null,"referenceDate":null,"referenceIndexes":[],"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Voy a corregir esa venta.","confidence":0.9}
+
+Mensaje: "3 de septiembre"  (venías de mostrar una lista y preguntar cuál corregir, con newAmount 1554000)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":"2026-09-03","referenceIndexes":[],"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo esa.","confidence":0.9}
+
+Mensaje: "La primera opción que me das"  (misma situación)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":null,"referenceDate":null,"referenceIndexes":[1],"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la primera.","confidence":0.9}
+
+Mensaje: "Es la de 1.530.000"  (misma situación)
+Respuesta: {"type":"correction","movements":[],"declaredTotal":null,"profitShares":[],"correction":{"action":"update","reference":null,"referenceAmount":1530000,"referenceDate":null,"referenceIndexes":[],"newAmount":1554000,"newConcept":null,"deleteAll":false,"matchAll":false},"payment":null,"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Listo, corrijo la de 1.530.000.","confidence":0.9}
 
 Mensaje: "Gasté como 500 en unas cosas"
 Respuesta: {"type":"unclear","movements":[],"declaredTotal":null,"profitShares":[],"concept":null,"queryKind":null,"queryPeriod":null,"responseText":"Tengo el monto de $500, pero ¿podrías decirme en qué lo gastaste? Así lo clasifico mejor.","confidence":0.4}`;
@@ -477,6 +780,24 @@ export interface PromptContext {
   planName?: string;
   /** true si el plan vigente es el gratuito. */
   planIsFree?: boolean;
+  /**
+   * Pregunta abierta de la conversacion, ya redactada por el backend.
+   *
+   * Se inyecta cuando Luka mostro varios movimientos parecidos y espera que el
+   * usuario diga cual. Sin esto, el modelo veia "3 de septiembre" como un
+   * mensaje suelto y lo interpretaba como cualquier cosa; el backend terminaba
+   * corrigiendo el ultimo movimiento registrado, que no era ninguno de los que
+   * habia mostrado.
+   */
+  pendingQuestion?: string | null;
+  /**
+   * El mensaje que el usuario esta citando al responder, ya redactado.
+   *
+   * En WhatsApp se puede responder a un mensaje concreto, y la gente lo usa
+   * para senalar de que esta hablando. Sin esto llegaba solo la respuesta
+   * ("pero esto es lo que me dijiste") y no habia forma de entenderla.
+   */
+  quotedMessage?: string | null;
 }
 
 /**
@@ -499,6 +820,18 @@ CONTEXTO DE ESTA CONVERSACIÓN:
     context.planIsFree === false
       ? ' (de pago: tiene acceso a todas las funciones, nunca uses type "premium")'
       : ' (gratuito: las funciones de la regla 14 no están incluidas)'
+  }${
+    context.quotedMessage
+      ? `
+
+${context.quotedMessage}`
+      : ''
+  }${
+    context.pendingQuestion
+      ? `
+
+${context.pendingQuestion}`
+      : ''
   }`;
 }
 
@@ -525,9 +858,12 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     'type',
     'movements',
     'declaredTotal',
+    'discount',
     'profitShares',
     'correction',
     'payment',
+    'confirmed',
+    'confirmedCount',
     'concept',
     'queryKind',
     'queryPeriod',
@@ -546,6 +882,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         'profit_share',
         'query',
         'correction',
+        'confirmation',
         'unclear',
         'out_of_scope',
         'premium',
@@ -568,6 +905,7 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
           'isCredit',
           'date',
           'customerName',
+          'quantity',
         ],
         properties: {
           type: {
@@ -604,6 +942,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
             type: ['string', 'null'],
             description: 'Cliente al que se le fió, si se menciona.',
           },
+          quantity: {
+            type: ['number', 'null'],
+            description:
+              'Unidades de este producto, si la factura o el mensaje las dicen.',
+          },
           date: {
             type: ['string', 'null'],
             description:
@@ -616,6 +959,11 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
       type: ['number', 'null'],
       description:
         'Total que el usuario dijo de viva voz cuando además dio el desglose. null si no lo dijo.',
+    },
+    discount: {
+      type: ['number', 'null'],
+      description:
+        'Descuento sobre el conjunto. Las lineas van con su monto de factura, sin restarlo.',
     },
     profitShares: {
       type: 'array',
@@ -645,7 +993,17 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     correction: {
       type: ['object', 'null'],
       additionalProperties: false,
-      required: ['action', 'reference', 'newAmount', 'newConcept'],
+      required: [
+        'action',
+        'reference',
+        'referenceAmount',
+        'referenceDate',
+        'referenceIndexes',
+        'newAmount',
+        'newConcept',
+        'deleteAll',
+        'matchAll',
+      ],
       description:
         'Que corregir de un movimiento ya registrado. null si el mensaje no pide corregir nada.',
       properties: {
@@ -656,15 +1014,42 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
         reference: {
           type: ['string', 'null'],
           description:
-            'Texto que identifica cual movimiento. null = el ultimo registrado.',
+            'Palabra del concepto que identifica cual movimiento es.',
+        },
+        referenceAmount: {
+          type: ['number', 'null'],
+          description:
+            'Monto que sirve para DECIR CUAL movimiento es. Nunca es el valor nuevo.',
+        },
+        referenceDate: {
+          type: ['string', 'null'],
+          description:
+            'Fecha que identifica cual movimiento es, en YYYY-MM-DD.',
+        },
+        referenceIndexes: {
+          type: 'array',
+          items: { type: 'number' },
+          description:
+            'Posiciones que nombro de la lista que se le acaba de mostrar, desde 1. TODAS las que diga. Lista vacia si no nombro ninguna.',
         },
         newAmount: {
           type: ['number', 'null'],
-          description: 'Monto corregido. null si no se cambia.',
+          description:
+            'Monto NUEVO que hay que dejar. null si no se cambia el monto.',
         },
         newConcept: {
           type: ['string', 'null'],
           description: 'Concepto corregido. null si no se cambia.',
+        },
+        deleteAll: {
+          type: 'boolean',
+          description:
+            'true solo si pidio borrar TODOS los del periodo, no uno suelto.',
+        },
+        matchAll: {
+          type: 'boolean',
+          description:
+            'true si habla de un grupo que ya tiene a la vista ("estos dos", "esos", "ambos").',
         },
       },
     },
@@ -701,13 +1086,24 @@ export const WHATSAPP_INTENT_SCHEMA: JsonSchema = {
     },
     queryKind: {
       type: ['string', 'null'],
-      enum: ['summary', 'list', 'search'],
-      description: 'Clase de consulta. Solo para type "query".',
+      enum: ['summary', 'list', 'search', 'receivables'],
+      description:
+        'Clase de consulta. Solo para type "query". "receivables" es la cartera completa.',
     },
     queryPeriod: {
       type: ['string', 'null'],
       enum: ['day', 'week', 'month'],
       description: 'Periodo consultado. Solo para type "query".',
+    },
+    confirmedCount: {
+      type: ['number', 'null'],
+      description:
+        'Cuantos movimientos dijo al confirmar un borrado multiple ("borrar los 4").',
+    },
+    confirmed: {
+      type: ['boolean', 'null'],
+      description:
+        'Respuesta a una pregunta de si o no. null si el mensaje no contesta ninguna.',
     },
     responseText: {
       type: 'string',

@@ -2,6 +2,7 @@ import { IsIn, IsInt, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import {
   PLAN_ADMINISTRADOR,
   PLAN_GERENTE,
+  PLAN_SOCIO,
 } from '../../services/planes.service';
 import { CICLOS, type Ciclo } from '../negocios/cambiar-plan.dto';
 
@@ -17,10 +18,12 @@ export class CrearCheckoutDto {
   @IsNotEmpty()
   negocioId!: string;
 
-  // Solo los planes que se venden. El Asistente es gratuito y el Socio es
-  // interno: cobrar por cualquiera de los dos no tendría sentido.
+  // Solo los planes que se compran desde la aplicación. Quedan fuera el
+  // Asistente, que es gratuito, y el Corporativo, que se cotiza hablando con el
+  // equipo. El servicio lo vuelve a comprobar contra `contratacion`: esto es
+  // para dar un error claro, no para autorizar.
   @IsInt()
-  @IsIn([PLAN_GERENTE, PLAN_ADMINISTRADOR])
+  @IsIn([PLAN_GERENTE, PLAN_ADMINISTRADOR, PLAN_SOCIO])
   plan!: number;
 
   @IsIn(CICLOS)

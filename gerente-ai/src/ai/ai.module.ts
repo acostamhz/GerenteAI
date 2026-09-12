@@ -8,7 +8,7 @@ import {
 } from './core/llm.provider';
 import { createProviders } from './providers/provider.factory';
 import { LlmService } from './services/llm.service';
-import { InMemoryAiUsageRepository } from './usage/in-memory-usage.repository';
+import { PrismaAiUsageRepository } from './usage/prisma-usage.repository';
 import { AI_USAGE_REPOSITORY } from './usage/usage.repository';
 import { AiUsageService } from './usage/usage.service';
 
@@ -50,9 +50,13 @@ interface ProviderBundle {
       inject: [LLM_PROVIDER_BUNDLE],
     },
     {
-      // Cambiar a una implementacion con base de datos no toca nada mas.
+      /**
+       * Sobre Postgres y no en memoria: el contador en memoria se reiniciaba con
+       * el proceso, asi que los topes por plan no llegaban a aplicarse nunca.
+       * `InMemoryAiUsageRepository` sigue en el repo para las pruebas.
+       */
       provide: AI_USAGE_REPOSITORY,
-      useClass: InMemoryAiUsageRepository,
+      useClass: PrismaAiUsageRepository,
     },
     AiUsageService,
     LlmService,

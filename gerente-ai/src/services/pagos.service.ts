@@ -53,13 +53,25 @@ export class PagosService {
 
     const ciclo: Ciclo = dto.ciclo ?? 'mensual';
     const definicion = PLANES[dto.plan];
-    if (!definicion || definicion.precioMensual === 0) {
+
+    // Se comprueba `contratacion` y no el precio: el Asistente es gratuito y el
+    // Corporativo se cotiza en una reunión, y ambos valen 0 en el catálogo.
+    if (!definicion || definicion.contratacion !== 'directo') {
       throw new BadRequestException('Ese plan no está a la venta');
     }
 
     // El precio sale del catálogo del servidor, nunca de la petición.
     const precio =
       ciclo === 'anual' ? definicion.precioAnual : definicion.precioMensual;
+
+    // Un plan puede no tener ciclo anual. Sin esto se cobraría cero, que es
+    // peor que fallar: el pago saldría aprobado y el plan se activaría gratis.
+    if (precio === null) {
+      throw new BadRequestException(
+        `El plan ${definicion.nombre} solo se vende por mes`,
+      );
+    }
+
     const montoEnCentavos = precio * 100;
 
     // El prefijo hace que la referencia se reconozca de un vistazo en el panel
