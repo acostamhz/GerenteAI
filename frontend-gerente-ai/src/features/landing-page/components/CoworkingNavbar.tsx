@@ -3,9 +3,7 @@ import { Link } from "react-router";
 import {
   Menu,
   X,
-  LogIn,
   ArrowRight,
-  ChevronDown,
   CircleDollarSign,
 } from "lucide-react";
 import { ThemeToggle } from "@/shared/components/layout/ThemeToggle";
@@ -47,20 +45,20 @@ function customSmoothScroll(
 
 const navLinks = [
   {
-    name: "Características",
-    href: "#caracteristicas",
+    name: "Negocios",
+    href: "#negocios",
   },
   {
-    name: "Módulos",
-    href: "#negocios",
+    name: "Usos",
+    href: "#usos",
+  },
+  {
+    name: "Funciones",
+    href: "#features",
   },
   {
     name: "Planes",
     href: "#planes",
-  },
-  {
-    name: "Testimonios",
-    href: "#testimonios",
   },
   {
     name: "Preguntas",
@@ -295,15 +293,20 @@ export function CoworkingNavbar() {
               "
             />
 
+            {/* Luka AI — degradado de la marca */}
             <span
               className="
                 hidden
+                bg-gradient-to-r
+                from-cyan-400
+                via-blue-500
+                to-purple-500
+                bg-clip-text
                 text-xl
                 font-extrabold
                 tracking-tight
-                text-slate-950
+                text-transparent
                 sm:block
-                dark:text-white
               "
             >
               Luka AI
@@ -341,7 +344,6 @@ export function CoworkingNavbar() {
                   group
                   flex
                   items-center
-                  gap-1
                   whitespace-nowrap
                   rounded-full
                   px-4
@@ -360,20 +362,6 @@ export function CoworkingNavbar() {
                 "
               >
                 <span>{link.name}</span>
-
-                {(link.name === "Módulos" ||
-                  link.name === "Preguntas") && (
-                  <ChevronDown
-                    className="
-                      h-3.5
-                      w-3.5
-                      opacity-70
-                      transition-transform
-                      duration-300
-                      group-hover:translate-y-0.5
-                    "
-                  />
-                )}
               </a>
             ))}
           </nav>
@@ -641,7 +629,6 @@ export function CoworkingNavbar() {
             <div
               className="
                 mt-3
-                space-y-2
                 border-t
                 border-slate-200
                 pt-3
@@ -649,37 +636,6 @@ export function CoworkingNavbar() {
                 dark:border-white/10
               "
             >
-              <Link
-                to="/login"
-                onClick={() =>
-                  setMobileMenuOpen(false)
-                }
-                className="
-                  flex
-                  w-full
-                  items-center
-                  justify-center
-                  gap-2
-                  rounded-full
-                  border
-                  border-slate-200
-                  px-4
-                  py-3
-                  text-sm
-                  font-semibold
-                  text-slate-800
-                  transition-all
-                  hover:bg-slate-100
-
-                  dark:border-white/10
-                  dark:text-white
-                  dark:hover:bg-white/5
-                "
-              >
-                <LogIn className="h-4 w-4" />
-                Iniciar sesión
-              </Link>
-
               <Link
                 to="/register"
                 onClick={() =>
@@ -706,7 +662,7 @@ export function CoworkingNavbar() {
                   active:scale-95
                 "
               >
-                Comenzar gratis
+                Inicia sesión
 
                 <ArrowRight className="h-4 w-4" />
               </Link>

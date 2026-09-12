@@ -1,4 +1,7 @@
+"use client";
+
 import { useRef } from "react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   MessageSquare,
   BarChart3,
@@ -113,11 +116,92 @@ const features = [
   },
 ];
 
+const ease = [0.22, 1, 0.36, 1] as const;
+
+const headerContainer = {
+  hidden: {},
+  visible: {
+    transition: {
+      staggerChildren: 0.12,
+    },
+  },
+};
+
+const headerItem = {
+  hidden: {
+    opacity: 0,
+    y: 30,
+    filter: "blur(8px)",
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.75,
+      ease,
+    },
+  },
+};
+
+const carouselReveal = {
+  hidden: {
+    opacity: 0,
+    y: 35,
+    scale: 0.985,
+    filter: "blur(8px)",
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    filter: "blur(0px)",
+    transition: {
+      duration: 0.9,
+      ease,
+      delay: 0.15,
+    },
+  },
+};
+
+const cardContent = {
+  hidden: {
+    opacity: 0,
+    y: 24,
+  },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: {
+      duration: 0.65,
+      ease,
+    },
+  },
+};
+
+const iconReveal = {
+  hidden: {
+    opacity: 0,
+    scale: 0.55,
+    rotate: -18,
+  },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    rotate: 0,
+    transition: {
+      duration: 0.65,
+      ease,
+    },
+  },
+};
+
 export function LocationsBento() {
   const carouselRef = useRef<HTMLDivElement>(null);
-
   const isDragging = useRef(false);
   const dragStartX = useRef(0);
+
+  const reducedMotion = useReducedMotion();
 
   /**
    * Desplaza exactamente una tarjeta.
@@ -264,7 +348,7 @@ export function LocationsBento() {
         w-full
         overflow-hidden
         bg-slate-50
-        pt-16
+        pt-3
         pb-8
         dark:bg-[#070B12]
       "
@@ -273,7 +357,14 @@ export function LocationsBento() {
           HEADER
           ========================================================= */}
 
-      <div
+      <motion.div
+        variants={reducedMotion ? undefined : headerContainer}
+        initial={reducedMotion ? false : "hidden"}
+        whileInView={reducedMotion ? undefined : "visible"}
+        viewport={{
+          once: true,
+          amount: 0.45,
+        }}
         className="
           mx-auto
           mb-12
@@ -285,7 +376,8 @@ export function LocationsBento() {
         "
       >
         <div className="max-w-2xl">
-          <h2
+          <motion.h2
+            variants={reducedMotion ? undefined : headerItem}
             className="
               text-3xl
               font-extrabold
@@ -297,9 +389,10 @@ export function LocationsBento() {
             "
           >
             Todo lo que necesitas en un solo lugar
-          </h2>
+          </motion.h2>
 
-          <p
+          <motion.p
+            variants={reducedMotion ? undefined : headerItem}
             className="
               mt-6
               max-w-2xl
@@ -311,15 +404,22 @@ export function LocationsBento() {
           >
             Diseñado para simplificar tu operativa diaria con
             tecnología de punta.
-          </p>
+          </motion.p>
         </div>
-      </div>
+      </motion.div>
 
       {/* =========================================================
           HORIZONTAL CAROUSEL
           ========================================================= */}
 
-      <div
+      <motion.div
+        variants={reducedMotion ? undefined : carouselReveal}
+        initial={reducedMotion ? false : "hidden"}
+        whileInView={reducedMotion ? undefined : "visible"}
+        viewport={{
+          once: true,
+          amount: 0.18,
+        }}
         ref={carouselRef}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -352,12 +452,62 @@ export function LocationsBento() {
         {features.map((feature, index) => {
           const Icon = feature.icon;
 
+          const direction =
+            index % 2 === 0 ? -1 : 1;
+
           return (
-            <article
+            <motion.article
               key={feature.title}
               data-card
               onClick={(event) =>
                 handleCardClick(event, index)
+              }
+              initial={
+                reducedMotion
+                  ? false
+                  : {
+                      opacity: 0,
+                      x: direction * 55,
+                      y: 35,
+                      scale: 0.94,
+                      rotate: direction * 1.5,
+                      filter: "blur(7px)",
+                    }
+              }
+              whileInView={
+                reducedMotion
+                  ? undefined
+                  : {
+                      opacity: 1,
+                      x: 0,
+                      y: 0,
+                      scale: 1,
+                      rotate: 0,
+                      filter: "blur(0px)",
+                    }
+              }
+              viewport={{
+                once: true,
+                amount: 0.18,
+              }}
+              transition={{
+                duration: 0.8,
+                delay: reducedMotion
+                  ? 0
+                  : 0.12 + index * 0.075,
+                ease,
+              }}
+              whileHover={
+                reducedMotion
+                  ? undefined
+                  : {
+                      y: -8,
+                      scale: 1.015,
+                      transition: {
+                        duration: 0.35,
+                        ease,
+                      },
+                    }
               }
               className="
                 group
@@ -373,10 +523,6 @@ export function LocationsBento() {
                 bg-slate-900
                 shadow-xl
 
-                transition-transform
-                duration-500
-                hover:-translate-y-1
-
                 sm:h-[520px]
                 sm:w-[400px]
 
@@ -387,11 +533,40 @@ export function LocationsBento() {
                   BUSINESS IMAGE
                   ================================================= */}
 
-              <img
+              <motion.img
                 src={feature.image}
                 alt=""
                 loading="lazy"
                 draggable={false}
+                initial={
+                  reducedMotion
+                    ? false
+                    : {
+                        scale: 1.12,
+                      }
+                }
+                whileInView={
+                  reducedMotion
+                    ? undefined
+                    : {
+                        scale: 1,
+                      }
+                }
+                whileHover={
+                  reducedMotion
+                    ? undefined
+                    : {
+                        scale: 1.07,
+                      }
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.18,
+                }}
+                transition={{
+                  duration: 1.4,
+                  ease,
+                }}
                 className="
                   absolute
                   inset-0
@@ -399,10 +574,6 @@ export function LocationsBento() {
                   w-full
                   select-none
                   object-cover
-                  transition-transform
-                  duration-700
-                  ease-out
-                  group-hover:scale-105
                 "
               />
 
@@ -410,7 +581,30 @@ export function LocationsBento() {
                   IMAGE GRADIENT
                   ================================================= */}
 
-              <div
+              <motion.div
+                initial={
+                  reducedMotion
+                    ? false
+                    : {
+                        opacity: 0.25,
+                      }
+                }
+                whileInView={
+                  reducedMotion
+                    ? undefined
+                    : {
+                        opacity: 1,
+                      }
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.18,
+                }}
+                transition={{
+                  duration: 1,
+                  delay: 0.2 + index * 0.075,
+                  ease,
+                }}
                 className="
                   absolute
                   inset-0
@@ -425,7 +619,7 @@ export function LocationsBento() {
                   HOVER OVERLAY
                   ================================================= */}
 
-              <div
+              <motion.div
                 className="
                   absolute
                   inset-0
@@ -440,11 +634,40 @@ export function LocationsBento() {
                   ICON
                   ================================================= */}
 
-              <div
+              <motion.div
+                variants={reducedMotion ? undefined : iconReveal}
+                initial={reducedMotion ? false : "hidden"}
+                whileInView={
+                  reducedMotion
+                    ? undefined
+                    : "visible"
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.25,
+                }}
+                transition={{
+                  delay: reducedMotion
+                    ? 0
+                    : 0.32 + index * 0.075,
+                }}
+                whileHover={
+                  reducedMotion
+                    ? undefined
+                    : {
+                        scale: 1.08,
+                        rotate: 4,
+                        transition: {
+                          duration: 0.3,
+                          ease,
+                        },
+                      }
+                }
                 className="
                   absolute
                   left-7
                   top-7
+                  z-10
                   flex
                   h-12
                   w-12
@@ -460,17 +683,45 @@ export function LocationsBento() {
                 "
               >
                 <Icon size={22} />
-              </div>
+              </motion.div>
 
               {/* =================================================
                   CARD NUMBER
                   ================================================= */}
 
-              <div
+              <motion.div
+                initial={
+                  reducedMotion
+                    ? false
+                    : {
+                        opacity: 0,
+                        x: 15,
+                      }
+                }
+                whileInView={
+                  reducedMotion
+                    ? undefined
+                    : {
+                        opacity: 1,
+                        x: 0,
+                      }
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.25,
+                }}
+                transition={{
+                  duration: 0.55,
+                  delay: reducedMotion
+                    ? 0
+                    : 0.48 + index * 0.075,
+                  ease,
+                }}
                 className="
                   absolute
                   right-7
                   top-7
+                  z-10
                   text-xs
                   font-bold
                   tracking-widest
@@ -478,13 +729,29 @@ export function LocationsBento() {
                 "
               >
                 {String(index + 1).padStart(2, "0")}
-              </div>
+              </motion.div>
 
               {/* =================================================
                   CONTENT
                   ================================================= */}
 
-              <div
+              <motion.div
+                variants={reducedMotion ? undefined : cardContent}
+                initial={reducedMotion ? false : "hidden"}
+                whileInView={
+                  reducedMotion
+                    ? undefined
+                    : "visible"
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.2,
+                }}
+                transition={{
+                  delay: reducedMotion
+                    ? 0
+                    : 0.42 + index * 0.075,
+                }}
                 className="
                   absolute
                   inset-x-0
@@ -494,7 +761,34 @@ export function LocationsBento() {
                   sm:p-8
                 "
               >
-                <h3
+                <motion.h3
+                  initial={
+                    reducedMotion
+                      ? false
+                      : {
+                          opacity: 0,
+                          y: 16,
+                        }
+                  }
+                  whileInView={
+                    reducedMotion
+                      ? undefined
+                      : {
+                          opacity: 1,
+                          y: 0,
+                        }
+                  }
+                  viewport={{
+                    once: true,
+                    amount: 0.2,
+                  }}
+                  transition={{
+                    duration: 0.55,
+                    delay: reducedMotion
+                      ? 0
+                      : 0.56 + index * 0.075,
+                    ease,
+                  }}
                   className="
                     max-w-[350px]
                     text-2xl
@@ -507,9 +801,36 @@ export function LocationsBento() {
                   "
                 >
                   {feature.title}
-                </h3>
+                </motion.h3>
 
-                <p
+                <motion.p
+                  initial={
+                    reducedMotion
+                      ? false
+                      : {
+                          opacity: 0,
+                          y: 14,
+                        }
+                  }
+                  whileInView={
+                    reducedMotion
+                      ? undefined
+                      : {
+                          opacity: 1,
+                          y: 0,
+                        }
+                  }
+                  viewport={{
+                    once: true,
+                    amount: 0.2,
+                  }}
+                  transition={{
+                    duration: 0.55,
+                    delay: reducedMotion
+                      ? 0
+                      : 0.66 + index * 0.075,
+                    ease,
+                  }}
                   className="
                     mt-4
                     max-w-[350px]
@@ -519,9 +840,52 @@ export function LocationsBento() {
                   "
                 >
                   {feature.description}
-                </p>
-              </div>
-            </article>
+                </motion.p>
+              </motion.div>
+
+              {/* =================================================
+                  SUBTLE TOP LIGHT
+                  ================================================= */}
+
+              <motion.div
+                initial={
+                  reducedMotion
+                    ? false
+                    : {
+                        opacity: 0,
+                        scaleX: 0.4,
+                      }
+                }
+                whileInView={
+                  reducedMotion
+                    ? undefined
+                    : {
+                        opacity: 1,
+                        scaleX: 1,
+                      }
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.2,
+                }}
+                transition={{
+                  duration: 0.8,
+                  delay: reducedMotion
+                    ? 0
+                    : 0.25 + index * 0.075,
+                  ease,
+                }}
+                className="
+                  absolute
+                  left-7
+                  right-7
+                  top-0
+                  h-px
+                  origin-center
+                  bg-white/30
+                "
+              />
+            </motion.article>
           );
         })}
 
@@ -530,13 +894,38 @@ export function LocationsBento() {
             ======================================================= */}
 
         <div className="w-4 shrink-0 sm:w-8" />
-      </div>
+      </motion.div>
 
       {/* =========================================================
           MOBILE HINT
           ========================================================= */}
 
-      <div
+      <motion.div
+        initial={
+          reducedMotion
+            ? false
+            : {
+                opacity: 0,
+                y: 12,
+              }
+        }
+        whileInView={
+          reducedMotion
+            ? undefined
+            : {
+                opacity: 1,
+                y: 0,
+              }
+        }
+        viewport={{
+          once: true,
+          amount: 0.8,
+        }}
+        transition={{
+          duration: 0.6,
+          delay: 0.15,
+          ease,
+        }}
         className="
           mx-auto
           mt-1
@@ -551,7 +940,7 @@ export function LocationsBento() {
         "
       >
         Desliza para descubrir más
-      </div>
+      </motion.div>
     </section>
   );
 }

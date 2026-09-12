@@ -116,7 +116,7 @@ function MarqueeRow({
 
 export function CoworkingFooterSection() {
   return (
-    <footer className="relative -mt-7 w-full overflow-hidden bg-[#050A10] pb-3 pt-0 text-white sm:pb-4 md:-mt-15">
+    <footer className="relative -mt-7 w-full overflow-hidden bg-transparent pb-3 pt-0 text-white sm:pb-4 md:-mt-15">
       <style>{`
         @keyframes footerMarquee {
           0% {
@@ -159,6 +159,7 @@ export function CoworkingFooterSection() {
       {/* =====================================================
           ZONA VERDE
           OCUPA TODO EL ANCHO DISPONIBLE
+          CONSERVA EL REDONDEADO SUPERIOR
       ===================================================== */}
       <div className="relative w-full overflow-hidden rounded-t-[34px] bg-[#063A35]">
         {/* Ambient glow */}
@@ -215,168 +216,176 @@ export function CoworkingFooterSection() {
 
       {/* =====================================================
           FOOTER TRADICIONAL
-          MISMA ESCALA GENERAL
-          INFORMACIÓN CENTRADA Y DISTRIBUIDA
       ===================================================== */}
       <div className="relative w-full bg-[#050A10]">
-        <div className="relative border-t border-white/[0.08] px-6 py-14 sm:px-10 sm:py-16 md:px-14 lg:px-16">
-          {/* =================================================
-              MAIN FOOTER COLUMNS
-              - Centrado vertical
-              - Mayor separación horizontal
-          ================================================= */}
-          <div className="mx-auto grid max-w-7xl grid-cols-1 gap-12 md:min-h-[235px] md:grid-cols-[1.35fr_1fr_1fr_1fr] md:items-center md:gap-x-20 lg:gap-x-28">
-            {/* Brand */}
-            <div className="md:col-span-1">
-              <div className="mb-5 flex items-center gap-2 text-xl font-bold text-emerald-300">
-                <img
-                  src="/Luka.png"
-                  alt="Luka"
-                  className="h-7 w-7 object-contain"
-                />
+        <div className="border-t border-white/[0.08] py-12 sm:py-16 md:py-16">
+          {/* Contenedor alineado con los márgenes generales de la landing */}
+          <div className="mx-auto w-[calc(100%-2rem)] max-w-7xl">
+            {/* =================================================
+                MAIN FOOTER COLUMNS
+            ================================================= */}
+            <div className="grid grid-cols-1 gap-12 md:min-h-[235px] md:grid-cols-[1.35fr_1fr_1fr_1fr] md:items-center md:gap-x-20 lg:gap-x-28">
+              {/* Brand */}
+              <div className="md:col-span-1">
+                <div className="mb-5 flex items-center gap-2">
+                  <img
+                    src="/Luka.png"
+                    alt="Luka"
+                    className="h-7 w-7 object-contain"
+                  />
 
-                Luka AI
+                  {/* Luka AI — mismo degradado que la navbar */}
+                  <span className="bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500 bg-clip-text text-xl font-extrabold tracking-tight text-transparent">
+                    Luka AI
+                  </span>
+                </div>
+
+                <p className="max-w-xs text-sm font-medium leading-relaxed text-white/55">
+                  Toma decisiones con datos, no con intuición. El futuro de la
+                  gestión para micronegocios en Latinoamérica.
+                </p>
+
+                <p className="mt-6 text-sm font-medium text-white/45">
+                  Hecho en Cali, Colombia con mucho ❤️
+                </p>
               </div>
 
-              <p className="max-w-xs text-sm font-medium leading-relaxed text-white/55">
-                Toma decisiones con datos, no con intuición. El futuro de la
-                gestión para micronegocios en Latinoamérica.
-              </p>
+              {/* Producto */}
+              <div>
+                <h4 className="mb-5 font-bold text-white">
+                  Producto
+                </h4>
 
-              <p className="mt-6 text-sm font-medium text-white/45">
-                Hecho en Cali, Colombia con mucho ❤️
-              </p>
+                <ul className="space-y-3 text-sm font-medium text-white/50">
+                  <li>
+                    <a
+                      href="#features"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      Características
+                    </a>
+                  </li>
+
+                  <li>
+                    <a
+                      href="#beneficios"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      Casos de uso
+                    </a>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Compañía */}
+              <div>
+                <h4 className="mb-5 font-bold text-white">
+                  Compañía
+                </h4>
+
+                <ul className="space-y-3 text-sm font-medium text-white/50">
+                  <li>
+                    <a
+                      href="#faq"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      Preguntas frecuentes
+                    </a>
+                  </li>
+
+                  <li>
+                    <a
+                      href="mailto:contacto@luka.ai"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      Contacto
+                    </a>
+                  </li>
+
+                  <li>
+                    <a
+                      href="https://wa.me/573043904488"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      WhatsApp
+                    </a>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Legal */}
+              <div>
+                <h4 className="mb-5 font-bold text-white">
+                  Legal
+                </h4>
+
+                <ul className="space-y-3 text-sm font-medium text-white/50">
+                  <li>
+                    <a
+                      href="#"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      Términos de servicio
+                    </a>
+                  </li>
+
+                  <li>
+                    <a
+                      href="#"
+                      className="transition-colors hover:text-emerald-300"
+                    >
+                      Política de privacidad
+                    </a>
+                  </li>
+                </ul>
+              </div>
             </div>
 
-            {/* Producto */}
-            <div>
-              <h4 className="mb-5 font-bold text-white">Producto</h4>
+            {/* =================================================
+                BOTTOM
+            ================================================= */}
+            <div className="mx-auto mt-12 flex flex-col items-center justify-between gap-5 border-t border-white/[0.08] pt-6 sm:flex-row">
+              <div className="text-center sm:text-left">
+                <p className="text-sm font-medium text-white/40">
+                  © {new Date().getFullYear()} Luka AI. Todos los derechos
+                  reservados.
+                </p>
 
-              <ul className="space-y-3 text-sm font-medium text-white/50">
-                <li>
-                  <a
-                    href="#features"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    Características
-                  </a>
-                </li>
+                <p className="mt-3 max-w-3xl text-xs font-medium leading-relaxed text-white/30">
+                  Luka AI es un producto de Zendcode S.A.S. con NIT 902099074
+                  en la Cámara de Comercio de Cali. Luka AI hace uso de
+                  Inteligencia Artificial. Se pueden encontrar divulgaciones
+                  adicionales en la página de Política de privacidad.
+                </p>
+              </div>
 
-                <li>
-                  <a
-                    href="#beneficios"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    Casos de uso
-                  </a>
-                </li>
-              </ul>
-            </div>
+              <div className="flex items-center gap-5 text-white/45">
+                <a
+                  href="https://twitter.com/asistenteluka"
+                  aria-label="Twitter"
+                  className="transition-colors hover:text-emerald-300"
+                >
+                  <Twitter className="h-5 w-5" />
+                </a>
 
-            {/* Compañía */}
-            <div>
-              <h4 className="mb-5 font-bold text-white">Compañía</h4>
+                <a
+                  href="https://www.linkedin.com/company/asistenteluka"
+                  aria-label="LinkedIn"
+                  className="transition-colors hover:text-emerald-300"
+                >
+                  <Linkedin className="h-5 w-5" />
+                </a>
 
-              <ul className="space-y-3 text-sm font-medium text-white/50">
-                <li>
-                  <a
-                    href="#faq"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    Preguntas frecuentes
-                  </a>
-                </li>
-
-                <li>
-                  <a
-                    href="mailto:contacto@luka.ai"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    Contacto
-                  </a>
-                </li>
-
-                <li>
-                  <a
-                    href="https://wa.me/573043904488"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    WhatsApp
-                  </a>
-                </li>
-              </ul>
-            </div>
-
-            {/* Legal */}
-            <div>
-              <h4 className="mb-5 font-bold text-white">Legal</h4>
-
-              <ul className="space-y-3 text-sm font-medium text-white/50">
-                <li>
-                  <a
-                    href="#"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    Términos de servicio
-                  </a>
-                </li>
-
-                <li>
-                  <a
-                    href="#"
-                    className="transition-colors hover:text-emerald-300"
-                  >
-                    Política de privacidad
-                  </a>
-                </li>
-              </ul>
-            </div>
-          </div>
-
-          {/* =================================================
-              BOTTOM
-          ================================================= */}
-          <div className="mx-auto mt-12 flex max-w-7xl flex-col items-center justify-between gap-5 border-t border-white/[0.08] pt-6 sm:flex-row">
-            <div className="text-center sm:text-left">
-              <p className="text-sm font-medium text-white/40">
-                © {new Date().getFullYear()} Luka AI. Todos los derechos
-                reservados.
-              </p>
-
-              <p className="mt-3 max-w-3xl text-xs font-medium leading-relaxed text-white/30">
-                Luka AI es un producto de Zendcode S.A.S. con NIT 902099074
-                en la Cámara de Comercio de Cali. Luka AI hace uso de
-                Inteligencia Artificial. Se pueden encontrar divulgaciones
-                adicionales en la página de Política de privacidad.
-              </p>
-            </div>
-
-            <div className="flex items-center gap-5 text-white/45">
-              <a
-                href="https://twitter.com/asistenteluka"
-                aria-label="Twitter"
-                className="transition-colors hover:text-emerald-300"
-              >
-                <Twitter className="h-5 w-5" />
-              </a>
-
-              <a
-                href="https://www.linkedin.com/company/asistenteluka"
-                aria-label="LinkedIn"
-                className="transition-colors hover:text-emerald-300"
-              >
-                <Linkedin className="h-5 w-5" />
-              </a>
-
-              <a
-                href="https://www.instagram.com/asistenteluka"
-                aria-label="Instagram"
-                className="transition-colors hover:text-emerald-300"
-              >
-                <Instagram className="h-5 w-5" />
-              </a>
+                <a
+                  href="https://www.instagram.com/asistenteluka"
+                  aria-label="Instagram"
+                  className="transition-colors hover:text-emerald-300"
+                >
+                  <Instagram className="h-5 w-5" />
+                </a>
+              </div>
             </div>
           </div>
         </div>

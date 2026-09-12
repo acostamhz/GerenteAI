@@ -1,3 +1,4 @@
+import { motion, useReducedMotion } from "motion/react";
 import {
   ArrowDownRight,
   BarChart3,
@@ -50,7 +51,7 @@ function PhoneShell({
 }) {
   return (
     <div
-      className={`relative h-[320px] w-[164px] rounded-[2rem] border-[4px] border-slate-800 bg-slate-950 p-[4px] shadow-[0_28px_65px_-22px_rgba(0,0,0,0.8)] ${className}`}
+      className={`relative h-[320px] w-[164px] rounded-[2rem] border-[4px] border-slate-200 bg-white p-[4px] shadow-[0_28px_65px_-22px_rgba(0,0,0,0.18)] dark:border-slate-800 dark:bg-slate-950 dark:shadow-[0_28px_65px_-22px_rgba(0,0,0,0.8)] ${className}`}
     >
       {/* Dynamic Island */}
       <div className="absolute left-1/2 top-[7px] z-40 h-[15px] w-[58px] -translate-x-1/2 rounded-full bg-black" />
@@ -72,6 +73,7 @@ function WhatsAppHeader() {
 
       <div className="min-w-0 leading-tight">
         <p className="truncate text-[8px] font-bold">Luka AI</p>
+
         <p className="text-[6.5px] text-white/70">en línea</p>
       </div>
     </div>
@@ -154,9 +156,7 @@ function OrganizePhone() {
       <div className="bg-slate-950 px-3 pb-3 pt-9 text-white">
         <p className="text-[6px] text-white/50">Luka AI</p>
 
-        <p className="mt-0.5 text-[11px] font-bold">
-          Tu negocio
-        </p>
+        <p className="mt-0.5 text-[11px] font-bold">Tu negocio</p>
       </div>
 
       <div className="space-y-2 bg-slate-50 p-2.5">
@@ -164,9 +164,7 @@ function OrganizePhone() {
           <div className="rounded-xl bg-white p-2 shadow-sm">
             <Wallet className="h-3 w-3 text-emerald-500" />
 
-            <p className="mt-2 text-[6px] text-slate-400">
-              Ventas
-            </p>
+            <p className="mt-2 text-[6px] text-slate-400">Ventas</p>
 
             <p className="text-[11px] font-extrabold text-slate-800">
               $428K
@@ -176,9 +174,7 @@ function OrganizePhone() {
           <div className="rounded-xl bg-white p-2 shadow-sm">
             <Package className="h-3 w-3 text-blue-500" />
 
-            <p className="mt-2 text-[6px] text-slate-400">
-              Inventario
-            </p>
+            <p className="mt-2 text-[6px] text-slate-400">Inventario</p>
 
             <p className="text-[11px] font-extrabold text-slate-800">
               128
@@ -238,9 +234,7 @@ function AskPhone() {
           Puedes preguntarme cualquier cosa sobre tu negocio.
         </MessageBubble>
 
-        <MessageBubble>
-          ¿Cuánto vendí esta semana?
-        </MessageBubble>
+        <MessageBubble>¿Cuánto vendí esta semana?</MessageBubble>
 
         <MessageBubble incoming>
           Esta semana vendiste{" "}
@@ -339,46 +333,216 @@ function StepPhone({ type }: { type: string }) {
 
 function Connector() {
   return (
-    <div className="pointer-events-none absolute right-[-42px] top-[58%] z-20 hidden w-[84px] xl:block">
+    <motion.div
+      className="pointer-events-none absolute right-[-42px] top-[58%] z-20 hidden w-[84px] xl:block"
+      initial={{ opacity: 0, pathLength: 0 }}
+      whileInView={{ opacity: 1, pathLength: 1 }}
+      viewport={{ once: true, amount: 0.5 }}
+      transition={{
+        opacity: {
+          duration: 0.35,
+          delay: 0.55,
+        },
+        pathLength: {
+          duration: 0.9,
+          delay: 0.45,
+          ease: "easeInOut",
+        },
+      }}
+    >
       <svg
         viewBox="0 0 84 55"
         fill="none"
         className="h-auto w-full overflow-visible"
       >
-        <path
+        <motion.path
           d="M2 8 C27 8, 34 47, 68 47"
           stroke="#00C896"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeDasharray="4 6"
           opacity="0.8"
+          initial={{ pathLength: 0 }}
+          whileInView={{ pathLength: 1 }}
+          viewport={{ once: true }}
+          transition={{
+            duration: 0.9,
+            delay: 0.35,
+            ease: "easeInOut",
+          }}
         />
 
-        <path
+        <motion.path
           d="M61 40 L69 47 L61 54"
           stroke="#00C896"
           strokeWidth="1.5"
           strokeLinecap="round"
           strokeLinejoin="round"
           opacity="0.9"
+          initial={{ opacity: 0, scale: 0.6 }}
+          whileInView={{ opacity: 1, scale: 1 }}
+          viewport={{ once: true }}
+          transition={{
+            duration: 0.35,
+            delay: 1.05,
+            ease: "backOut",
+          }}
         />
       </svg>
-    </div>
+    </motion.div>
+  );
+}
+
+function AnimatedPhone({
+  type,
+  index,
+}: {
+  type: string;
+  index: number;
+}) {
+  const shouldReduceMotion = useReducedMotion();
+
+  const directions = [
+    { x: -45, y: 30, rotate: -4 },
+    { x: 45, y: 30, rotate: 4 },
+    { x: -45, y: 30, rotate: -4 },
+    { x: 45, y: 30, rotate: 4 },
+  ];
+
+  const direction = directions[index] ?? directions[0];
+
+  return (
+    <motion.div
+      initial={
+        shouldReduceMotion
+          ? false
+          : {
+              opacity: 0,
+              x: direction.x,
+              y: direction.y,
+              scale: 0.88,
+              rotate: direction.rotate,
+              filter: "blur(8px)",
+            }
+      }
+      whileInView={
+        shouldReduceMotion
+          ? undefined
+          : {
+              opacity: 1,
+              x: 0,
+              y: 0,
+              scale: 1,
+              rotate: 0,
+              filter: "blur(0px)",
+            }
+      }
+      whileHover={
+        shouldReduceMotion
+          ? undefined
+          : {
+              y: -8,
+              scale: 1.025,
+              rotate: index % 2 === 0 ? 1.5 : -1.5,
+            }
+      }
+      viewport={{
+        once: true,
+        amount: 0.3,
+      }}
+      transition={{
+        duration: 0.9,
+        delay: 0.15 + index * 0.16,
+        ease: [0.22, 1, 0.36, 1],
+      }}
+      className="relative will-change-transform"
+    >
+      <motion.div
+        initial={
+          shouldReduceMotion
+            ? false
+            : {
+                opacity: 0,
+                scale: 0.92,
+              }
+        }
+        whileInView={
+          shouldReduceMotion
+            ? undefined
+            : {
+                opacity: 1,
+                scale: 1,
+              }
+        }
+        viewport={{
+          once: true,
+          amount: 0.35,
+        }}
+        transition={{
+          duration: 0.55,
+          delay: 0.35 + index * 0.16,
+          ease: "easeOut",
+        }}
+      >
+        <StepPhone type={type} />
+      </motion.div>
+
+      {!shouldReduceMotion && (
+        <motion.div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-[15%] bottom-[-18px] h-6 rounded-full bg-emerald-500/10 blur-xl dark:bg-emerald-400/10"
+          initial={{
+            opacity: 0,
+            scaleX: 0.5,
+          }}
+          whileInView={{
+            opacity: 1,
+            scaleX: 1,
+          }}
+          viewport={{
+            once: true,
+            amount: 0.35,
+          }}
+          transition={{
+            duration: 0.65,
+            delay: 0.55 + index * 0.16,
+          }}
+        />
+      )}
+    </motion.div>
   );
 }
 
 export function CoworkingPhilosophySection() {
+  const shouldReduceMotion = useReducedMotion();
+
+  const headerVariants = {
+    hidden: {
+      opacity: 0,
+      y: 35,
+      filter: "blur(7px)",
+    },
+    visible: {
+      opacity: 1,
+      y: 0,
+      filter: "blur(0px)",
+    },
+  };
+
   return (
     <section
       className="
         relative
         mt-6
         overflow-hidden
-        bg-slate-950
+        bg-slate-50
         px-6
         pb-24
         pt-0
-        text-white
+        text-slate-950
+
+        dark:bg-slate-950
+        dark:text-white
 
         md:px-12
         md:pb-32
@@ -386,11 +550,68 @@ export function CoworkingPhilosophySection() {
     >
       {/* Ambient background */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute left-1/2 top-[15%] h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-emerald-500/[0.06] blur-[140px]" />
+        <motion.div
+          className="absolute left-1/2 top-[15%] h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-emerald-500/[0.045] blur-[140px] dark:bg-emerald-500/[0.06]"
+          animate={
+            shouldReduceMotion
+              ? undefined
+              : {
+                  scale: [1, 1.08, 1],
+                  opacity: [0.7, 1, 0.7],
+                }
+          }
+          transition={
+            shouldReduceMotion
+              ? undefined
+              : {
+                  duration: 8,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+          }
+        />
 
-        <div className="absolute left-[-160px] top-[45%] h-[340px] w-[340px] rounded-full bg-teal-500/[0.035] blur-[120px]" />
+        <motion.div
+          className="absolute left-[-160px] top-[45%] h-[340px] w-[340px] rounded-full bg-teal-500/[0.025] blur-[120px] dark:bg-teal-500/[0.035]"
+          animate={
+            shouldReduceMotion
+              ? undefined
+              : {
+                  x: [0, 35, 0],
+                  y: [0, -20, 0],
+                }
+          }
+          transition={
+            shouldReduceMotion
+              ? undefined
+              : {
+                  duration: 10,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+          }
+        />
 
-        <div className="absolute right-[-140px] top-[30%] h-[380px] w-[380px] rounded-full bg-cyan-500/[0.03] blur-[140px]" />
+        <motion.div
+          className="absolute right-[-140px] top-[30%] h-[380px] w-[380px] rounded-full bg-cyan-500/[0.025] blur-[140px] dark:bg-cyan-500/[0.03]"
+          animate={
+            shouldReduceMotion
+              ? undefined
+              : {
+                  x: [0, -30, 0],
+                  y: [0, 25, 0],
+                }
+          }
+          transition={
+            shouldReduceMotion
+              ? undefined
+              : {
+                  duration: 11,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }
+          }
+        />
       </div>
 
       {/* Same page margins as the rest of the landing page */}
@@ -399,7 +620,7 @@ export function CoworkingPhilosophySection() {
             HEADER
             ======================================================= */}
 
-        <div
+        <motion.div
           className="
             w-full
             max-w-4xl
@@ -408,51 +629,162 @@ export function CoworkingPhilosophySection() {
             xl:mx-auto
             xl:text-center
           "
+          initial={shouldReduceMotion ? false : "hidden"}
+          whileInView={shouldReduceMotion ? undefined : "visible"}
+          viewport={{
+            once: true,
+            amount: 0.35,
+          }}
+          variants={headerVariants}
+          transition={{
+            duration: 0.8,
+            ease: [0.22, 1, 0.36, 1],
+          }}
         >
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/[0.07] px-4 py-2 text-sm font-semibold text-emerald-400">
+          <motion.div
+            className="
+              mb-6
+              inline-flex
+              items-center
+              gap-2
+              rounded-full
+              border
+              border-emerald-600/15
+              bg-emerald-500/[0.06]
+              px-4
+              py-2
+              text-sm
+              font-semibold
+              text-emerald-600
+
+              dark:border-emerald-400/15
+              dark:bg-emerald-400/[0.07]
+              dark:text-emerald-400
+            "
+            initial={
+              shouldReduceMotion
+                ? false
+                : {
+                    opacity: 0,
+                    scale: 0.8,
+                    y: 12,
+                  }
+            }
+            whileInView={
+              shouldReduceMotion
+                ? undefined
+                : {
+                    opacity: 1,
+                    scale: 1,
+                    y: 0,
+                  }
+            }
+            viewport={{
+              once: true,
+              amount: 0.5,
+            }}
+            transition={{
+              duration: 0.55,
+              ease: [0.22, 1, 0.36, 1],
+            }}
+          >
             <Sparkles className="h-4 w-4" />
 
             <span>Así de simple</span>
-          </div>
+          </motion.div>
 
-          <h2
+          <motion.h2
             className="
               text-4xl
               font-extrabold
               leading-[1.02]
               tracking-[-0.04em]
-              text-white
+              text-slate-950
+
+              dark:text-white
 
               sm:text-5xl
               md:text-6xl
             "
+            initial={
+              shouldReduceMotion
+                ? false
+                : {
+                    opacity: 0,
+                    y: 28,
+                  }
+            }
+            whileInView={
+              shouldReduceMotion
+                ? undefined
+                : {
+                    opacity: 1,
+                    y: 0,
+                  }
+            }
+            viewport={{
+              once: true,
+              amount: 0.5,
+            }}
+            transition={{
+              duration: 0.75,
+              delay: 0.08,
+              ease: [0.22, 1, 0.36, 1],
+            }}
           >
             De una conversación
             <br />
             a un negocio{" "}
-            <span className="text-emerald-400">
+            <span className="text-emerald-500 dark:text-emerald-400">
               bajo control.
             </span>
-          </h2>
+          </motion.h2>
 
-          <p
+          <motion.p
             className="
               mt-6
               max-w-2xl
               text-base
               leading-relaxed
-              text-slate-400
+              text-slate-600
+
+              dark:text-slate-400
 
               md:text-lg
 
               xl:mx-auto
             "
+            initial={
+              shouldReduceMotion
+                ? false
+                : {
+                    opacity: 0,
+                    y: 20,
+                  }
+            }
+            whileInView={
+              shouldReduceMotion
+                ? undefined
+                : {
+                    opacity: 1,
+                    y: 0,
+                  }
+            }
+            viewport={{
+              once: true,
+              amount: 0.5,
+            }}
+            transition={{
+              duration: 0.65,
+              delay: 0.18,
+              ease: "easeOut",
+            }}
           >
             Todo empieza con un mensaje de WhatsApp. Luka entiende lo que
             necesitas, organiza la información y te ayuda a tomar mejores
             decisiones.
-          </p>
-        </div>
+          </motion.p>
+        </motion.div>
 
         {/* =======================================================
             DESKTOP FLOW
@@ -461,30 +793,137 @@ export function CoworkingPhilosophySection() {
         <div className="relative mt-24 hidden xl:block">
           <div className="grid grid-cols-4 gap-8">
             {steps.map((step, index) => (
-              <div
+              <motion.div
                 key={step.number}
                 className="relative flex min-w-0 flex-col"
+                initial={
+                  shouldReduceMotion
+                    ? false
+                    : {
+                        opacity: 0,
+                        y: 25,
+                      }
+                }
+                whileInView={
+                  shouldReduceMotion
+                    ? undefined
+                    : {
+                        opacity: 1,
+                        y: 0,
+                      }
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.25,
+                }}
+                transition={{
+                  duration: 0.7,
+                  delay: 0.12 + index * 0.14,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
               >
-                <div className="mb-9 text-center">
-                  <span className="text-[10px] font-bold tracking-[0.25em] text-emerald-400">
+                {/* Step heading */}
+                <motion.div
+                  className="mb-9 text-center"
+                  initial={
+                    shouldReduceMotion
+                      ? false
+                      : {
+                          opacity: 0,
+                          y: 18,
+                        }
+                  }
+                  whileInView={
+                    shouldReduceMotion
+                      ? undefined
+                      : {
+                          opacity: 1,
+                          y: 0,
+                        }
+                  }
+                  viewport={{
+                    once: true,
+                    amount: 0.35,
+                  }}
+                  transition={{
+                    duration: 0.6,
+                    delay: 0.22 + index * 0.14,
+                    ease: "easeOut",
+                  }}
+                >
+                  <motion.span
+                    className="inline-block text-[10px] font-bold tracking-[0.25em] text-emerald-500 dark:text-emerald-400"
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                            opacity: 0,
+                            letterSpacing: "0.05em",
+                          }
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            opacity: 1,
+                            letterSpacing: "0.25em",
+                          }
+                    }
+                    viewport={{
+                      once: true,
+                    }}
+                    transition={{
+                      duration: 0.65,
+                      delay: 0.3 + index * 0.14,
+                    }}
+                  >
                     PASO {step.number}
-                  </span>
+                  </motion.span>
 
-                  <h3 className="mx-auto mt-2.5 max-w-[210px] text-xl font-extrabold leading-tight tracking-tight text-white">
+                  <h3
+                    className="
+                      mx-auto
+                      mt-2.5
+                      max-w-[210px]
+                      text-xl
+                      font-extrabold
+                      leading-tight
+                      tracking-tight
+                      text-slate-950
+
+                      dark:text-white
+                    "
+                  >
                     {step.title}
                   </h3>
 
-                  <p className="mx-auto mt-2.5 max-w-[220px] text-xs leading-relaxed text-slate-400">
+                  <p
+                    className="
+                      mx-auto
+                      mt-2.5
+                      max-w-[220px]
+                      text-xs
+                      leading-relaxed
+                      text-slate-600
+
+                      dark:text-slate-400
+                    "
+                  >
                     {step.description}
                   </p>
-                </div>
+                </motion.div>
 
+                {/* Animated mini-section / phone */}
                 <div className="flex justify-center">
-                  <StepPhone type={step.type} />
+                  <AnimatedPhone
+                    type={step.type}
+                    index={index}
+                  />
                 </div>
 
+                {/* Connector */}
                 {index < steps.length - 1 && <Connector />}
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
@@ -494,40 +933,252 @@ export function CoworkingPhilosophySection() {
             ======================================================= */}
 
         <div className="mt-20 space-y-16 xl:hidden">
-          {steps.map((step, index) => (
-            <div
-              key={step.number}
-              className="relative grid items-center gap-10 md:grid-cols-2"
-            >
-              <div className={index % 2 === 1 ? "md:order-2" : ""}>
-                <span className="text-xs font-bold tracking-[0.25em] text-emerald-400">
-                  PASO {step.number}
-                </span>
+          {steps.map((step, index) => {
+            const mobileDirection =
+              index % 2 === 0
+                ? {
+                    x: -35,
+                    rotate: -3,
+                  }
+                : {
+                    x: 35,
+                    rotate: 3,
+                  };
 
-                <h3 className="mt-3 text-3xl font-extrabold tracking-tight text-white">
-                  {step.title}
-                </h3>
-
-                <p className="mt-4 max-w-md text-base leading-relaxed text-slate-400">
-                  {step.description}
-                </p>
-              </div>
-
-              <div
-                className={`flex ${
-                  index % 2 === 1
-                    ? "justify-start md:order-1"
-                    : "justify-end"
-                }`}
+            return (
+              <motion.div
+                key={step.number}
+                className="relative grid items-center gap-10 md:grid-cols-2"
+                initial={
+                  shouldReduceMotion
+                    ? false
+                    : {
+                        opacity: 0,
+                        y: 40,
+                      }
+                }
+                whileInView={
+                  shouldReduceMotion
+                    ? undefined
+                    : {
+                        opacity: 1,
+                        y: 0,
+                      }
+                }
+                viewport={{
+                  once: true,
+                  amount: 0.2,
+                }}
+                transition={{
+                  duration: 0.8,
+                  delay: index * 0.08,
+                  ease: [0.22, 1, 0.36, 1],
+                }}
               >
-                <StepPhone type={step.type} />
-              </div>
+                {/* Text */}
+                <motion.div
+                  className={index % 2 === 1 ? "md:order-2" : ""}
+                  initial={
+                    shouldReduceMotion
+                      ? false
+                      : {
+                          opacity: 0,
+                          x: index % 2 === 0 ? -25 : 25,
+                        }
+                  }
+                  whileInView={
+                    shouldReduceMotion
+                      ? undefined
+                      : {
+                          opacity: 1,
+                          x: 0,
+                        }
+                  }
+                  viewport={{
+                    once: true,
+                    amount: 0.25,
+                  }}
+                  transition={{
+                    duration: 0.7,
+                    delay: 0.1,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                >
+                  <motion.span
+                    className="inline-block text-xs font-bold tracking-[0.25em] text-emerald-500 dark:text-emerald-400"
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                            opacity: 0,
+                            y: 10,
+                          }
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            opacity: 1,
+                            y: 0,
+                          }
+                    }
+                    viewport={{
+                      once: true,
+                    }}
+                    transition={{
+                      duration: 0.4,
+                      delay: 0.15,
+                    }}
+                  >
+                    PASO {step.number}
+                  </motion.span>
 
-              {index < steps.length - 1 && (
-                <ArrowDownRight className="absolute -bottom-11 left-1/2 h-6 w-6 -translate-x-1/2 rotate-45 text-emerald-500/60 md:hidden" />
-              )}
-            </div>
-          ))}
+                  <h3
+                    className="
+                      mt-3
+                      text-3xl
+                      font-extrabold
+                      tracking-tight
+                      text-slate-950
+
+                      dark:text-white
+                    "
+                  >
+                    {step.title}
+                  </h3>
+
+                  <p
+                    className="
+                      mt-4
+                      max-w-md
+                      text-base
+                      leading-relaxed
+                      text-slate-600
+
+                      dark:text-slate-400
+                    "
+                  >
+                    {step.description}
+                  </p>
+                </motion.div>
+
+                {/* Phone */}
+                <div
+                  className={`flex ${
+                    index % 2 === 1
+                      ? "justify-start md:order-1"
+                      : "justify-end"
+                  }`}
+                >
+                  <motion.div
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                            opacity: 0,
+                            x: mobileDirection.x,
+                            y: 35,
+                            scale: 0.86,
+                            rotate: mobileDirection.rotate,
+                            filter: "blur(8px)",
+                          }
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            opacity: 1,
+                            x: 0,
+                            y: 0,
+                            scale: 1,
+                            rotate: 0,
+                            filter: "blur(0px)",
+                          }
+                    }
+                    whileHover={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            y: -8,
+                            scale: 1.025,
+                          }
+                    }
+                    viewport={{
+                      once: true,
+                      amount: 0.25,
+                    }}
+                    transition={{
+                      duration: 0.9,
+                      delay: 0.18,
+                      ease: [0.22, 1, 0.36, 1],
+                    }}
+                    className="relative"
+                  >
+                    <StepPhone type={step.type} />
+
+                    {!shouldReduceMotion && (
+                      <motion.div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute inset-x-[15%] bottom-[-18px] h-6 rounded-full bg-emerald-500/10 blur-xl dark:bg-emerald-400/10"
+                        initial={{
+                          opacity: 0,
+                          scaleX: 0.5,
+                        }}
+                        whileInView={{
+                          opacity: 1,
+                          scaleX: 1,
+                        }}
+                        viewport={{
+                          once: true,
+                          amount: 0.3,
+                        }}
+                        transition={{
+                          duration: 0.6,
+                          delay: 0.5,
+                        }}
+                      />
+                    )}
+                  </motion.div>
+                </div>
+
+                {/* Mobile connector */}
+                {index < steps.length - 1 && (
+                  <motion.div
+                    className="absolute -bottom-12 left-1/2 -translate-x-1/2 md:hidden"
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                            opacity: 0,
+                            y: -6,
+                            scale: 0.7,
+                          }
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            opacity: 1,
+                            y: 0,
+                            scale: 1,
+                          }
+                    }
+                    viewport={{
+                      once: true,
+                      amount: 0.4,
+                    }}
+                    transition={{
+                      duration: 0.45,
+                      delay: 0.5,
+                      ease: "backOut",
+                    }}
+                  >
+                    <ArrowDownRight className="h-6 w-6 rotate-45 text-emerald-500/60 dark:text-emerald-500/60" />
+                  </motion.div>
+                )}
+              </motion.div>
+            );
+          })}
         </div>
       </div>
     </section>

@@ -1,5 +1,6 @@
 "use client";
 
+import { motion, useReducedMotion } from "motion/react";
 import { useEffect, useRef } from "react";
 
 const rowOne = [
@@ -165,6 +166,8 @@ export function CoworkingHighlightsSection() {
   const rowOneRef = useRef<HTMLDivElement>(null);
   const rowTwoRef = useRef<HTMLDivElement>(null);
 
+  const shouldReduceMotion = useReducedMotion();
+
   useEffect(() => {
     let animationFrame: number;
 
@@ -197,11 +200,6 @@ export function CoworkingHighlightsSection() {
       /* =====================================================
          SEGUNDA FILA
          Movimiento continuo hacia la derecha
-
-         IMPORTANTE:
-         Comenzamos en -50% del contenido duplicado.
-         De esta forma siempre existe una segunda copia
-         entrando desde la izquierda.
          ===================================================== */
 
       if (rowTwoRef.current) {
@@ -214,12 +212,6 @@ export function CoworkingHighlightsSection() {
 
         positionTwo += speedTwo;
 
-        /*
-         Cuando llegamos nuevamente a 0,
-         volvemos exactamente a -width.
-
-         Esto crea un loop infinito sin espacio vacío.
-        */
         if (positionTwo >= 0) {
           positionTwo = -width;
         }
@@ -252,10 +244,38 @@ export function CoworkingHighlightsSection() {
     >
       {/* =====================================================
           PRIMERA FILA
-          Movimiento hacia la izquierda
+          Entrada desde abajo + movimiento hacia la izquierda
       ===================================================== */}
 
-      <div className="relative w-full overflow-hidden">
+      <motion.div
+        initial={
+          shouldReduceMotion
+            ? false
+            : {
+                opacity: 0,
+                y: 35,
+                filter: "blur(6px)",
+              }
+        }
+        whileInView={
+          shouldReduceMotion
+            ? undefined
+            : {
+                opacity: 1,
+                y: 0,
+                filter: "blur(0px)",
+              }
+        }
+        viewport={{
+          once: true,
+          amount: 0.35,
+        }}
+        transition={{
+          duration: 0.8,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        className="relative w-full overflow-hidden"
+      >
         <div
           ref={rowOneRef}
           className="
@@ -276,14 +296,46 @@ export function CoworkingHighlightsSection() {
             />
           ))}
         </div>
-      </div>
+      </motion.div>
 
       {/* =====================================================
           SEGUNDA FILA
-          Movimiento hacia la derecha
+          Entrada ligeramente escalonada + movimiento hacia
+          la derecha
       ===================================================== */}
 
-      <div className="relative mt-3 w-full overflow-hidden">
+      <motion.div
+        initial={
+          shouldReduceMotion
+            ? false
+            : {
+                opacity: 0,
+                y: 35,
+                x: -20,
+                filter: "blur(6px)",
+              }
+        }
+        whileInView={
+          shouldReduceMotion
+            ? undefined
+            : {
+                opacity: 1,
+                y: 0,
+                x: 0,
+                filter: "blur(0px)",
+              }
+        }
+        viewport={{
+          once: true,
+          amount: 0.25,
+        }}
+        transition={{
+          duration: 0.8,
+          delay: 0.12,
+          ease: [0.22, 1, 0.36, 1],
+        }}
+        className="relative mt-3 w-full overflow-hidden"
+      >
         <div
           ref={rowTwoRef}
           className="
@@ -304,7 +356,7 @@ export function CoworkingHighlightsSection() {
             />
           ))}
         </div>
-      </div>
+      </motion.div>
     </section>
   );
 }
