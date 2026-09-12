@@ -1,9 +1,10 @@
 import {
   ArrowUpRight,
   Instagram,
-  Linkedin,
   Twitter,
 } from "lucide-react";
+
+import { SiTiktok } from "react-icons/si";
 
 const founders = [
   {
@@ -371,11 +372,13 @@ export function CoworkingFooterSection() {
                 </a>
 
                 <a
-                  href="https://www.linkedin.com/company/asistenteluka"
-                  aria-label="LinkedIn"
+                  href="https://www.tiktok.com/@asistenteluka"
+                  aria-label="TikTok"
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="transition-colors hover:text-emerald-300"
                 >
-                  <Linkedin className="h-5 w-5" />
+                  <SiTiktok className="h-5 w-5" />
                 </a>
 
                 <a
