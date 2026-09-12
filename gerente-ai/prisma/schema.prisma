@@ -107,7 +107,6 @@ model Negocio {
   reportes        Reporte[]
   pagos           Pago[]
   notificaciones  NotificacionPlan[]
-  consumosIa      ConsumoIa[]
 }
 
 model Sede {
@@ -136,7 +135,6 @@ model Sede {
   reportes     Reporte[]
   abonos       Abono[]
   repartos     RepartoUtilidad[]
-  consumosIa   ConsumoIa[]
 
   @@index([negocioId, createdAt])
 }
