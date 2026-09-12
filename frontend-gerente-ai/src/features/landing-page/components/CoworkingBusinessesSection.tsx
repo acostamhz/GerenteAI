@@ -52,31 +52,25 @@ const businesses: Business[] = [
   },
 ];
 
-/**
- * Easing compartido.
- *
- * `as const` hace que TypeScript lo interprete como
- * una tupla de valores numéricos y no como `number[]`,
- * que es lo que Motion espera para un cubic-bezier.
- */
+/* =========================================================
+   EASING
+========================================================= */
+
 const ease = [0.22, 1, 0.36, 1] as const;
 
-/**
- * Animación principal del contenedor.
- */
+/* =========================================================
+   ANIMACIÓN DEL CONTENEDOR PRINCIPAL
+========================================================= */
+
 const containerVariants: Variants = {
   hidden: {
     opacity: 0,
-    y: 35,
-    scale: 0.985,
-    filter: "blur(8px)",
+    y: 24,
   },
 
   visible: {
     opacity: 1,
     y: 0,
-    scale: 1,
-    filter: "blur(0px)",
 
     transition: {
       duration: 0.8,
@@ -85,12 +79,10 @@ const containerVariants: Variants = {
   },
 };
 
-/**
- * Contenedor del encabezado.
- *
- * Se utiliza únicamente para escalonar
- * la aparición de sus hijos.
- */
+/* =========================================================
+   HEADER
+========================================================= */
+
 const headerContainerVariants: Variants = {
   hidden: {},
 
@@ -101,21 +93,15 @@ const headerContainerVariants: Variants = {
   },
 };
 
-/**
- * Animación individual de los elementos
- * del encabezado.
- */
 const headerItemVariants: Variants = {
   hidden: {
     opacity: 0,
     y: 18,
-    filter: "blur(5px)",
   },
 
   visible: {
     opacity: 1,
     y: 0,
-    filter: "blur(0px)",
 
     transition: {
       duration: 0.65,
@@ -123,6 +109,60 @@ const headerItemVariants: Variants = {
     },
   },
 };
+
+/* =========================================================
+   TARJETAS DE NEGOCIOS
+========================================================= */
+
+const businessCardVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    y: 42,
+    scale: 0.92,
+  },
+
+  visible: (index: number) => ({
+    opacity: 1,
+    y: 0,
+    scale: 1,
+
+    transition: {
+      type: "spring",
+      stiffness: 110,
+      damping: 16,
+      mass: 0.8,
+      delay: index * 0.075,
+    },
+  }),
+};
+
+/* =========================================================
+   LOGOS
+========================================================= */
+
+const logoVariants: Variants = {
+  hidden: {
+    opacity: 0,
+    scale: 0.72,
+  },
+
+  visible: (index: number) => ({
+    opacity: 1,
+    scale: 1,
+
+    transition: {
+      type: "spring",
+      stiffness: 180,
+      damping: 14,
+      mass: 0.6,
+      delay: 0.12 + index * 0.075,
+    },
+  }),
+};
+
+/* =========================================================
+   COMPONENT
+========================================================= */
 
 export function CoworkingBusinessesSection() {
   const shouldReduceMotion = useReducedMotion();
@@ -178,7 +218,6 @@ export function CoworkingBusinessesSection() {
       >
         {/* =====================================================
             ENCABEZADO
-            Entrada escalonada
         ===================================================== */}
 
         <motion.div
@@ -203,9 +242,7 @@ export function CoworkingBusinessesSection() {
             text-center
           "
         >
-          {/* ==================================================
-              BADGE
-          ================================================== */}
+          {/* BADGE */}
 
           <motion.div
             variants={headerItemVariants}
@@ -230,9 +267,7 @@ export function CoworkingBusinessesSection() {
             Un solo asistente para miles de negocios
           </motion.div>
 
-          {/* ==================================================
-              TÍTULO
-          ================================================== */}
+          {/* TÍTULO */}
 
           <motion.h2
             variants={headerItemVariants}
@@ -268,9 +303,7 @@ export function CoworkingBusinessesSection() {
             </span>
           </motion.h2>
 
-          {/* ==================================================
-              DESCRIPCIÓN
-          ================================================== */}
+          {/* DESCRIPCIÓN */}
 
           <motion.p
             variants={headerItemVariants}
@@ -291,32 +324,9 @@ export function CoworkingBusinessesSection() {
 
         {/* =====================================================
             CATEGORÍAS
-            Las tarjetas aparecen en cascada
         ===================================================== */}
 
-        <motion.div
-          initial={
-            shouldReduceMotion
-              ? false
-              : {
-                  opacity: 0,
-                }
-          }
-          whileInView={
-            shouldReduceMotion
-              ? undefined
-              : {
-                  opacity: 1,
-                }
-          }
-          viewport={{
-            once: true,
-            amount: 0.12,
-          }}
-          transition={{
-            duration: 0.4,
-            delay: 0.15,
-          }}
+        <div
           className="
             mx-auto
             mt-16
@@ -328,65 +338,52 @@ export function CoworkingBusinessesSection() {
           "
         >
           {businesses.map((business, index) => {
-            const isEven = index % 2 === 0;
-
             return (
               <motion.div
                 key={business.title}
+                custom={index}
+                variants={businessCardVariants}
                 initial={
                   shouldReduceMotion
                     ? false
-                    : {
-                        opacity: 0,
-                        x: isEven ? -28 : 28,
-                        y: 28,
-                        scale: 0.96,
-                        filter: "blur(5px)",
-                      }
+                    : "hidden"
                 }
                 whileInView={
                   shouldReduceMotion
                     ? undefined
-                    : {
-                        opacity: 1,
-                        x: 0,
-                        y: 0,
-                        scale: 1,
-                        filter: "blur(0px)",
-                      }
+                    : "visible"
                 }
                 viewport={{
                   once: true,
                   amount: 0.2,
                 }}
-                transition={{
-                  duration: 0.65,
-                  delay: 0.2 + index * 0.07,
-                  ease,
-                }}
                 whileHover={
                   shouldReduceMotion
                     ? undefined
                     : {
-                        y: -6,
+                        y: -8,
+                        scale: 1.025,
                         transition: {
-                          duration: 0.25,
-                          ease,
+                          type: "spring",
+                          stiffness: 350,
+                          damping: 22,
                         },
                       }
                 }
                 className="
                   group
+                  relative
                   rounded-[1.75rem]
                   border
                   border-slate-200
                   bg-white
                   p-6
                   shadow-[0_10px_30px_rgba(15,23,42,0.06)]
-                  transition-all
+                  transition-[border-color,box-shadow]
                   duration-300
+
                   hover:border-emerald-500/30
-                  hover:shadow-[0_18px_40px_rgba(15,23,42,0.10)]
+                  hover:shadow-[0_22px_50px_rgba(15,23,42,0.12)]
 
                   dark:border-white/[0.08]
                   dark:bg-[#17202D]
@@ -398,106 +395,187 @@ export function CoworkingBusinessesSection() {
                 "
               >
                 {/* =================================================
-                    LOGO
+                    PEQUEÑO GLOW AL HACER HOVER
                 ================================================= */}
 
-                <motion.div
-                  initial={
-                    shouldReduceMotion
-                      ? false
-                      : {
-                          opacity: 0,
-                          scale: 0.7,
-                        }
-                  }
-                  whileInView={
-                    shouldReduceMotion
-                      ? undefined
-                      : {
-                          opacity: 1,
-                          scale: 1,
-                        }
-                  }
-                  viewport={{
-                    once: true,
-                    amount: 0.2,
-                  }}
-                  transition={{
-                    duration: 0.5,
-                    delay: 0.3 + index * 0.07,
-                    ease,
-                  }}
+                <div
                   className="
-                    flex
-                    h-14
-                    w-14
-                    shrink-0
-                    items-center
-                    justify-center
-                    overflow-hidden
-                    rounded-full
-                    border
-                    border-slate-200/80
-                    bg-white
-                    shadow-sm
-                    ring-1
-                    ring-slate-200/60
-
-                    dark:border-slate-200/80
-                    dark:bg-white
-                    dark:ring-white/10
+                    pointer-events-none
+                    absolute
+                    inset-0
+                    rounded-[1.75rem]
+                    bg-gradient-to-br
+                    from-emerald-400/[0.04]
+                    via-transparent
+                    to-cyan-400/[0.04]
+                    opacity-0
+                    transition-opacity
+                    duration-500
+                    group-hover:opacity-100
                   "
-                >
-                  <img
-                    src={business.logo}
-                    alt={`Logo de ${business.title}`}
+                />
+
+                {/* =================================================
+                    CONTENIDO
+                ================================================= */}
+
+                <div className="relative z-10">
+                  {/* =================================================
+                      LOGO
+                  ================================================= */}
+
+                  <motion.div
+                    custom={index}
+                    variants={logoVariants}
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : "hidden"
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : "visible"
+                    }
+                    viewport={{
+                      once: true,
+                      amount: 0.2,
+                    }}
+                    whileHover={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            scale: 1.08,
+                            rotate: 2,
+                            transition: {
+                              type: "spring",
+                              stiffness: 300,
+                              damping: 18,
+                            },
+                          }
+                    }
                     className="
-                      h-full
-                      w-full
+                      flex
+                      h-14
+                      w-14
+                      shrink-0
+                      items-center
+                      justify-center
+                      overflow-hidden
                       rounded-full
-                      object-contain
+                      border
+                      border-slate-200/80
+                      bg-white
+                      shadow-sm
+                      ring-1
+                      ring-slate-200/60
+
+                      dark:border-slate-200/80
+                      dark:bg-white
+                      dark:ring-white/10
                     "
-                  />
-                </motion.div>
+                  >
+                    <img
+                      src={business.logo}
+                      alt={`Logo de ${business.title}`}
+                      className="
+                        h-full
+                        w-full
+                        rounded-full
+                        object-contain
+                      "
+                    />
+                  </motion.div>
 
-                {/* =================================================
-                    NOMBRE
-                ================================================= */}
+                  {/* =================================================
+                      NOMBRE
+                  ================================================= */}
 
-                <h3
-                  className="
-                    mt-7
-                    text-[1.25rem]
-                    font-bold
-                    tracking-tight
-                    text-slate-950
+                  <motion.h3
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                            opacity: 0,
+                            y: 8,
+                          }
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            opacity: 1,
+                            y: 0,
+                          }
+                    }
+                    viewport={{
+                      once: true,
+                      amount: 0.2,
+                    }}
+                    transition={{
+                      duration: 0.45,
+                      delay: 0.18 + index * 0.075,
+                      ease,
+                    }}
+                    className="
+                      mt-7
+                      text-[1.25rem]
+                      font-bold
+                      tracking-tight
+                      text-slate-950
 
-                    dark:text-white
-                  "
-                >
-                  {business.title}
-                </h3>
+                      dark:text-white
+                    "
+                  >
+                    {business.title}
+                  </motion.h3>
 
-                {/* =================================================
-                    DESCRIPCIÓN
-                ================================================= */}
+                  {/* =================================================
+                      DESCRIPCIÓN
+                  ================================================= */}
 
-                <p
-                  className="
-                    mt-3
-                    text-[0.95rem]
-                    leading-7
-                    text-slate-600
+                  <motion.p
+                    initial={
+                      shouldReduceMotion
+                        ? false
+                        : {
+                            opacity: 0,
+                            y: 8,
+                          }
+                    }
+                    whileInView={
+                      shouldReduceMotion
+                        ? undefined
+                        : {
+                            opacity: 1,
+                            y: 0,
+                          }
+                    }
+                    viewport={{
+                      once: true,
+                      amount: 0.2,
+                    }}
+                    transition={{
+                      duration: 0.45,
+                      delay: 0.24 + index * 0.075,
+                      ease,
+                    }}
+                    className="
+                      mt-3
+                      text-[0.95rem]
+                      leading-7
+                      text-slate-600
 
-                    dark:text-slate-400
-                  "
-                >
-                  {business.description}
-                </p>
+                      dark:text-slate-400
+                    "
+                  >
+                    {business.description}
+                  </motion.p>
+                </div>
               </motion.div>
             );
           })}
-        </motion.div>
+        </div>
       </motion.div>
     </section>
   );
