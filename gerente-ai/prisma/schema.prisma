@@ -70,6 +70,7 @@ model Usuario {
   telefono        String?
   email           String    @unique // Login para el dashboard
   password        String // Contraseña encriptada para el dashboard
+  googleId        String?   @unique // Identificador único de la cuenta de Google
   emailVerificado Boolean   @default(false)
   rolGlobal       RolGlobal @default(CLIENTE)
   plan            Int       @default(1) // 1=Gratis (1 sede), 2=Básico (4 sedes), etc.
@@ -242,11 +243,13 @@ model Venta {
   /// Sin esto no se puede buscar un ingreso por su nombre, como si se hace
   /// con los gastos a traves de `Gasto.descripcion`.
   descripcion String?
+
   /// Como se recibio el dinero. null = no se especifico.
-  metodoPago  MetodoPago?
+  metodoPago MetodoPago?
+
   /// Agrupa las partes de un mismo total: la venta general y sus desgloses
   /// por metodo de pago comparten `grupoId`. null = movimiento suelto.
-  grupoId     String?
+  grupoId String?
 
   clienteId String?
   cliente   Cliente? @relation(fields: [clienteId], references: [id], onDelete: SetNull)
@@ -273,6 +276,7 @@ model RecordatorioFiado {
   id        String   @id @default(uuid())
   ventaId   String   @unique
   venta     Venta    @relation(fields: [ventaId], references: [id], onDelete: Cascade)
+
   /// Saldo que quedaba pendiente cuando se aviso, para poder auditarlo.
   saldo     Decimal
   enviadoEl DateTime @default(now())
@@ -316,7 +320,7 @@ model DetalleCompra {
   costo    Decimal // Costo al que se compró en ese momento
 
   compraId String
-  compra   Compra @relation(fields: [compraId], references: [id], onDelete: Cascade)
+  compra   Compra  @relation(fields: [compraId], references: [id], onDelete: Cascade)
 
   productoId String
   producto   Producto @relation(fields: [productoId], references: [id], onDelete: Restrict)
@@ -333,8 +337,9 @@ model Gasto {
 
   /// Como se pago. null = no se especifico.
   metodoPago MetodoPago?
+
   /// Agrupa las partes de un mismo total (ver `Venta.grupoId`).
-  grupoId    String?
+  grupoId String?
 
   sedeId String
   sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
@@ -359,8 +364,8 @@ model RepartoUtilidad {
   /// Utilidad total que se repartio, para poder reconstruir el calculo.
   totalRepartido Decimal
   /// Une las partes de un mismo reparto.
-  grupoId        String
-  fecha          DateTime            @default(now())
+  grupoId String
+  fecha   DateTime @default(now())
 
   sedeId String
   sede   Sede   @relation(fields: [sedeId], references: [id], onDelete: Cascade)
