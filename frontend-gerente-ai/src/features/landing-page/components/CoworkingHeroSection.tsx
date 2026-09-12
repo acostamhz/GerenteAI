@@ -8,21 +8,12 @@ export function CoworkingHeroSection() {
       className="
         relative
         isolate
-        h-[100svh]
-        min-h-[760px]
+        min-h-[100svh]
         w-full
         overflow-hidden
         bg-transparent
       "
     >
-      {/* =========================================================
-          HERO
-          
-          IMPORTANTE:
-          Este componente NO tiene fondo propio.
-          El fondo lo controla exclusivamente LandingPageView.
-      ========================================================= */}
-
       {/* =========================================================
           HERO CONTAINER
           ========================================================= */}
@@ -31,25 +22,37 @@ export function CoworkingHeroSection() {
         className="
           mx-auto
           flex
-          h-full
-          w-[calc(100%-2rem)]
-          max-w-7xl
-          items-center
-          pt-[11rem]
-          pb-8
-          sm:pt-[11.5rem]
-          lg:pt-[10.5rem]
+          min-h-[100svh]
+          w-full
+          items-start
+          px-6
+          pb-10
+          pt-[9rem]
+
+          md:px-12
+          md:pt-[10rem]
+
+          lg:h-[100svh]
+          lg:min-h-[760px]
+          lg:w-[calc(100%-2rem)]
+          lg:max-w-7xl
+          lg:items-center
+          lg:px-0
           lg:pb-10
+          lg:pt-[10.5rem]
         "
       >
         <div
           className="
             grid
             w-full
-            items-center
-            gap-8
+            items-start
+            gap-10
+
             lg:grid-cols-[1fr_1fr]
+            lg:items-center
             lg:gap-8
+
             xl:gap-10
           "
         >
@@ -60,9 +63,12 @@ export function CoworkingHeroSection() {
           <div
             className="
               flex
+              w-full
+              min-w-0
               flex-col
               justify-center
-              -translate-y-5
+
+              lg:-translate-y-5
               lg:translate-x-8
               xl:translate-x-13
             "
@@ -73,23 +79,36 @@ export function CoworkingHeroSection() {
 
             <div
               className="
-                mb-6
+                mb-4
                 flex
+                h-12
                 items-center
+
+                sm:mb-6
+                sm:h-16
               "
             >
               <div
                 className="
                   flex
-                  h-16
-                  w-16
+                  h-12
+                  w-12
                   items-center
                   justify-center
+
+                  sm:h-16
+                  sm:w-16
                 "
               >
                 <svg
                   viewBox="0 0 24 24"
-                  className="h-12 w-12"
+                  className="
+                    h-9
+                    w-9
+
+                    sm:h-12
+                    sm:w-12
+                  "
                   xmlns="http://www.w3.org/2000/svg"
                   aria-label="WhatsApp"
                   role="img"
@@ -108,21 +127,27 @@ export function CoworkingHeroSection() {
 
             <div
               className="
-                mb-5
+                mb-4
                 inline-flex
                 w-fit
+                max-w-full
                 items-center
                 gap-2
                 rounded-full
                 border
                 border-emerald-200
                 bg-emerald-50
-                px-4
+                px-3
                 py-2
-                text-sm
+                text-xs
                 font-semibold
                 text-emerald-700
                 shadow-sm
+
+                sm:mb-5
+                sm:px-4
+                sm:text-sm
+
                 dark:border-emerald-500/25
                 dark:bg-emerald-500/[0.08]
                 dark:text-emerald-400
@@ -130,7 +155,7 @@ export function CoworkingHeroSection() {
             >
               <Sparkles className="h-4 w-4 shrink-0" />
 
-              <span>
+              <span className="truncate">
                 Integra Inteligencia Artificial en tu negocio
               </span>
             </div>
@@ -143,16 +168,18 @@ export function CoworkingHeroSection() {
               className="
                 w-full
                 max-w-[650px]
-                text-[2.85rem]
+                text-[2.75rem]
                 font-black
                 leading-[0.98]
                 tracking-[-0.045em]
                 text-slate-950
+
                 sm:text-[3.35rem]
                 md:text-[3.65rem]
                 lg:text-[3.75rem]
                 xl:text-[4rem]
                 2xl:text-[4.2rem]
+
                 dark:text-white
               "
             >
@@ -175,7 +202,7 @@ export function CoworkingHeroSection() {
                 CTA
                 ================================================= */}
 
-            <div className="mt-8">
+            <div className="mt-7 sm:mt-8">
               <Link
                 to="/register"
                 className="
@@ -189,9 +216,9 @@ export function CoworkingHeroSection() {
                   from-emerald-500
                   via-cyan-500
                   to-blue-500
-                  px-8
-                  py-4
-                  text-base
+                  px-7
+                  py-3.5
+                  text-sm
                   font-bold
                   text-white
                   shadow-[0_12px_35px_rgba(16,185,129,0.22)]
@@ -200,6 +227,10 @@ export function CoworkingHeroSection() {
                   hover:-translate-y-0.5
                   hover:shadow-[0_16px_45px_rgba(16,185,129,0.32)]
                   active:translate-y-0
+
+                  sm:px-8
+                  sm:py-4
+                  sm:text-base
                 "
               >
                 <span>Comenzar gratis</span>
@@ -222,18 +253,21 @@ export function CoworkingHeroSection() {
 
             <div
               className="
-                mt-7
+                mt-6
                 flex
                 w-full
                 max-w-[650px]
                 flex-col
                 items-start
                 gap-3
+
+                sm:mt-7
               "
             >
-              <div className="flex items-center gap-3">
+              <div className="flex w-full min-w-0 items-start gap-3">
                 <div
                   className="
+                    mt-0.5
                     flex
                     h-5
                     w-5
@@ -250,11 +284,15 @@ export function CoworkingHeroSection() {
 
                 <span
                   className="
-                    text-sm
+                    min-w-0
+                    text-[13px]
                     font-medium
-                    leading-6
+                    leading-5
                     text-slate-700
+
                     sm:text-base
+                    sm:leading-6
+
                     dark:text-slate-300
                   "
                 >
@@ -262,9 +300,10 @@ export function CoworkingHeroSection() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex w-full min-w-0 items-start gap-3">
                 <div
                   className="
+                    mt-0.5
                     flex
                     h-5
                     w-5
@@ -281,11 +320,15 @@ export function CoworkingHeroSection() {
 
                 <span
                   className="
-                    text-sm
+                    min-w-0
+                    text-[13px]
                     font-medium
-                    leading-6
+                    leading-5
                     text-slate-700
+
                     sm:text-base
+                    sm:leading-6
+
                     dark:text-slate-300
                   "
                 >
@@ -293,9 +336,10 @@ export function CoworkingHeroSection() {
                 </span>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex w-full min-w-0 items-start gap-3">
                 <div
                   className="
+                    mt-0.5
                     flex
                     h-5
                     w-5
@@ -312,11 +356,16 @@ export function CoworkingHeroSection() {
 
                 <span
                   className="
-                    text-sm
+                    min-w-0
+                    break-words
+                    text-[13px]
                     font-medium
-                    leading-6
+                    leading-5
                     text-slate-700
+
                     sm:text-base
+                    sm:leading-6
+
                     dark:text-slate-300
                   "
                 >
@@ -334,30 +383,41 @@ export function CoworkingHeroSection() {
             className="
               relative
               flex
-              h-full
-              min-h-0
               w-full
+              min-w-0
               items-center
-              justify-end
+              justify-center
+
+              lg:h-full
+              lg:min-h-0
+              lg:justify-end
             "
           >
             <div
               className="
                 relative
                 flex
-                w-[calc(100%+20px)]
-                max-w-[760px]
-                translate-x-4
+                w-full
+                min-w-0
+                max-w-none
                 items-center
-                justify-end
+                justify-center
+
+                lg:w-[calc(100%+20px)]
+                lg:max-w-[760px]
+                lg:translate-x-4
+                lg:justify-end
+
                 xl:translate-x-6
               "
             >
               <div
                 className="
                   w-full
+                  min-w-0
                   origin-center
-                  scale-[1.10]
+
+                  lg:scale-[1.10]
                   xl:scale-[1.14]
                 "
               >

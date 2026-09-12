@@ -154,7 +154,9 @@ function OrganizePhone() {
       <div className="bg-slate-950 px-3 pb-3 pt-9 text-white">
         <p className="text-[6px] text-white/50">Luka AI</p>
 
-        <p className="mt-0.5 text-[11px] font-bold">Tu negocio</p>
+        <p className="mt-0.5 text-[11px] font-bold">
+          Tu negocio
+        </p>
       </div>
 
       <div className="space-y-2 bg-slate-50 p-2.5">
@@ -162,7 +164,9 @@ function OrganizePhone() {
           <div className="rounded-xl bg-white p-2 shadow-sm">
             <Wallet className="h-3 w-3 text-emerald-500" />
 
-            <p className="mt-2 text-[6px] text-slate-400">Ventas</p>
+            <p className="mt-2 text-[6px] text-slate-400">
+              Ventas
+            </p>
 
             <p className="text-[11px] font-extrabold text-slate-800">
               $428K
@@ -365,7 +369,21 @@ function Connector() {
 
 export function CoworkingPhilosophySection() {
   return (
-    <section className="relative overflow-hidden bg-slate-950 px-6 py-24 text-white md:px-12 md:py-32">
+    <section
+      className="
+        relative
+        mt-6
+        overflow-hidden
+        bg-slate-950
+        px-6
+        pb-24
+        pt-0
+        text-white
+
+        md:px-12
+        md:pb-32
+      "
+    >
       {/* Ambient background */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute left-1/2 top-[15%] h-[480px] w-[480px] -translate-x-1/2 rounded-full bg-emerald-500/[0.06] blur-[140px]" />
@@ -375,17 +393,40 @@ export function CoworkingPhilosophySection() {
         <div className="absolute right-[-140px] top-[30%] h-[380px] w-[380px] rounded-full bg-cyan-500/[0.03] blur-[140px]" />
       </div>
 
-      {/* Exact same content width as the other landing sections */}
-      <div className="relative mx-auto max-w-7xl">
-        {/* HEADER */}
-        <div className="mx-auto max-w-4xl text-center">
+      {/* Same page margins as the rest of the landing page */}
+      <div className="relative mx-auto w-full max-w-7xl">
+        {/* =======================================================
+            HEADER
+            ======================================================= */}
+
+        <div
+          className="
+            w-full
+            max-w-4xl
+            text-left
+
+            xl:mx-auto
+            xl:text-center
+          "
+        >
           <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-emerald-400/15 bg-emerald-400/[0.07] px-4 py-2 text-sm font-semibold text-emerald-400">
             <Sparkles className="h-4 w-4" />
 
             <span>Así de simple</span>
           </div>
 
-          <h2 className="text-4xl font-extrabold leading-[1.02] tracking-[-0.04em] text-white sm:text-5xl md:text-6xl">
+          <h2
+            className="
+              text-4xl
+              font-extrabold
+              leading-[1.02]
+              tracking-[-0.04em]
+              text-white
+
+              sm:text-5xl
+              md:text-6xl
+            "
+          >
             De una conversación
             <br />
             a un negocio{" "}
@@ -394,14 +435,29 @@ export function CoworkingPhilosophySection() {
             </span>
           </h2>
 
-          <p className="mx-auto mt-6 max-w-2xl text-base leading-relaxed text-slate-400 md:text-lg">
+          <p
+            className="
+              mt-6
+              max-w-2xl
+              text-base
+              leading-relaxed
+              text-slate-400
+
+              md:text-lg
+
+              xl:mx-auto
+            "
+          >
             Todo empieza con un mensaje de WhatsApp. Luka entiende lo que
             necesitas, organiza la información y te ayuda a tomar mejores
             decisiones.
           </p>
         </div>
 
-        {/* DESKTOP FLOW */}
+        {/* =======================================================
+            DESKTOP FLOW
+            ======================================================= */}
+
         <div className="relative mt-24 hidden xl:block">
           <div className="grid grid-cols-4 gap-8">
             {steps.map((step, index) => (
@@ -409,7 +465,6 @@ export function CoworkingPhilosophySection() {
                 key={step.number}
                 className="relative flex min-w-0 flex-col"
               >
-                {/* Step */}
                 <div className="mb-9 text-center">
                   <span className="text-[10px] font-bold tracking-[0.25em] text-emerald-400">
                     PASO {step.number}
@@ -424,19 +479,20 @@ export function CoworkingPhilosophySection() {
                   </p>
                 </div>
 
-                {/* Phone */}
                 <div className="flex justify-center">
                   <StepPhone type={step.type} />
                 </div>
 
-                {/* Connector */}
                 {index < steps.length - 1 && <Connector />}
               </div>
             ))}
           </div>
         </div>
 
-        {/* TABLET / MOBILE */}
+        {/* =======================================================
+            TABLET / MOBILE
+            ======================================================= */}
+
         <div className="mt-20 space-y-16 xl:hidden">
           {steps.map((step, index) => (
             <div

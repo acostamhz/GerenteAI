@@ -246,7 +246,7 @@ export function CoworkingHighlightsSection() {
         relative
         w-full
         overflow-hidden
-        pb-20
+        pb-1
         pt-2
       "
     >
