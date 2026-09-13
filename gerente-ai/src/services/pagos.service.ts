@@ -17,6 +17,7 @@ import {
   eventoEsAutentico,
   firmaDeIntegridad,
   type EventoWompi,
+  type TransaccionWompi,
 } from './wompi';
 
 const MONEDA = 'COP';
@@ -129,12 +130,69 @@ export class PagosService {
       return { recibido: true };
     }
 
-    await this.aplicar(evento, cuerpo);
+    await this.aplicarTransaccion(evento.transaccion, cuerpo);
     return { recibido: true };
   }
 
-  private async aplicar(evento: EventoWompi, cuerpoCrudo: unknown) {
-    const transaccion = evento.transaccion;
+  private getWompiApiUrl(): string {
+    const pubKey = process.env.WOMPI_PUBLIC_KEY || '';
+    if (pubKey.startsWith('pub_prod_')) {
+      return 'https://production.wompi.co/v1';
+    }
+    return 'https://sandbox.wompi.co/v1';
+  }
+
+  private async consultarTransaccionWompi(
+    wompiId: string,
+  ): Promise<TransaccionWompi | null> {
+    try {
+      const baseUrl = this.getWompiApiUrl();
+      const res = await fetch(
+        `${baseUrl}/transactions/${encodeURIComponent(wompiId)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${this.secreto('WOMPI_PUBLIC_KEY')}`,
+          },
+        },
+      );
+      if (!res.ok) {
+        this.logger.warn(
+          `Error al consultar transacción Wompi ${wompiId}: HTTP ${res.status}`,
+        );
+        return null;
+      }
+      const body = (await res.json()) as { data?: Record<string, unknown> };
+      const data = body?.data;
+      if (
+        !data ||
+        typeof data.id !== 'string' ||
+        typeof data.reference !== 'string' ||
+        typeof data.status !== 'string' ||
+        typeof data.amount_in_cents !== 'number' ||
+        typeof data.currency !== 'string'
+      ) {
+        return null;
+      }
+      return {
+        id: data.id,
+        reference: data.reference,
+        status: data.status,
+        amount_in_cents: data.amount_in_cents,
+        currency: data.currency,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Excepción al consultar transacción Wompi ${wompiId}:`,
+        error,
+      );
+      return null;
+    }
+  }
+
+  private async aplicarTransaccion(
+    transaccion: TransaccionWompi,
+    cuerpoCrudo: unknown,
+  ) {
     const estado = estadoDesdeWompi(transaccion.status);
 
     // PSE y Nequi pasan por PENDING antes de resolverse. No se toca el pago:
@@ -151,12 +209,12 @@ export class PagosService {
       return;
     }
     if (pago.estado !== EstadoPago.PENDIENTE) {
-      // Wompi reintenta cuando no confirmamos a tiempo. Volver a aplicarlo
-      // extendería el plan dos veces por un solo cobro.
+      // Wompi reintenta cuando no confirmamos a tiempo o ya se activó por verificación activa.
+      // Volver a aplicarlo extendería el plan dos veces por un solo cobro.
       return;
     }
 
-    // Que la firma sea válida prueba que el evento viene de Wompi, no que
+    // Que la firma o consulta sea válida prueba que viene de Wompi, no que
     // corresponda a lo que cobramos. Si el monto no cuadra, algo se torció: se
     // deja constancia y no se activa nada.
     const montoCuadra =
@@ -172,8 +230,8 @@ export class PagosService {
     const estadoFinal = montoCuadra ? estado : EstadoPago.ERROR;
 
     await this.prisma.$transaction(async (tx) => {
-      // Condicional sobre el estado: si dos entregas del mismo evento entran a
-      // la vez, solo una encuentra el pago PENDIENTE y solo una activa el plan.
+      // Condicional sobre el estado: si dos entregas del mismo evento o verificación
+      // entran a la vez, solo una encuentra el pago PENDIENTE y solo una activa el plan.
       const { count } = await tx.pago.updateMany({
         where: { id: pago.id, estado: EstadoPago.PENDIENTE },
         data: {
@@ -227,11 +285,19 @@ export class PagosService {
 
   /**
    * Estado de un cobro concreto. Es lo que consulta el frontend cuando el
-   * usuario vuelve del checkout, porque para entonces el webhook puede haber
-   * llegado ya o estar en camino.
+   * usuario vuelve del checkout.
+   *
+   * Si el pago sigue PENDIENTE y se proporciona el `wompiId` (que Wompi
+   * adjunta en la redirección) o ya se conoce el ID de transacción, consulta
+   * activamente a la API de Wompi para no depender únicamente del webhook.
    */
-  async porReferencia(referencia: string, userId: string, rolGlobal: string) {
-    const pago = await this.prisma.pago.findUnique({ where: { referencia } });
+  async porReferencia(
+    referencia: string,
+    userId: string,
+    rolGlobal: string,
+    wompiId?: string,
+  ) {
+    let pago = await this.prisma.pago.findUnique({ where: { referencia } });
     if (!pago) {
       throw new NotFoundException('No existe un pago con esa referencia');
     }
@@ -240,6 +306,24 @@ export class PagosService {
       pago.negocioId,
       rolGlobal,
     );
+
+    const idParaConsultar = wompiId || pago.wompiTransaccionId;
+    if (pago.estado === EstadoPago.PENDIENTE && idParaConsultar) {
+      const transaccion = await this.consultarTransaccionWompi(idParaConsultar);
+      if (transaccion && transaccion.reference === pago.referencia) {
+        await this.aplicarTransaccion(transaccion, {
+          data: transaccion,
+          origen: 'consulta_directa_wompi',
+        });
+        const pagoActualizado = await this.prisma.pago.findUnique({
+          where: { referencia },
+        });
+        if (pagoActualizado) {
+          pago = pagoActualizado;
+        }
+      }
+    }
+
     return pago;
   }
 
