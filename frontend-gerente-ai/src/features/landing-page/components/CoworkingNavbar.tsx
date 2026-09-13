@@ -46,32 +46,29 @@ function customSmoothScroll(
 const navLinks = [
   {
     name: "Negocios",
-    href: "#negocios",
+    href: "/home#negocios", // Si tu raíz es "/", usa "/#negocios"
   },
   {
     name: "Usos",
-    href: "#usos",
+    href: "/home#usos",
   },
   {
     name: "Funciones",
-    href: "#features",
+    href: "/home#features",
   },
   {
     name: "Planes",
-    href: "#planes",
+    href: "/home#planes",
   },
   {
     name: "Preguntas",
-    href: "#faq",
+    href: "/home#faq",
   },
 ];
 
 export function CoworkingNavbar() {
-  const [mobileMenuOpen, setMobileMenuOpen] =
-    useState(false);
-
-  const [showAnnouncement, setShowAnnouncement] =
-    useState(true);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [showAnnouncement, setShowAnnouncement] = useState(true);
 
   const { user, isAuthenticated } = useAuth();
 
@@ -110,11 +107,26 @@ export function CoworkingNavbar() {
     e: React.MouseEvent<HTMLAnchorElement>,
     href: string
   ) => {
-    e.preventDefault();
+    // Verificar si estamos en la página donde están las secciones. 
+    // Ajusta "/home" o "/" dependiendo de cómo tengas configurado tu enrutador.
+    const isHome = 
+      window.location.pathname === "/home" || 
+      window.location.pathname === "/";
 
+    // Si NO estamos en home, dejamos que el enlace funcione normalmente (cambio de página)
+    if (!isHome) {
+      return; 
+    }
+
+    // Si YA estamos en home, prevenimos el comportamiento por defecto y hacemos scroll suave
+    e.preventDefault();
     setMobileMenuOpen(false);
 
-    const targetId = href.replace("#", "");
+    // Extraer el ID (ej: "/home#planes" -> "planes")
+    const targetId = href.split("#")[1];
+    
+    if (!targetId) return;
+
     const element = document.getElementById(targetId);
 
     if (element) {
@@ -154,10 +166,8 @@ export function CoworkingNavbar() {
         `}
       >
         <a
-          href="#planes"
-          onClick={(e) =>
-            handleSmoothScroll(e, "#planes")
-          }
+          href="/home#planes"
+          onClick={(e) => handleSmoothScroll(e, "/home#planes")}
           className="
             group
             flex
@@ -261,7 +271,8 @@ export function CoworkingNavbar() {
             to="/home"
             onClick={(e) => {
               if (
-                window.location.pathname === "/home"
+                window.location.pathname === "/home" ||
+                window.location.pathname === "/"
               ) {
                 e.preventDefault();
                 customSmoothScroll(0, 1000);
