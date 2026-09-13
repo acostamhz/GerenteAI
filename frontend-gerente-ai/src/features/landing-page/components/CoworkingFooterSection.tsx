@@ -25,7 +25,11 @@ const founders = [
   },
   {
     name: "Jhoan",
-    image: "/Jhoan.jpg",
+    image: "/Jhoan.png",
+  },
+  {
+    name: "Jose",
+    image: "/Jose.png",
   },
 ];
 
@@ -77,6 +81,8 @@ function MarqueeRow({
     { type: "photo", founder: founders[3] },
     { type: "text", value: "Luka" },
     { type: "photo", founder: founders[4] },
+    { type: "text", value: "Juntos" },
+    { type: "photo", founder: founders[5] },
     { type: "text", value: "Juntos" },
   ];
 
@@ -260,7 +266,7 @@ export function CoworkingFooterSection() {
                 <ul className="space-y-3 text-sm font-medium text-white/50">
                   <li>
                     <a
-                      href="#features"
+                      href="/caracteristicas"
                       className="transition-colors hover:text-emerald-300"
                     >
                       Características
@@ -269,7 +275,7 @@ export function CoworkingFooterSection() {
 
                   <li>
                     <a
-                      href="#beneficios"
+                      href="/casos-de-uso"
                       className="transition-colors hover:text-emerald-300"
                     >
                       Casos de uso
@@ -287,7 +293,7 @@ export function CoworkingFooterSection() {
                 <ul className="space-y-3 text-sm font-medium text-white/50">
                   <li>
                     <a
-                      href="#faq"
+                      href="/faq"
                       className="transition-colors hover:text-emerald-300"
                     >
                       Preguntas frecuentes
@@ -296,7 +302,7 @@ export function CoworkingFooterSection() {
 
                   <li>
                     <a
-                      href="mailto:contacto@luka.ai"
+                      href="/contacto"
                       className="transition-colors hover:text-emerald-300"
                     >
                       Contacto
@@ -325,7 +331,7 @@ export function CoworkingFooterSection() {
                 <ul className="space-y-3 text-sm font-medium text-white/50">
                   <li>
                     <a
-                      href="#"
+                      href="/terminos"
                       className="transition-colors hover:text-emerald-300"
                     >
                       Términos de servicio
@@ -334,7 +340,7 @@ export function CoworkingFooterSection() {
 
                   <li>
                     <a
-                      href="#"
+                      href="/privacidad"
                       className="transition-colors hover:text-emerald-300"
                     >
                       Política de privacidad

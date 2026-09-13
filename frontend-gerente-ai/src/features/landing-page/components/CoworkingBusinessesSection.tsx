@@ -299,7 +299,7 @@ export function CoworkingBusinessesSection() {
                 dark:to-teal-400
               "
             >
-              la forma en que ya trabajas.
+             a la forma en que ya trabajas.
             </span>
           </motion.h2>
 

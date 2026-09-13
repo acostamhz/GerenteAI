@@ -5,7 +5,10 @@ import { PageSkeleton } from "@/shared/components/ui/PageSkeleton";
 import { useAuth } from "@/features/auth";
 import { GuestRoute } from "./GuestRoute";
 import { ProtectedRoute } from "./ProtectedRoute";
-import { LandingPageView } from "@/features/landing-page";
+import {
+  FeaturesPage,
+  LandingPageView,
+} from "@/features/landing-page";
 
 // ============================================================
 // LAZY LOADED FEATURE MODULES
@@ -120,7 +123,8 @@ export function AppRoutes() {
   return (
     <Routes>
       {/* ======================================================
-          GUEST ONLY ROUTES (Redirects to /dashboard if logged in)
+          GUEST ONLY ROUTES
+          Redirects to /dashboard if logged in
           ====================================================== */}
       <Route element={<GuestRoute />}>
         <Route
@@ -162,8 +166,10 @@ export function AppRoutes() {
       </Route>
 
       {/* ======================================================
-          TOKEN & EMAIL VERIFICATION ROUTES (Always Accessible)
+          TOKEN & EMAIL VERIFICATION ROUTES
+          Always Accessible
           ====================================================== */}
+
       <Route
         path="/verificar-email"
         element={
@@ -193,12 +199,19 @@ export function AppRoutes() {
       />
 
       {/* ======================================================
-          PUBLIC ROUTES
+          PUBLIC LANDING ROUTES
           ====================================================== */}
 
+      {/* Home */}
       <Route
         path="/home"
         element={<LandingPageView />}
+      />
+
+      {/* Características */}
+      <Route
+        path="/caracteristicas"
+        element={<FeaturesPage />}
       />
 
       {/* Investor Dashboard público */}
@@ -213,7 +226,7 @@ export function AppRoutes() {
 
       {/* =========================================================
           PROTECTED ROUTES
-          
+
           Todo lo que esté dentro de este Route requiere
           autenticación.
           ====================================================== */}
@@ -263,8 +276,9 @@ export function AppRoutes() {
             }
           />
 
-          {/* Vuelta del checkout de Wompi. Va dentro de las rutas protegidas
-              porque consulta el pago con el token del usuario. */}
+          {/* Vuelta del checkout de Wompi.
+              Va dentro de las rutas protegidas porque
+              consulta el pago con el token del usuario. */}
           <Route
             path="pago/resultado"
             element={
@@ -364,16 +378,23 @@ export function AppRoutes() {
 
       {/* ======================================================
           CATCH-ALL FALLBACK
+
           - No autenticado: Redirige de inmediato a /login
           - Autenticado: Redirige al Dashboard principal (/)
           ====================================================== */}
-      <Route path="*" element={<FallbackRoute />} />
+
+      <Route
+        path="*"
+        element={<FallbackRoute />}
+      />
     </Routes>
   );
 }
 
 /**
- * Redirige cualquier ruta no autorizada o inexistente según el estado de sesión:
+ * Redirige cualquier ruta no autorizada o inexistente según
+ * el estado de sesión:
+ *
  * - Invitado / No autenticado -> /login
  * - Usuario con sesión -> / (Dashboard)
  */
@@ -385,8 +406,18 @@ function FallbackRoute() {
   }
 
   if (isAuthenticated) {
-    return <Navigate to="/" replace />;
+    return (
+      <Navigate
+        to="/"
+        replace
+      />
+    );
   }
 
-  return <Navigate to="/login" replace />;
+  return (
+    <Navigate
+      to="/login"
+      replace
+    />
+  );
 }
